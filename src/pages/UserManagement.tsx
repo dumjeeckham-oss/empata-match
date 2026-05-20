@@ -1,0 +1,369 @@
+import { useState } from "react";
+import { useCollection } from "@/hooks/useFirestore";
+import { type ServiceUser, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS } from "@/types";
+import { geocodeAddress } from "@/lib/kakao";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import * as XLSX from "xlsx";
+import { toast } from "@/hooks/use-toast";
+
+const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
+  name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
+  requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
+  familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
+  contractStatus: "대기", serviceStartDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
+};
+
+const UserManagement = () => {
+  const { data: users, add, update, loading } = useCollection<ServiceUser>("users");
+  const [form, setForm] = useState(emptyUser);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [geocoding, setGeocoding] = useState(false);
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [pasteData, setPasteData] = useState("");
+  const [isCustomVoucher, setIsCustomVoucher] = useState(false);
+
+  const handleAutoGeocode = async (address: string) => {
+    if (!address || (form.lat && form.lng)) return;
+    setGeocoding(true);
+    const result = await geocodeAddress(address);
+    if (result) {
+      setForm((f) => ({ ...f, lat: result.lat, lng: result.lng }));
+      toast({ title: "자동 주소 변환 완료", description: `위도: ${result.lat.toFixed(4)}, 경도: ${result.lng.toFixed(4)}` });
+    }
+    setGeocoding(false);
+  };
+
+  const handleGeocode = async () => {
+    if (!form.address) return;
+    setGeocoding(true);
+    const result = await geocodeAddress(form.address);
+    if (result) {
+      setForm((f) => ({ ...f, lat: result.lat, lng: result.lng }));
+      toast({ title: "주소 변환 완료", description: `위도: ${result.lat.toFixed(4)}, 경도: ${result.lng.toFixed(4)}` });
+    } else {
+      toast({ title: "주소 변환 실패", description: "주소를 다시 확인해주세요.", variant: "destructive" });
+    }
+    setGeocoding(false);
+  };
+
+  const handleSave = async () => {
+    if (!form.name || !form.phone) {
+      toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    if (!form.lat && form.address) await handleGeocode();
+    if (editingId) {
+      await update(editingId, form);
+      toast({ title: "수정 완료" });
+    } else {
+      await add(form as any);
+      toast({ title: "등록 완료" });
+    }
+    setForm(emptyUser);
+    setEditingId(null);
+    setDialogOpen(false);
+  };
+
+  const startEdit = (user: ServiceUser & { id: string }) => {
+    setForm({ ...user });
+    setEditingId(user.id);
+    setDialogOpen(true);
+  };
+
+  const handlePasteUpload = async () => {
+    if (!pasteData) return;
+    const rows = pasteData.trim().split("\n").map(r => r.split("\t"));
+    if (rows.length < 2) {
+      toast({ title: "데이터 형식 오류", description: "헤더 행과 데이터가 포함되어야 합니다.", variant: "destructive" });
+      return;
+    }
+    const headers = rows[0].map(h => h.trim());
+    let count = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.length === 1 && !row[0]) continue;
+      
+      const getVal = (colName: string) => {
+        const idx = headers.indexOf(colName);
+        return idx !== -1 ? (row[idx] || "").trim() : "";
+      };
+
+      const user: any = {
+        name: getVal("이름") || "", age: Number(getVal("나이")) || 0, gender: getVal("성별") || "남성",
+        phone: String(getVal("연락처") || ""), disabilityType: getVal("장애유형") || "",
+        voucherTier: Number(getVal("바우처구간")) || 1, requiredDays: getVal("필요요일") || "",
+        requiredHours: getVal("필요시간") || "", supportTypes: getVal("지원유형").split(",").map((s: string) => s.trim()).filter(Boolean),
+        environmentTags: getVal("환경태그").split(",").map((s: string) => s.trim()).filter(Boolean),
+        familyMembers: getVal("가족구성원") || "", address: getVal("주소") || "",
+        preferredWorkerTraits: getVal("선호도") || "", notes: getVal("비고") || "",
+        contractStatus: getVal("계약상태") || "서비스중", serviceStartDate: getVal("최초서비스제공일") || "",
+        guardianName: getVal("보호자이름") || "", guardianRelation: getVal("보호자관계") || "",
+        guardianPhone: String(getVal("보호자연락처") || ""),
+      };
+      if (user.address) {
+        const geo = await geocodeAddress(user.address);
+        if (geo) { user.lat = geo.lat; user.lng = geo.lng; }
+      }
+      await add(user);
+      count++;
+    }
+    toast({ title: `${count}명 업로드 완료` });
+    setPasteData("");
+    setPasteDialogOpen(false);
+  };
+
+  const downloadExcel = () => {
+    const filtered = getFilteredUsers();
+    const data = filtered.map((u) => ({
+      이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone,
+      장애유형: u.disabilityType, 바우처구간: u.voucherTier,
+      "월바우처시간": VOUCHER_HOURS[u.voucherTier] || 0,
+      필요요일: u.requiredDays, 필요시간: u.requiredHours,
+      지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
+      주소: u.address, 계약상태: u.contractStatus, 최초서비스제공일: u.serviceStartDate,
+      보호자이름: u.guardianName, 보호자관계: u.guardianRelation, 보호자연락처: u.guardianPhone,
+      비고: u.notes,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "이용자목록");
+    XLSX.writeFile(wb, `이용자목록_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const downloadTemplate = () => {
+    const template = [{ 이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1, 필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "", 주소: "", 계약상태: "서비스중", 최초서비스제공일: "2025-01-01", 보호자이름: "", 보호자관계: "", 보호자연락처: "", 비고: "" }];
+    const ws = XLSX.utils.json_to_sheet(template);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "업로드양식");
+    XLSX.writeFile(wb, "이용자_업로드양식.xlsx");
+  };
+
+  const getFilteredUsers = () => {
+    return users.filter((u) => {
+      const matchSearch = !search || u.name.includes(search) || u.phone.includes(search);
+      const matchStatus = statusFilter === "all" || u.contractStatus === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  };
+
+  const filtered = getFilteredUsers();
+
+  const toggleArrayField = (field: "supportTypes" | "environmentTags", value: string) => {
+    setForm((f) => ({
+      ...f,
+      [field]: f[field].includes(value) ? f[field].filter((v) => v !== value) : [...f[field], value],
+    }));
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="page-header mb-0">이용자 관리</h1>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={downloadTemplate}>📥 업로드양식</Button>
+          <Dialog open={pasteDialogOpen} onOpenChange={setPasteDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">📤 일괄 업로드 (붙여넣기)</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>엑셀 데이터 붙여넣기</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">엑셀에서 데이터 행을 복사(Ctrl+C)하여 아래 영역에 붙여넣으세요(Ctrl+V). (첫 줄은 반드시 열 이름이어야 합니다.)</p>
+                <Textarea
+                  className="min-h-[300px] whitespace-pre font-mono text-xs"
+                  placeholder="여기에 엑셀 데이터를 붙여넣으세요..."
+                  value={pasteData}
+                  onChange={(e) => setPasteData(e.target.value)}
+                />
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setPasteDialogOpen(false)}>취소</Button>
+                  <Button onClick={handlePasteUpload}>업로드 실행</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => { setForm(emptyUser); setEditingId(null); }}>+ 신규등록</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{editingId ? "이용자 수정" : "이용자 신규등록"}</DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
+                <div><Label>나이 (출생연도 입력가능)</Label><Input type="number" value={form.age || ""} onChange={(e) => {
+                  let val = Number(e.target.value);
+                  if (val > 1900) val = new Date().getFullYear() - val;
+                  setForm((f) => ({ ...f, age: val }));
+                }} /></div>
+                <div><Label>성별</Label>
+                  <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="남성">남성</SelectItem><SelectItem value="여성">여성</SelectItem></SelectContent>
+                  </Select>
+                </div>
+                <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
+                <div><Label>장애유형</Label>
+                  <Select value={form.disabilityType} onValueChange={(v) => setForm((f) => ({ ...f, disabilityType: v }))}>
+                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                    <SelectContent>{DISABILITY_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div><Label>바우처 구간</Label>
+                  <div className="flex gap-2">
+                    <Select value={isCustomVoucher ? "기타" : String(form.voucherTier)} onValueChange={(v) => {
+                      if (v === "기타") {
+                        setIsCustomVoucher(true);
+                      } else {
+                        setIsCustomVoucher(false);
+                        setForm((f) => ({ ...f, voucherTier: Number(v) }));
+                      }
+                    }}>
+                      <SelectTrigger className={isCustomVoucher ? "w-[120px]" : "w-full"}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => <SelectItem key={n} value={String(n)}>{n}구간 ({VOUCHER_HOURS[n] || 0}시간)</SelectItem>)}
+                        <SelectItem value="기타">기타 (직접입력)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isCustomVoucher && (
+                      <Input
+                        type="number"
+                        className="flex-1"
+                        placeholder="숫자 입력"
+                        value={form.voucherTier || ""}
+                        onChange={(e) => setForm((f) => ({ ...f, voucherTier: Number(e.target.value) }))}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div><Label>필요 요일</Label><Input value={form.requiredDays} onChange={(e) => setForm((f) => ({ ...f, requiredDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
+                <div><Label>필요 시간</Label><Input value={form.requiredHours} onChange={(e) => setForm((f) => ({ ...f, requiredHours: e.target.value }))} placeholder="09:00-18:00" /></div>
+                <div className="col-span-2">
+                  <Label>주소</Label>
+                  <div className="flex gap-2">
+                    <Input className="flex-1" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value, lat: undefined, lng: undefined }))} onBlur={(e) => handleAutoGeocode(e.target.value)} placeholder="부천시 소사구..." />
+                    <Button type="button" variant="outline" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "📍 좌표변환"}</Button>
+                  </div>
+                  {form.lat && <p className="text-xs text-muted-foreground mt-1">위도: {form.lat.toFixed(4)}, 경도: {form.lng?.toFixed(4)}</p>}
+                </div>
+                <div className="col-span-2">
+                  <Label>지원 유형</Label>
+                  <div className="flex gap-4 mt-1">
+                    {SUPPORT_TYPES.map((t) => (
+                      <label key={t} className="flex items-center gap-2 text-sm">
+                        <Checkbox checked={form.supportTypes.includes(t)} onCheckedChange={() => toggleArrayField("supportTypes", t)} />{t}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="col-span-2">
+                  <Label>환경 태그</Label>
+                  <div className="flex gap-4 mt-1 flex-wrap">
+                    {ENVIRONMENT_TAGS.map((t) => (
+                      <label key={t} className="flex items-center gap-2 text-sm">
+                        <Checkbox checked={form.environmentTags.includes(t)} onCheckedChange={() => toggleArrayField("environmentTags", t)} />{t}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div><Label>가족구성원</Label><Input value={form.familyMembers} onChange={(e) => setForm((f) => ({ ...f, familyMembers: e.target.value }))} /></div>
+                <div><Label>최초 서비스제공일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                <div><Label>보호자 이름</Label><Input value={form.guardianName} onChange={(e) => setForm((f) => ({ ...f, guardianName: e.target.value }))} /></div>
+                <div><Label>보호자 관계</Label><Input value={form.guardianRelation} onChange={(e) => setForm((f) => ({ ...f, guardianRelation: e.target.value }))} /></div>
+                <div><Label>보호자 연락처</Label><Input value={form.guardianPhone} onChange={(e) => setForm((f) => ({ ...f, guardianPhone: e.target.value }))} /></div>
+                <div><Label>계약상태</Label>
+                  <Select value={form.contractStatus} onValueChange={(v: any) => setForm((f) => ({ ...f, contractStatus: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="서비스중">서비스중</SelectItem>
+                      <SelectItem value="계약해지">계약해지</SelectItem>
+                      <SelectItem value="대기">대기</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-2"><Label>활동지원사 선호도</Label><Textarea value={form.preferredWorkerTraits} onChange={(e) => setForm((f) => ({ ...f, preferredWorkerTraits: e.target.value }))} placeholder="예: 여성 활동지원사 선호, 운전 가능자 선호..." /></div>
+                <div className="col-span-2"><Label>비고</Label><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
+                <Button onClick={handleSave}>{editingId ? "수정" : "등록"}</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </div>
+
+      <div className="flex gap-3 mb-4">
+        <Input className="max-w-xs" placeholder="이름 또는 연락처 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+          <TabsList>
+            <TabsTrigger value="all">전체 ({users.length})</TabsTrigger>
+            <TabsTrigger value="서비스중">서비스중 ({users.filter((u) => u.contractStatus === "서비스중").length})</TabsTrigger>
+            <TabsTrigger value="계약해지">계약해지 ({users.filter((u) => u.contractStatus === "계약해지").length})</TabsTrigger>
+            <TabsTrigger value="대기">대기 ({users.filter((u) => u.contractStatus === "대기").length})</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <Card>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted">
+                <tr>
+                  {["이름", "성별", "연락처", "장애유형", "바우처", "주소", "서비스시작일", "보호자", "상태", ""].map((h) => (
+                    <th key={h} className="text-left p-3 font-medium text-muted-foreground">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {loading ? (
+                  <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
+                ) : filtered.length === 0 ? (
+                  <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
+                ) : (
+                  filtered.map((u) => (
+                    <tr key={u.id} className="hover:bg-muted/50">
+                      <td className="p-3 font-medium">{u.name}</td>
+                      <td className="p-3">{u.gender}</td>
+                      <td className="p-3">{u.phone}</td>
+                      <td className="p-3">{u.disabilityType}</td>
+                      <td className="p-3">{u.voucherTier}구간</td>
+                      <td className="p-3 max-w-[150px] truncate">{u.address}</td>
+                      <td className="p-3">{u.serviceStartDate}</td>
+                      <td className="p-3">{u.guardianName}{u.guardianRelation ? `(${u.guardianRelation})` : ""}</td>
+                      <td className="p-3">
+                        <Badge variant={u.contractStatus === "서비스중" ? "default" : u.contractStatus === "계약해지" ? "destructive" : "secondary"}>
+                          {u.contractStatus}
+                        </Badge>
+                      </td>
+                      <td className="p-3"><Button variant="ghost" size="sm" onClick={() => startEdit(u)}>수정</Button></td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+};
+
+export default UserManagement;
