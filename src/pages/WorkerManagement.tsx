@@ -123,6 +123,16 @@ const WorkerManagement = () => {
     setPasteDialogOpen(false);
   };
 
+  const copyExcelHeaders = () => {
+    const headers = [
+      "이름", "나이", "성별", "연락처", "거주지역", "희망지역", "주소", "경력", 
+      "근무가능요일", "근무가능시간", "거부업무", "거부업무상세", "운전가능", "동물알러지", 
+      "이수증번호", "근무상태", "최초근무일", "퇴사일", "비고"
+    ].join("\t");
+    navigator.clipboard.writeText(headers);
+    toast({ title: "헤더 복사 완료", description: "엑셀 파일 첫 행(A1)에 붙여넣어 템플릿으로 사용하세요." });
+  };
+
   const downloadExcel = () => {
     const data = getFiltered().map((w) => ({
       이름: w.name, 나이: w.age, 성별: w.gender, 연락처: w.phone,
@@ -174,15 +184,61 @@ const WorkerManagement = () => {
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">📤 일괄 업로드 (붙여넣기)</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl">
+            <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>엑셀 데이터 붙여넣기</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">엑셀에서 데이터 행을 복사(Ctrl+C)하여 아래 영역에 붙여넣으세요(Ctrl+V). (첫 줄은 반드시 열 이름이어야 합니다.)</p>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <p className="text-xs md:text-sm text-muted-foreground font-medium">
+                    💡 아래 가이드 표의 구조(첫 줄 제목 포함)에 맞춰 엑셀의 데이터 행들을 복사(Ctrl+C)하여 붙여넣으세요.
+                  </p>
+                  <Button size="sm" variant="outline" onClick={copyExcelHeaders} className="h-8 text-xs shrink-0">
+                    📋 가이드 헤더 복사
+                  </Button>
+                </div>
+                
+                {/* Excel guide grid preview */}
+                <div className="overflow-x-auto border rounded-md max-w-full bg-card">
+                  <table className="min-w-max w-full text-[11px] md:text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-muted divide-x divide-border border-b">
+                        <th className="p-1 text-center bg-muted/70 font-bold text-muted-foreground min-w-[24px] border-r"></th>
+                        {["이름", "나이", "성별", "연락처", "거주지역", "희망지역", "주소", "경력", "근무가능요일", "근무가능시간", "거부업무", "거부업무상세", "운전가능", "동물알러지", "이수증번호", "근무상태", "최초근무일", "퇴사일", "비고"].map((col, idx) => (
+                          <th key={idx} className="p-1 px-2 text-left font-semibold text-muted-foreground">{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr className="divide-x divide-border border-b hover:bg-muted/10">
+                        <td className="p-1 text-center bg-muted/30 text-muted-foreground font-medium border-r">1</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">이순신</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">52</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">남성</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">010-5678-1234</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">부천시 소사구</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">부천 전체,시흥 일부</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">경기도 부천시...</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">3년이상</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">월,화,수,목,금</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">09:00-18:00</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">남성,흡연자</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">흡연자 매칭 사절</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">예</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">아니오</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">CERT-99999</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">근무중</td>
+                        <td className="p-1 px-2 text-muted-foreground/80">2026-01-10</td>
+                        <td className="p-1 px-2 text-muted-foreground/80"></td>
+                        <td className="p-1 px-2 text-muted-foreground/80">자차 이동 가능</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
                 <Textarea
-                  className="min-h-[300px] whitespace-pre font-mono text-xs"
-                  placeholder="여기에 엑셀 데이터를 붙여넣으세요..."
+                  className="min-h-[200px] md:min-h-[300px] whitespace-pre font-mono text-xs"
+                  placeholder="여기에 복사한 엑셀 데이터를 붙여넣으세요 (Ctrl+V)...&#10;예시:&#10;이름&#9;나이&#9;성별&#9;연락처&#9;...&#10;이순신&#9;52&#9;남성&#9;010-5678-1234&#9;..."
                   value={pasteData}
                   onChange={(e) => setPasteData(e.target.value)}
                 />
@@ -198,7 +254,7 @@ const WorkerManagement = () => {
             <DialogTrigger asChild>
               <Button onClick={() => { setForm(emptyWorker); setEditingId(null); }}>+ 신규등록</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editingId ? "활동지원사 수정" : "활동지원사 신규등록"}</DialogTitle>
               </DialogHeader>
@@ -273,10 +329,10 @@ const WorkerManagement = () => {
         </div>
       </div>
 
-      <div className="flex gap-3 mb-4">
-        <Input className="max-w-xs" placeholder="이름 또는 연락처 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
-          <TabsList>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <Input className="w-full sm:max-w-xs" placeholder="이름 또는 연락처 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full sm:w-auto overflow-x-auto">
+          <TabsList className="w-full justify-start">
             <TabsTrigger value="all">전체 ({workers.length})</TabsTrigger>
             <TabsTrigger value="근무중">근무중 ({workers.filter((w) => w.contractStatus === "근무중").length})</TabsTrigger>
             <TabsTrigger value="퇴사">퇴사 ({workers.filter((w) => w.contractStatus === "퇴사").length})</TabsTrigger>
@@ -287,7 +343,8 @@ const WorkerManagement = () => {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
@@ -323,6 +380,36 @@ const WorkerManagement = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile Card List View */}
+          <div className="block md:hidden divide-y">
+            {loading ? (
+              <p className="p-8 text-center text-muted-foreground">로딩중...</p>
+            ) : filtered.length === 0 ? (
+              <p className="p-8 text-center text-muted-foreground">데이터가 없습니다.</p>
+            ) : (
+              filtered.map((w) => (
+                <div key={w.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-base text-foreground">{w.name} ({w.gender}, {w.age}세)</span>
+                    <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
+                      {w.contractStatus}
+                    </Badge>
+                  </div>
+                  <div className="text-sm text-muted-foreground space-y-1.5">
+                    <p>📞 {w.phone}</p>
+                    <p>💼 {w.experience} · 이수증: {w.certificateNumber || "없음"}</p>
+                    <p>📍 {w.address}</p>
+                    {w.serviceStartDate && <p>📅 근무 시작: {w.serviceStartDate}</p>}
+                    {w.preferredArea && <p>🗺 희망지역: {w.preferredArea}</p>}
+                  </div>
+                  <div className="flex justify-end mt-1">
+                    <Button variant="outline" size="sm" onClick={() => startEdit(w)}>수정</Button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

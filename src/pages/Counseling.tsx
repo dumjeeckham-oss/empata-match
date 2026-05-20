@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 
 const Counseling = () => {
@@ -19,9 +20,14 @@ const Counseling = () => {
   const { data: workers } = useCollection<Worker>("workers");
   const [form, setForm] = useState({ targetType: "이용자" as "이용자" | "활동지원사", targetId: "", targetName: "", counselorName: "", date: new Date().toISOString().slice(0, 10), content: "", category: "일반상담" });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isTargetLocked, setIsTargetLocked] = useState(false);
   const [terminationOpen, setTerminationOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filterTarget, setFilterTarget] = useState<string>("all");
+
+  // Quick Counseling Candidate Selection States
+  const [candidateTab, setCandidateTab] = useState<"이용자" | "활동지원사">("이용자");
+  const [candidateSearch, setCandidateSearch] = useState("");
 
   // Termination form
   const [termForm, setTermForm] = useState({
@@ -47,6 +53,36 @@ const Counseling = () => {
   const handleSelectTarget = (id: string) => {
     const target = targets.find((t) => t.id === id);
     setForm((f) => ({ ...f, targetId: id, targetName: target?.name || "" }));
+  };
+
+  const handleOpenQuickCounsel = (type: "이용자" | "활동지원사", id: string) => {
+    const targetList = type === "이용자" ? users : workers;
+    const target = targetList.find((t) => t.id === id);
+    setForm({
+      targetType: type,
+      targetId: id,
+      targetName: target?.name || "",
+      counselorName: "",
+      date: new Date().toISOString().slice(0, 10),
+      content: "",
+      category: "일반상담"
+    });
+    setIsTargetLocked(true);
+    setDialogOpen(true);
+  };
+
+  const handleOpenNewCounsel = () => {
+    setForm({
+      targetType: "이용자",
+      targetId: "",
+      targetName: "",
+      counselorName: "",
+      date: new Date().toISOString().slice(0, 10),
+      content: "",
+      category: "일반상담"
+    });
+    setIsTargetLocked(false);
+    setDialogOpen(true);
   };
 
   const handleTerminationSelectUser = (id: string) => {
@@ -89,6 +125,12 @@ const Counseling = () => {
     return matchSearch && matchTarget;
   }).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
+  // Filter candidate lists based on candidateSearch
+  const filteredCandidates = (candidateTab === "이용자" ? users : workers).filter((c) =>
+    c.name.toLowerCase().includes(candidateSearch.toLowerCase()) ||
+    (c.phone && c.phone.includes(candidateSearch))
+  );
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -96,7 +138,7 @@ const Counseling = () => {
         <div className="flex gap-2">
           <Dialog open={terminationOpen} onOpenChange={setTerminationOpen}>
             <DialogTrigger asChild><Button variant="outline">📄 종결승인서</Button></DialogTrigger>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>종결승인서 작성</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -133,23 +175,23 @@ const Counseling = () => {
                 </div>
 
                 {/* Print Preview */}
-                <div ref={printRef} className="border p-6 bg-card text-sm">
+                <div ref={printRef} className="border p-6 bg-card text-sm overflow-x-auto">
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", marginBottom: "20px" }}>
-                    <h2 style={{ fontSize: "24px", fontWeight: "bold", textAlign: "center", flex: 1 }}>종 결 승 인 서</h2>
+                    <h2 style={{ fontSize: "20px", fontWeight: "bold", textAlign: "center", flex: 1 }}>종 결 승 인 서</h2>
                     <table style={{ width: "auto", borderCollapse: "collapse" }}>
                       <tr>
-                        <td style={{ border: "1px solid #333", padding: "4px 12px", textAlign: "center", fontSize: "12px" }}>담당</td>
-                        <td style={{ border: "1px solid #333", padding: "4px 12px", textAlign: "center", fontSize: "12px" }}>센터장</td>
+                        <td style={{ border: "1px solid #333", padding: "4px 8px", textAlign: "center", fontSize: "11px" }}>담당</td>
+                        <td style={{ border: "1px solid #333", padding: "4px 8px", textAlign: "center", fontSize: "11px" }}>센터장</td>
                       </tr>
                       <tr>
-                        <td style={{ border: "1px solid #333", padding: "8px 12px", textAlign: "center", minHeight: "40px" }}>{termForm.approverDandang}</td>
-                        <td style={{ border: "1px solid #333", padding: "8px 12px", textAlign: "center", minHeight: "40px" }}>{termForm.approverCenterJang}</td>
+                        <td style={{ border: "1px solid #333", padding: "8px 12px", textAlign: "center", minWidth: "40px" }}>{termForm.approverDandang}</td>
+                        <td style={{ border: "1px solid #333", padding: "8px 12px", textAlign: "center", minWidth: "40px" }}>{termForm.approverCenterJang}</td>
                       </tr>
                     </table>
                   </div>
 
-                  <p style={{ marginBottom: "20px", lineHeight: "1.8" }}>
-                    부천의료복지사회적협동조합 장애인활동지원센터에서 복지서비스를 제공받았던 수혜자를 이래와 같은 사유로 종결하고자 합니다. 검토 후 재가바랍니다.
+                  <p style={{ marginBottom: "20px", lineHeight: "1.6" }}>
+                    부천의료복지사회적협동조합 장애인활동지원센터에서 복지서비스를 제공받았던 수혜자를 아래와 같은 사유로 종결하고자 합니다. 검토 후 재가바랍니다.
                   </p>
 
                   <p style={{ marginBottom: "10px" }}>○ 사업명 : ☑ 장애인활동지원사업</p>
@@ -167,12 +209,12 @@ const Counseling = () => {
                   </div>
                   {termForm.reasonDetail && <p style={{ marginLeft: "20px", marginBottom: "20px" }}>상세: {termForm.reasonDetail}</p>}
 
-                  <p style={{ textAlign: "center", marginTop: "40px", marginBottom: "40px" }}>
+                  <p style={{ textAlign: "center", marginTop: "30px", marginBottom: "30px" }}>
                     결재일 {termForm.date.replace(/-/g, ". ")}.
                   </p>
 
-                  <div style={{ textAlign: "center", marginTop: "30px" }}>
-                    <img src={dongbaekLogo} alt="동백" style={{ height: "50px", margin: "0 auto" }} />
+                  <div style={{ textAlign: "center", marginTop: "20px" }}>
+                    <img src={dongbaekLogo} alt="동백" style={{ height: "40px", margin: "0 auto" }} />
                   </div>
                 </div>
 
@@ -184,44 +226,64 @@ const Counseling = () => {
             </DialogContent>
           </Dialog>
 
+          <Button onClick={handleOpenNewCounsel}>+ 상담기록 작성</Button>
+
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild><Button>+ 상담기록 작성</Button></DialogTrigger>
-            <DialogContent className="max-w-lg">
+            <DialogContent className="max-w-lg w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader><DialogTitle>상담기록 작성</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>대상 유형</Label>
-                    <Select value={form.targetType} onValueChange={(v: any) => setForm((f) => ({ ...f, targetType: v, targetId: "", targetName: "" }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="이용자">이용자</SelectItem>
-                        <SelectItem value="활동지원사">활동지원사</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    {isTargetLocked ? (
+                      <Input value={form.targetType} disabled />
+                    ) : (
+                      <Select value={form.targetType} onValueChange={(v: any) => setForm((f) => ({ ...f, targetType: v, targetId: "", targetName: "" }))}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="이용자">이용자</SelectItem>
+                          <SelectItem value="활동지원사">활동지원사</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                   <div><Label>대상자</Label>
-                    <Select value={form.targetId} onValueChange={handleSelectTarget}>
-                      <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                      <SelectContent>
-                        {targets.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name} ({t.gender}, {t.phone})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {isTargetLocked ? (
+                      <Input value={form.targetName} disabled />
+                    ) : (
+                      <Select value={form.targetId} onValueChange={handleSelectTarget}>
+                        <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                        <SelectContent>
+                          {targets.map((t) => (
+                            <SelectItem key={t.id} value={t.id}>
+                              {t.name} ({t.gender}, {t.phone})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </div>
                 </div>
                 {form.targetId && form.targetType === "이용자" && (() => {
                   const u = users.find((u) => u.id === form.targetId);
                   if (!u) return null;
                   return (
-                    <div className="bg-muted rounded p-3 text-sm grid grid-cols-2 gap-1">
-                      <span>이름: {u.name}</span><span>성별: {u.gender}</span>
-                      <span>연락처: {u.phone}</span><span>바우처: {u.voucherTier}구간</span>
-                      <span>장애유형: {u.disabilityType}</span><span>주소: {u.address}</span>
+                    <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <span>이름: {u.name} ({u.gender})</span><span>연락처: {u.phone}</span>
+                      <span>바우처: {u.voucherTier}구간</span><span>장애유형: {u.disabilityType}</span>
+                      <span className="sm:col-span-2">주소: {u.address}</span>
                       <span>서비스시작일: {u.serviceStartDate}</span>
-                      <span>보호자: {u.guardianName} ({u.guardianRelation}) {u.guardianPhone}</span>
+                      <span className="sm:col-span-2">보호자: {u.guardianName} ({u.guardianRelation}) {u.guardianPhone}</span>
+                    </div>
+                  );
+                })()}
+                {form.targetId && form.targetType === "활동지원사" && (() => {
+                  const w = workers.find((w) => w.id === form.targetId);
+                  if (!w) return null;
+                  return (
+                    <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <span>이름: {w.name} ({w.gender})</span><span>연락처: {w.phone}</span>
+                      <span>경력: {w.experience}</span><span>희망지역: {w.preferredArea}</span>
+                      <span className="sm:col-span-2">주소: {w.address}</span>
                     </div>
                   );
                 })()}
@@ -246,38 +308,83 @@ const Counseling = () => {
         </div>
       </div>
 
-      <div className="flex gap-3 mb-4">
-        <Input className="max-w-xs" placeholder="이름 또는 내용 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Select value={filterTarget} onValueChange={setFilterTarget}>
-          <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">전체</SelectItem>
-            <SelectItem value="이용자">이용자</SelectItem>
-            <SelectItem value="활동지원사">활동지원사</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-3">
-        {filtered.length === 0 ? (
-          <Card><CardContent className="p-8 text-center text-muted-foreground">상담기록이 없습니다.</CardContent></Card>
-        ) : (
-          filtered.map((r) => (
-            <Card key={r.id} className="card-hover">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant={r.targetType === "이용자" ? "default" : "secondary"}>{r.targetType}</Badge>
-                    <span className="font-semibold">{r.targetName}</span>
-                    <Badge variant="outline">{r.category}</Badge>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Panel: Target Selection for Quick Entry */}
+        <div className="space-y-4">
+          <h2 className="text-base font-semibold">대상자 빠른 작성</h2>
+          <Tabs value={candidateTab} onValueChange={(v: any) => setCandidateTab(v)} className="w-full">
+            <TabsList className="w-full grid grid-cols-2">
+              <TabsTrigger value="이용자">이용자 ({users.length})</TabsTrigger>
+              <TabsTrigger value="활동지원사">활동지원사 ({workers.length})</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Input 
+            placeholder="이름 또는 연락처 검색..." 
+            value={candidateSearch} 
+            onChange={(e) => setCandidateSearch(e.target.value)} 
+            className="w-full"
+          />
+          <div className="h-[250px] lg:h-[550px] overflow-y-auto border rounded-md divide-y bg-card">
+            {filteredCandidates.length === 0 ? (
+              <p className="p-4 text-center text-sm text-muted-foreground">검색된 대상자가 없습니다.</p>
+            ) : (
+              filteredCandidates.map((c) => (
+                <div key={c.id} className="p-3 hover:bg-muted/30 transition-colors flex items-center justify-between gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-bold text-sm text-foreground">{c.name} ({c.gender})</span>
+                    <span className="text-[11px] text-muted-foreground">{c.phone || "연락처 없음"}</span>
                   </div>
-                  <span className="text-sm text-muted-foreground">{r.date} · {r.counselorName}</span>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={() => handleOpenQuickCounsel(candidateTab, c.id)}
+                    className="h-8 text-xs shrink-0"
+                  >
+                    📝 작성
+                  </Button>
                 </div>
-                <p className="text-sm whitespace-pre-wrap">{r.content}</p>
-              </CardContent>
-            </Card>
-          ))
-        )}
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Right Panel: Counseling Records History */}
+        <div className="lg:col-span-2 space-y-4">
+          <h2 className="text-base font-semibold">상담 기록 내역 ({filtered.length}건)</h2>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Input className="w-full sm:max-w-xs" placeholder="이름 또는 내용 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Select value={filterTarget} onValueChange={setFilterTarget}>
+              <SelectTrigger className="w-full sm:w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">전체 대상</SelectItem>
+                <SelectItem value="이용자">이용자만</SelectItem>
+                <SelectItem value="활동지원사">활동지원사만</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-3 max-h-[300px] lg:max-h-[600px] overflow-y-auto pr-1">
+            {filtered.length === 0 ? (
+              <Card><CardContent className="p-8 text-center text-muted-foreground">검색 또는 조건에 부합하는 상담기록이 없습니다.</CardContent></Card>
+            ) : (
+              filtered.map((r) => (
+                <Card key={r.id} className="card-hover">
+                  <CardContent className="p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant={r.targetType === "이용자" ? "default" : "secondary"} className="text-[10px]">{r.targetType}</Badge>
+                        <span className="font-semibold text-sm">{r.targetName}</span>
+                        <Badge variant="outline" className="text-[10px]">{r.category}</Badge>
+                      </div>
+                      <span className="text-xs text-muted-foreground">{r.date} · {r.counselorName || "미입력"}</span>
+                    </div>
+                    <p className="text-xs md:text-sm text-foreground whitespace-pre-wrap leading-relaxed">{r.content}</p>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
