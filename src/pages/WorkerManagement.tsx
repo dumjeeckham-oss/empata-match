@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type Worker, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
+import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
+import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import {
   rowsToEntities,
   rowToWorker,
@@ -10,6 +11,11 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
+import {
+  buildUserArraysFromIds,
+  formatUserList,
+  syncWorkerToUsers,
+} from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -39,6 +45,7 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   certificateNumber: "", contractStatus: "대기", serviceStartDate: "", resignationDate: "", notes: "",
+  assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
 };
 
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -51,10 +58,12 @@ const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "address", label: "주소" },
   { key: "experience", label: "경력" },
   { key: "contractStatus", label: "근무상태" },
+  { key: "assignedUserName", label: "담당이용자" },
 ];
 
 const WorkerManagement = () => {
   const { data: workers, add, update, remove, loading } = useCollection<Worker>("workers");
+  const { data: users, update: updateUser } = useCollection<ServiceUser>("users");
   const [form, setForm] = useState(emptyWorker);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -106,13 +115,28 @@ const WorkerManagement = () => {
     }
     if (!form.lat && form.address) await handleGeocode();
 
-    const payload = { ...form };
+    const arrays = buildUserArraysFromIds(form.assignedUserIds, users);
+    const payload = {
+      ...form,
+      assignedUserIds: arrays.ids,
+      assignedUserNames: arrays.names,
+      assignedUserPhones: arrays.phones,
+    };
+    const prevUserIds = editingId
+      ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []
+      : [];
+
+    let savedId = editingId;
     if (editingId) {
       await update(editingId, payload);
       toast({ title: "수정 완료" });
     } else {
-      await add(payload as Omit<Worker, "id">);
+      const ref = await add(payload as Omit<Worker, "id">);
+      savedId = ref.id;
       toast({ title: "등록 완료" });
+    }
+    if (savedId) {
+      await syncWorkerToUsers(savedId, payload, users, prevUserIds, updateUser);
     }
     setForm(emptyWorker);
     setEditingId(null);
@@ -130,15 +154,22 @@ const WorkerManagement = () => {
     return upsertByNamePhone(
       items,
       workers,
-      (item) => add(item),
+      (item) => add(item).then((ref) => ({ id: ref.id })),
       (id, item) => update(id, item),
-      geocodeIfNeeded
+      geocodeIfNeeded,
+      async (workerId, item, isUpdate) => {
+        if (!item.assignedUserIds?.length) return;
+        const prev = isUpdate
+          ? workers.find((w) => w.id === workerId)?.assignedUserIds ?? []
+          : [];
+        await syncWorkerToUsers(workerId, item, users, prev, updateUser);
+      }
     );
   };
 
   const mapWorkerRows = (sheet: ParsedSheet) =>
     rowsToEntities(sheet, (row, headerMap) => {
-      const entity = rowToWorker(row, headerMap);
+      const entity = rowToWorker(row, headerMap, users);
       if (!entity.name && !entity.phone) return null;
       return entity;
     });
@@ -154,12 +185,18 @@ const WorkerManagement = () => {
       address: item.address,
       experience: item.experience,
       contractStatus: item.contractStatus,
+      assignedUserName: item.assignedUserNames?.join(", "),
     };
     return String(map[key] ?? "");
   };
 
   const startEdit = (w: Worker & { id: string }) => {
-    setForm({ ...w });
+    setForm({
+      ...w,
+      assignedUserIds: w.assignedUserIds ?? [],
+      assignedUserNames: w.assignedUserNames ?? [],
+      assignedUserPhones: w.assignedUserPhones ?? [],
+    });
     setEditingId(w.id);
     setDialogOpen(true);
   };
@@ -172,6 +209,7 @@ const WorkerManagement = () => {
       거부업무: w.rejectionTypes?.join(","), 거부업무상세: w.rejectedTasks,
       운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
       이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
+      담당이용자: w.assignedUserNames?.join(", "),
       최초근무일: w.serviceStartDate, 퇴사일: w.resignationDate, 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -185,7 +223,7 @@ const WorkerManagement = () => {
       이름: "", 나이: "", 성별: "여성", 연락처: "", 거주지역: "", 희망지역: "", 주소: "",
       경력: "경력없음", 근무가능요일: "월,화,수", 근무가능시간: "09:00-18:00",
       거부업무: "", 거부업무상세: "", 운전가능: "예", 동물알러지: "아니오",
-      이수증번호: "", 근무상태: "대기", 최초근무일: "", 퇴사일: "", 비고: "",
+      이수증번호: "", 근무상태: "대기", 담당이용자: "홍길동, 김영희", 최초근무일: "", 퇴사일: "", 비고: "",
     }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
@@ -292,6 +330,26 @@ const WorkerManagement = () => {
                 </div>
                 <div><Label>최초근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
                 <div><Label>퇴사일</Label><Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} /></div>
+                <div className="col-span-2 border rounded-lg p-3 bg-muted/30">
+                  <MultiEntitySelect
+                    label="담당 이용자 (복수 선택 가능)"
+                    placeholder="이용자 추가..."
+                    emptyHint="담당 이용자 없음"
+                    selectedIds={form.assignedUserIds}
+                    onChange={(ids) => {
+                      const arrays = buildUserArraysFromIds(ids, users);
+                      setForm((f) => ({
+                        ...f,
+                        assignedUserIds: arrays.ids,
+                        assignedUserNames: arrays.names,
+                        assignedUserPhones: arrays.phones,
+                      }));
+                    }}
+                    options={users
+                      .filter((u) => u.contractStatus !== "계약해지")
+                      .map((u) => ({ id: u.id, label: u.name, sublabel: u.phone }))}
+                  />
+                </div>
                 <div className="col-span-2"><Label>비고</Label><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
               </div>
               <div className="flex justify-end gap-2 mt-4">
@@ -321,25 +379,24 @@ const WorkerManagement = () => {
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
-                  {["이름", "성별", "연락처", "경력", "이수증번호", "희망지역", "상태", ""].map((h) => (
+                  {["이름", "성별", "연락처", "담당이용자", "경력", "상태", ""].map((h) => (
                     <th key={h} className="text-left p-3 font-medium text-muted-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {loading ? (
-                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
+                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
                 ) : (
                   filtered.map((w) => (
                     <tr key={w.id} className="hover:bg-muted/50">
                       <td className="p-3 font-medium">{w.name}</td>
                       <td className="p-3">{w.gender}</td>
                       <td className="p-3">{w.phone}</td>
+                      <td className="p-3 max-w-[160px] text-xs">{formatUserList(w) || "—"}</td>
                       <td className="p-3">{w.experience}</td>
-                      <td className="p-3">{w.certificateNumber}</td>
-                      <td className="p-3">{w.preferredArea}</td>
                       <td className="p-3">
                         <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
                           {w.contractStatus}
@@ -374,6 +431,7 @@ const WorkerManagement = () => {
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1.5">
                     <p>📞 {w.phone}</p>
+                    <p>👥 담당: {formatUserList(w) || "없음"}</p>
                     <p>💼 {w.experience} · 이수증: {w.certificateNumber || "없음"}</p>
                     <p>📍 {w.address}</p>
                   </div>

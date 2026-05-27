@@ -37,6 +37,8 @@ export type FieldKey =
   | "terminationReason"
   | "assignedHelperName"
   | "assignedHelperPhone"
+  | "assignedUserName"
+  | "assignedUserPhone"
   | "residenceArea"
   | "preferredArea"
   | "experience"
@@ -72,6 +74,8 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "terminationReason", patterns: [/중단/, /중단사유/, /txtUMemostop/i, /해지사유/, /종료사유/] },
   { field: "assignedHelperName", patterns: [/담당.*지원사/, /활동지원사.*이름/, /매칭.*이름/, /담당자/] },
   { field: "assignedHelperPhone", patterns: [/담당.*연락/, /활동지원사.*연락/, /매칭.*연락/] },
+  { field: "assignedUserName", patterns: [/담당.*이용자/, /이용자.*이름/, /매칭.*이용자/, /담당대상/] },
+  { field: "assignedUserPhone", patterns: [/담당.*이용자.*연락/, /이용자.*연락/] },
   { field: "residenceArea", patterns: [/거주지역/, /거주지역/] },
   { field: "preferredArea", patterns: [/희망지역/, /근무희망/] },
   { field: "experience", patterns: [/경력/] },
@@ -154,9 +158,9 @@ export function getCell(
   return safeStr(row[idx] ?? fallback);
 }
 
-function splitList(val: string): string[] {
+export function splitList(val: string): string[] {
   if (!val) return [];
-  return val.split(/[,，、]/).map((s) => s.trim()).filter(Boolean);
+  return val.split(/[,，、\/]/).map((s) => s.trim()).filter(Boolean);
 }
 
 function parseYesNo(val: string): boolean {
@@ -185,15 +189,103 @@ function resolveWorker(
   return null;
 }
 
+function resolveMultipleWorkers(
+  workers: (Worker & { id: string })[],
+  namesRaw: string,
+  phonesRaw: string
+): { ids: string[]; names: string[]; phones: string[] } {
+  const names = splitList(namesRaw);
+  const phones = splitList(phonesRaw);
+  const ids: string[] = [];
+  const resolvedNames: string[] = [];
+  const resolvedPhones: string[] = [];
+
+  if (names.length === 0 && phones.length === 0) {
+    return { ids, names: resolvedNames, phones: resolvedPhones };
+  }
+
+  const count = Math.max(names.length, phones.length, 1);
+  for (let i = 0; i < count; i++) {
+    const name = names[i] ?? names[0] ?? "";
+    const phone = phones[i] ?? phones[0] ?? "";
+    if (!name && !phone) continue;
+    const matched = resolveWorker(workers, name, phone);
+    if (matched?.id) {
+      if (!ids.includes(matched.id)) {
+        ids.push(matched.id);
+        resolvedNames.push(matched.name);
+        resolvedPhones.push(matched.phone);
+      }
+    } else if (name) {
+      resolvedNames.push(name);
+      resolvedPhones.push(phone);
+    }
+  }
+
+  return { ids, names: resolvedNames, phones: resolvedPhones };
+}
+
+function resolveMultipleUsers(
+  users: (ServiceUser & { id: string })[],
+  namesRaw: string,
+  phonesRaw: string
+): { ids: string[]; names: string[]; phones: string[] } {
+  const names = splitList(namesRaw);
+  const phones = splitList(phonesRaw);
+  const ids: string[] = [];
+  const resolvedNames: string[] = [];
+  const resolvedPhones: string[] = [];
+
+  if (names.length === 0 && phones.length === 0) {
+    return { ids, names: resolvedNames, phones: resolvedPhones };
+  }
+
+  const count = Math.max(names.length, phones.length, 1);
+  for (let i = 0; i < count; i++) {
+    const name = names[i] ?? names[0] ?? "";
+    const phone = phones[i] ?? phones[0] ?? "";
+    if (!name && !phone) continue;
+    const normPhone = normalizePhone(phone);
+    let matched: (ServiceUser & { id: string }) | undefined;
+    if (normPhone) {
+      matched = users.find((u) => normalizePhone(u.phone) === normPhone);
+    }
+    if (!matched && name) {
+      matched = users.find(
+        (u) => u.name.trim() === name.trim() && (!normPhone || normalizePhone(u.phone) === normPhone)
+      );
+    }
+    if (matched?.id) {
+      if (!ids.includes(matched.id)) {
+        ids.push(matched.id);
+        resolvedNames.push(matched.name);
+        resolvedPhones.push(matched.phone);
+      }
+    } else if (name) {
+      resolvedNames.push(name);
+      resolvedPhones.push(phone);
+    }
+  }
+
+  return { ids, names: resolvedNames, phones: resolvedPhones };
+}
+
+/** 행마다 독립적인 깊은 복사 객체 생성 */
+function cloneRowEntity<T extends Record<string, unknown>>(entity: T): T {
+  return JSON.parse(JSON.stringify(entity)) as T;
+}
+
 /** Each call returns a fresh object — safe for row-by-row bulk insert. */
 export function rowToServiceUser(
   row: string[],
   headerMap: Map<FieldKey, number>,
   workers: (Worker & { id: string })[] = []
 ): Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> {
-  const assignedHelperName = getCell(row, headerMap, "assignedHelperName");
-  const assignedHelperPhone = getCell(row, headerMap, "assignedHelperPhone");
-  const matched = resolveWorker(workers, assignedHelperName, assignedHelperPhone);
+  const helpers = resolveMultipleWorkers(
+    workers,
+    getCell(row, headerMap, "assignedHelperName"),
+    getCell(row, headerMap, "assignedHelperPhone")
+  );
 
   return {
     name: getCell(row, headerMap, "name"),
@@ -216,17 +308,24 @@ export function rowToServiceUser(
     guardianRelation: getCell(row, headerMap, "guardianRelation"),
     guardianPhone: getCell(row, headerMap, "guardianPhone"),
     terminationReason: getCell(row, headerMap, "terminationReason"),
-    assignedHelperId: matched?.id || "",
-    assignedHelperName: matched?.name || assignedHelperName,
-    assignedHelperPhone: matched?.phone || assignedHelperPhone,
+    assignedHelperIds: [...helpers.ids],
+    assignedHelperNames: [...helpers.names],
+    assignedHelperPhones: [...helpers.phones],
   };
 }
 
 /** Each call returns a fresh object — safe for row-by-row bulk insert. */
 export function rowToWorker(
   row: string[],
-  headerMap: Map<FieldKey, number>
+  headerMap: Map<FieldKey, number>,
+  users: (ServiceUser & { id: string })[] = []
 ): Omit<Worker, "id" | "createdAt" | "updatedAt"> {
+  const assigned = resolveMultipleUsers(
+    users,
+    getCell(row, headerMap, "assignedUserName"),
+    getCell(row, headerMap, "assignedUserPhone")
+  );
+
   return {
     name: getCell(row, headerMap, "name"),
     age: Number(getCell(row, headerMap, "age")) || 0,
@@ -247,6 +346,9 @@ export function rowToWorker(
     serviceStartDate: getCell(row, headerMap, "serviceStartDate"),
     resignationDate: getCell(row, headerMap, "resignationDate"),
     notes: getCell(row, headerMap, "notes"),
+    assignedUserIds: [...assigned.ids],
+    assignedUserNames: [...assigned.names],
+    assignedUserPhones: [...assigned.phones],
   };
 }
 
@@ -262,7 +364,7 @@ export function rowsToEntities<T>(
     const row = sheet.rows[i];
     if (row.every((cell) => !cell.trim())) continue;
     const entity = mapper(row, headerMap, i);
-    if (entity) results.push(entity);
+    if (entity) results.push(cloneRowEntity(entity as Record<string, unknown>) as T);
   }
 
   return results;
@@ -277,9 +379,10 @@ export interface UpsertResult {
 export async function upsertByNamePhone<T extends { name: string; phone: string }>(
   items: T[],
   existing: (T & { id: string })[],
-  addFn: (item: Omit<T, "id">) => Promise<unknown>,
+  addFn: (item: Omit<T, "id">) => Promise<{ id: string }>,
   updateFn: (id: string, item: Partial<T>) => Promise<unknown>,
-  beforeSave?: (item: T) => Promise<T>
+  beforeSave?: (item: T) => Promise<T>,
+  onSaved?: (id: string, item: T, isUpdate: boolean) => Promise<void>
 ): Promise<UpsertResult> {
   let inserted = 0;
   let updated = 0;
@@ -293,7 +396,7 @@ export async function upsertByNamePhone<T extends { name: string; phone: string 
   }
 
   for (let i = 0; i < items.length; i++) {
-    const raw = { ...items[i] };
+    const raw = cloneRowEntity(items[i] as Record<string, unknown>) as T;
     if (!raw.name && !raw.phone) {
       skipped++;
       continue;
@@ -306,9 +409,12 @@ export async function upsertByNamePhone<T extends { name: string; phone: string 
     if (found?.id) {
       await updateFn(found.id, item);
       existingMap.set(key, { ...found, ...item });
+      await onSaved?.(found.id, item, true);
       updated++;
     } else {
-      await addFn(item);
+      const ref = await addFn(item);
+      existingMap.set(key, { id: ref.id, ...item } as T & { id: string });
+      await onSaved?.(ref.id, item, false);
       inserted++;
     }
   }

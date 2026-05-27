@@ -52,12 +52,12 @@ export interface ServiceUser {
   guardianPhone: string;
   /** 중단/해지 사유 (txtUMemostop) */
   terminationReason: string;
-  /** 담당 활동지원사 ID (매칭 완료 시) */
-  assignedHelperId: string;
-  /** 담당 활동지원사 이름 */
-  assignedHelperName: string;
-  /** 담당 활동지원사 연락처 */
-  assignedHelperPhone: string;
+  /** 담당 활동지원사 ID 목록 (N:M) */
+  assignedHelperIds: string[];
+  /** 담당 활동지원사 이름 목록 */
+  assignedHelperNames: string[];
+  /** 담당 활동지원사 연락처 목록 */
+  assignedHelperPhones: string[];
   createdAt?: any;
   updatedAt?: any;
 }
@@ -85,6 +85,12 @@ export interface Worker {
   serviceStartDate: string;
   resignationDate: string;
   notes: string;
+  /** 담당 이용자 ID 목록 (N:M) */
+  assignedUserIds: string[];
+  /** 담당 이용자 이름 목록 */
+  assignedUserNames: string[];
+  /** 담당 이용자 연락처 목록 */
+  assignedUserPhones: string[];
   createdAt?: any;
   updatedAt?: any;
 }

@@ -3,6 +3,7 @@ import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
+import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import {
   rowsToEntities,
   rowToServiceUser,
@@ -11,6 +12,11 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
+import {
+  buildHelperArraysFromIds,
+  formatHelperList,
+  syncUserToWorkers,
+} from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,7 +46,7 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
-  terminationReason: "", assignedHelperId: "", assignedHelperName: "", assignedHelperPhone: "",
+  terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [],
 };
 
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -58,7 +64,7 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 
 const UserManagement = () => {
   const { data: users, add, update, remove, loading } = useCollection<ServiceUser>("users");
-  const { data: workers } = useCollection<Worker>("workers");
+  const { data: workers, update: updateWorker } = useCollection<Worker>("workers");
   const [form, setForm] = useState(emptyUser);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -67,18 +73,6 @@ const UserManagement = () => {
   const [geocoding, setGeocoding] = useState(false);
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
-
-  const resolveAssignedHelper = (helperId: string) => {
-    const w = workers.find((x) => x.id === helperId);
-    if (w) {
-      setForm((f) => ({
-        ...f,
-        assignedHelperId: w.id,
-        assignedHelperName: w.name,
-        assignedHelperPhone: w.phone,
-      }));
-    }
-  };
 
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
@@ -123,7 +117,18 @@ const UserManagement = () => {
     }
     if (!form.lat && form.address) await handleGeocode();
 
-    const payload = { ...form };
+    const arrays = buildHelperArraysFromIds(form.assignedHelperIds, workers);
+    const payload = {
+      ...form,
+      assignedHelperIds: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+    };
+    const prevHelperIds = editingId
+      ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
+      : [];
+
+    let savedId = editingId;
     if (editingId) {
       await update(editingId, payload);
       toast({ title: "수정 완료" });
@@ -131,12 +136,17 @@ const UserManagement = () => {
       const key = makeUniqueKey(form.name, form.phone);
       const existing = users.find((u) => makeUniqueKey(u.name, u.phone) === key);
       if (existing?.id) {
+        savedId = existing.id;
         await update(existing.id, payload);
         toast({ title: "기존 데이터 업데이트 완료", description: "동일 이름+연락처로 덮어썼습니다." });
       } else {
-        await add(payload as Omit<ServiceUser, "id">);
+        const ref = await add(payload as Omit<ServiceUser, "id">);
+        savedId = ref.id;
         toast({ title: "등록 완료" });
       }
+    }
+    if (savedId) {
+      await syncUserToWorkers(savedId, payload, workers, prevHelperIds, updateWorker);
     }
     setForm(emptyUser);
     setEditingId(null);
@@ -154,9 +164,16 @@ const UserManagement = () => {
     return upsertByNamePhone(
       items,
       users,
-      (item) => add(item),
+      (item) => add(item).then((ref) => ({ id: ref.id })),
       (id, item) => update(id, item),
-      geocodeIfNeeded
+      geocodeIfNeeded,
+      async (userId, item, isUpdate) => {
+        if (!item.assignedHelperIds?.length) return;
+        const prev = isUpdate
+          ? users.find((u) => u.id === userId)?.assignedHelperIds ?? []
+          : [];
+        await syncUserToWorkers(userId, item, workers, prev, updateWorker);
+      }
     );
   };
 
@@ -175,8 +192,8 @@ const UserManagement = () => {
       age: item.age,
       disabilityType: item.disabilityType,
       address: item.address,
-      assignedHelperName: item.assignedHelperName,
-      assignedHelperPhone: item.assignedHelperPhone,
+      assignedHelperName: item.assignedHelperNames?.join(", "),
+      assignedHelperPhone: item.assignedHelperPhones?.join(", "),
       contractStatus: item.contractStatus,
       terminationReason: item.terminationReason,
     };
@@ -184,7 +201,13 @@ const UserManagement = () => {
   };
 
   const startEdit = (user: ServiceUser & { id: string }) => {
-    setForm({ ...user, terminationReason: user.terminationReason || "", assignedHelperId: user.assignedHelperId || "", assignedHelperName: user.assignedHelperName || "", assignedHelperPhone: user.assignedHelperPhone || "" });
+    setForm({
+      ...user,
+      terminationReason: user.terminationReason || "",
+      assignedHelperIds: user.assignedHelperIds ?? [],
+      assignedHelperNames: user.assignedHelperNames ?? [],
+      assignedHelperPhones: user.assignedHelperPhones ?? [],
+    });
     setEditingId(user.id);
     setDialogOpen(true);
   };
@@ -198,7 +221,7 @@ const UserManagement = () => {
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
       지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
       가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
-      담당활동지원사: u.assignedHelperName, 담당지원사연락처: u.assignedHelperPhone,
+      담당활동지원사: u.assignedHelperNames?.join(", "), 담당지원사연락처: u.assignedHelperPhones?.join(", "),
       계약상태: u.contractStatus, 중단사유: u.terminationReason,
       최초서비스제공일: u.serviceStartDate,
       보호자이름: u.guardianName, 보호자관계: u.guardianRelation, 보호자연락처: u.guardianPhone,
@@ -214,7 +237,7 @@ const UserManagement = () => {
     const template = [{
       이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1,
       필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "",
-      가족구성원: "", 주소: "", 선호도: "", 담당활동지원사: "", 담당지원사연락처: "",
+      가족구성원: "", 주소: "", 선호도: "", 담당활동지원사: "홍길동, 김철수", 담당지원사연락처: "",
       계약상태: "서비스중", 중단사유: "", 최초서비스제공일: "2025-01-01",
       보호자이름: "", 보호자관계: "", 보호자연락처: "", 비고: "",
     }];
@@ -301,42 +324,28 @@ const UserManagement = () => {
                     )}
                   </div>
                 </div>
-                <div className="col-span-2 border rounded-lg p-3 bg-muted/30 space-y-3">
-                  <Label className="text-base font-semibold">담당 활동지원사</Label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label className="text-xs">등록된 지원사에서 선택</Label>
-                      <Select
-                        value={form.assignedHelperId || "none"}
-                        onValueChange={(v) => {
-                          if (v === "none") {
-                            setForm((f) => ({ ...f, assignedHelperId: "", assignedHelperName: "", assignedHelperPhone: "" }));
-                          } else {
-                            resolveAssignedHelper(v);
-                          }
-                        }}
-                      >
-                        <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">미배정</SelectItem>
-                          {workers.filter((w) => w.contractStatus === "근무중").map((w) => (
-                            <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone})</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="text-xs">또는 이름 직접입력</Label>
-                      <Input value={form.assignedHelperName} onChange={(e) => setForm((f) => ({ ...f, assignedHelperName: e.target.value, assignedHelperId: "" }))} placeholder="활동지원사 이름" />
-                    </div>
-                    <div className="col-span-2">
-                      <Label className="text-xs">연락처 (이름+연락처로 매칭)</Label>
-                      <Input value={form.assignedHelperPhone} onChange={(e) => setForm((f) => ({ ...f, assignedHelperPhone: e.target.value }))} placeholder="010-0000-0000" />
-                    </div>
-                  </div>
-                  {form.assignedHelperName && (
-                    <p className="text-xs text-primary">현재 담당: {form.assignedHelperName}{form.assignedHelperPhone ? ` (${form.assignedHelperPhone})` : ""}</p>
-                  )}
+                <div className="col-span-2 border rounded-lg p-3 bg-muted/30">
+                  <MultiEntitySelect
+                    label="담당 활동지원사 (복수 선택 가능)"
+                    placeholder="활동지원사 추가..."
+                    emptyHint="담당 활동지원사 미배정"
+                    selectedIds={form.assignedHelperIds}
+                    onChange={(ids) => {
+                      const arrays = buildHelperArraysFromIds(ids, workers);
+                      setForm((f) => ({
+                        ...f,
+                        assignedHelperIds: arrays.ids,
+                        assignedHelperNames: arrays.names,
+                        assignedHelperPhones: arrays.phones,
+                      }));
+                    }}
+                    options={workers
+                      .filter((w) => w.contractStatus === "근무중")
+                      .map((w) => ({ id: w.id, label: w.name, sublabel: w.phone }))}
+                  />
+                  <p className="text-xs text-muted-foreground mt-2">
+                    엑셀 업로드 시 &quot;홍길동, 김철수&quot; 또는 &quot;홍길동/김철수&quot; 형식으로 여러 명 입력 가능
+                  </p>
                 </div>
                 <div><Label>필요 요일</Label><Input value={form.requiredDays} onChange={(e) => setForm((f) => ({ ...f, requiredDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
                 <div><Label>필요 시간</Label><Input value={form.requiredHours} onChange={(e) => setForm((f) => ({ ...f, requiredHours: e.target.value }))} placeholder="09:00-18:00" /></div>
@@ -438,9 +447,9 @@ const UserManagement = () => {
                       <td className="p-3 font-medium">{u.name}</td>
                       <td className="p-3">{u.gender}</td>
                       <td className="p-3">{u.phone}</td>
-                      <td className="p-3">
-                        {u.assignedHelperName ? (
-                          <span className="text-primary font-medium">{u.assignedHelperName}</span>
+                      <td className="p-3 max-w-[180px]">
+                        {formatHelperList(u) ? (
+                          <span className="text-primary font-medium text-xs leading-relaxed">{formatHelperList(u)}</span>
                         ) : (
                           <span className="text-muted-foreground">미배정</span>
                         )}
@@ -482,7 +491,7 @@ const UserManagement = () => {
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1.5">
                     <p>📞 {u.phone}</p>
-                    <p>👤 담당: {u.assignedHelperName || "미배정"}{u.assignedHelperPhone ? ` (${u.assignedHelperPhone})` : ""}</p>
+                    <p>👤 담당: {formatHelperList(u) || "미배정"}</p>
                     <p>♿ {u.disabilityType} · {u.voucherTier}구간</p>
                     <p className="truncate">📍 {u.address}</p>
                   </div>
