@@ -2,6 +2,14 @@ import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
+import { BulkUploadDialog } from "@/components/BulkUploadDialog";
+import {
+  rowsToEntities,
+  rowToWorker,
+  upsertByNamePhone,
+  type FieldKey,
+  type ParsedSheet,
+} from "@/lib/bulkUpload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,8 +20,19 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
+import { Trash2 } from "lucide-react";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -22,16 +41,27 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   certificateNumber: "", contractStatus: "대기", serviceStartDate: "", resignationDate: "", notes: "",
 };
 
+const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
+  { key: "name", label: "이름" },
+  { key: "gender", label: "성별" },
+  { key: "phone", label: "연락처" },
+  { key: "age", label: "나이" },
+  { key: "residenceArea", label: "거주지역" },
+  { key: "preferredArea", label: "희망지역" },
+  { key: "address", label: "주소" },
+  { key: "experience", label: "경력" },
+  { key: "contractStatus", label: "근무상태" },
+];
+
 const WorkerManagement = () => {
-  const { data: workers, add, update, loading } = useCollection<Worker>("workers");
+  const { data: workers, add, update, remove, loading } = useCollection<Worker>("workers");
   const [form, setForm] = useState(emptyWorker);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
-  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
-  const [pasteData, setPasteData] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
 
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
@@ -57,22 +87,75 @@ const WorkerManagement = () => {
     setGeocoding(false);
   };
 
+  const geocodeIfNeeded = async (item: Omit<Worker, "id" | "createdAt" | "updatedAt">) => {
+    const copy = { ...item };
+    if (copy.address && !copy.lat) {
+      const geo = await geocodeAddress(copy.address);
+      if (geo) {
+        copy.lat = geo.lat;
+        copy.lng = geo.lng;
+      }
+    }
+    return copy;
+  };
+
   const handleSave = async () => {
     if (!form.name || !form.phone) {
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
     if (!form.lat && form.address) await handleGeocode();
+
+    const payload = { ...form };
     if (editingId) {
-      await update(editingId, form);
+      await update(editingId, payload);
       toast({ title: "수정 완료" });
     } else {
-      await add(form as any);
+      await add(payload as Omit<Worker, "id">);
       toast({ title: "등록 완료" });
     }
     setForm(emptyWorker);
     setEditingId(null);
     setDialogOpen(false);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget?.id) return;
+    await remove(deleteTarget.id);
+    toast({ title: "삭제 완료", description: `${deleteTarget.name} 님의 정보가 삭제되었습니다.` });
+    setDeleteTarget(null);
+  };
+
+  const handleBulkConfirm = async (items: Omit<Worker, "id" | "createdAt" | "updatedAt">[]) => {
+    return upsertByNamePhone(
+      items,
+      workers,
+      (item) => add(item),
+      (id, item) => update(id, item),
+      geocodeIfNeeded
+    );
+  };
+
+  const mapWorkerRows = (sheet: ParsedSheet) =>
+    rowsToEntities(sheet, (row, headerMap) => {
+      const entity = rowToWorker(row, headerMap);
+      if (!entity.name && !entity.phone) return null;
+      return entity;
+    });
+
+  const getWorkerPreviewValue = (item: Omit<Worker, "id">, key: FieldKey): string => {
+    const map: Record<string, string | number | boolean> = {
+      name: item.name,
+      gender: item.gender,
+      phone: item.phone,
+      age: item.age,
+      residenceArea: item.residenceArea,
+      preferredArea: item.preferredArea,
+      address: item.address,
+      experience: item.experience,
+      contractStatus: item.contractStatus,
+    };
+    return String(map[key] ?? "");
   };
 
   const startEdit = (w: Worker & { id: string }) => {
@@ -81,67 +164,15 @@ const WorkerManagement = () => {
     setDialogOpen(true);
   };
 
-  const handlePasteUpload = async () => {
-    if (!pasteData) return;
-    const rows = pasteData.trim().split("\n").map(r => r.split("\t"));
-    if (rows.length < 2) {
-      toast({ title: "데이터 형식 오류", description: "헤더 행과 데이터가 포함되어야 합니다.", variant: "destructive" });
-      return;
-    }
-    const headers = rows[0].map(h => h.trim());
-    let count = 0;
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.length === 1 && !row[0]) continue;
-      
-      const getVal = (colName: string) => {
-        const idx = headers.indexOf(colName);
-        return idx !== -1 ? (row[idx] || "").trim() : "";
-      };
-
-      const w: any = {
-        name: getVal("이름") || "", age: Number(getVal("나이")) || 0, gender: getVal("성별") || "여성",
-        phone: String(getVal("연락처") || ""), residenceArea: getVal("거주지역") || "",
-        preferredArea: getVal("희망지역") || "", address: getVal("주소") || "",
-        experience: getVal("경력") || "경력없음", availableDays: getVal("근무가능요일") || "",
-        availableHours: getVal("근무가능시간") || "",
-        rejectionTypes: getVal("거부업무").split(",").map((s: string) => s.trim()).filter(Boolean),
-        rejectedTasks: getVal("거부업무상세") || "", canDrive: getVal("운전가능") === "예",
-        animalAllergy: getVal("동물알러지") === "예", certificateNumber: getVal("이수증번호") || "",
-        contractStatus: getVal("근무상태") || "대기", serviceStartDate: getVal("최초근무일") || "",
-        resignationDate: getVal("퇴사일") || "", notes: getVal("비고") || "",
-      };
-      if (w.address) {
-        const geo = await geocodeAddress(w.address);
-        if (geo) { w.lat = geo.lat; w.lng = geo.lng; }
-      }
-      await add(w);
-      count++;
-    }
-    toast({ title: `${count}명 업로드 완료` });
-    setPasteData("");
-    setPasteDialogOpen(false);
-  };
-
-  const copyExcelHeaders = () => {
-    const headers = [
-      "이름", "나이", "성별", "연락처", "거주지역", "희망지역", "주소", "경력", 
-      "근무가능요일", "근무가능시간", "거부업무", "거부업무상세", "운전가능", "동물알러지", 
-      "이수증번호", "근무상태", "최초근무일", "퇴사일", "비고"
-    ].join("\t");
-    navigator.clipboard.writeText(headers);
-    toast({ title: "헤더 복사 완료", description: "엑셀 파일 첫 행(A1)에 붙여넣어 템플릿으로 사용하세요." });
-  };
-
   const downloadExcel = () => {
     const data = getFiltered().map((w) => ({
       이름: w.name, 나이: w.age, 성별: w.gender, 연락처: w.phone,
       거주지역: w.residenceArea, 희망지역: w.preferredArea, 주소: w.address,
       경력: w.experience, 근무가능요일: w.availableDays, 근무가능시간: w.availableHours,
-      거부업무: w.rejectionTypes?.join(","), 운전가능: w.canDrive ? "예" : "아니오",
-      동물알러지: w.animalAllergy ? "예" : "아니오", 이수증번호: w.certificateNumber,
-      근무상태: w.contractStatus, 최초근무일: w.serviceStartDate, 퇴사일: w.resignationDate,
-      비고: w.notes,
+      거부업무: w.rejectionTypes?.join(","), 거부업무상세: w.rejectedTasks,
+      운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
+      이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
+      최초근무일: w.serviceStartDate, 퇴사일: w.resignationDate, 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -150,7 +181,12 @@ const WorkerManagement = () => {
   };
 
   const downloadTemplate = () => {
-    const template = [{ 이름: "", 나이: "", 성별: "여성", 연락처: "", 거주지역: "", 희망지역: "", 주소: "", 경력: "경력없음", 근무가능요일: "월,화,수", 근무가능시간: "09:00-18:00", 거부업무: "", 운전가능: "예", 동물알러지: "아니오", 이수증번호: "", 근무상태: "대기", 최초근무일: "", 퇴사일: "", 비고: "" }];
+    const template = [{
+      이름: "", 나이: "", 성별: "여성", 연락처: "", 거주지역: "", 희망지역: "", 주소: "",
+      경력: "경력없음", 근무가능요일: "월,화,수", 근무가능시간: "09:00-18:00",
+      거부업무: "", 거부업무상세: "", 운전가능: "예", 동물알러지: "아니오",
+      이수증번호: "", 근무상태: "대기", 최초근무일: "", 퇴사일: "", 비고: "",
+    }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "업로드양식");
@@ -178,77 +214,15 @@ const WorkerManagement = () => {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="page-header mb-0">활동지원사 관리</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={downloadTemplate}>📥 업로드양식</Button>
-          <Dialog open={pasteDialogOpen} onOpenChange={setPasteDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">📤 일괄 업로드 (붙여넣기)</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>엑셀 데이터 붙여넣기</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                  <p className="text-xs md:text-sm text-muted-foreground font-medium">
-                    💡 아래 가이드 표의 구조(첫 줄 제목 포함)에 맞춰 엑셀의 데이터 행들을 복사(Ctrl+C)하여 붙여넣으세요.
-                  </p>
-                  <Button size="sm" variant="outline" onClick={copyExcelHeaders} className="h-8 text-xs shrink-0">
-                    📋 가이드 헤더 복사
-                  </Button>
-                </div>
-                
-                {/* Excel guide grid preview */}
-                <div className="overflow-x-auto border rounded-md max-w-full bg-card">
-                  <table className="min-w-max w-full text-[11px] md:text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-muted divide-x divide-border border-b">
-                        <th className="p-1 text-center bg-muted/70 font-bold text-muted-foreground min-w-[24px] border-r"></th>
-                        {["이름", "나이", "성별", "연락처", "거주지역", "희망지역", "주소", "경력", "근무가능요일", "근무가능시간", "거부업무", "거부업무상세", "운전가능", "동물알러지", "이수증번호", "근무상태", "최초근무일", "퇴사일", "비고"].map((col, idx) => (
-                          <th key={idx} className="p-1 px-2 text-left font-semibold text-muted-foreground">{col}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="divide-x divide-border border-b hover:bg-muted/10">
-                        <td className="p-1 text-center bg-muted/30 text-muted-foreground font-medium border-r">1</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">이순신</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">52</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">남성</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">010-5678-1234</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">부천시 소사구</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">부천 전체,시흥 일부</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">경기도 부천시...</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">3년이상</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">월,화,수,목,금</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">09:00-18:00</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">남성,흡연자</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">흡연자 매칭 사절</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">예</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">아니오</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">CERT-99999</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">근무중</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">2026-01-10</td>
-                        <td className="p-1 px-2 text-muted-foreground/80"></td>
-                        <td className="p-1 px-2 text-muted-foreground/80">자차 이동 가능</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <Textarea
-                  className="min-h-[200px] md:min-h-[300px] whitespace-pre font-mono text-xs"
-                  placeholder="여기에 복사한 엑셀 데이터를 붙여넣으세요 (Ctrl+V)...&#10;예시:&#10;이름&#9;나이&#9;성별&#9;연락처&#9;...&#10;이순신&#9;52&#9;남성&#9;010-5678-1234&#9;..."
-                  value={pasteData}
-                  onChange={(e) => setPasteData(e.target.value)}
-                />
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setPasteDialogOpen(false)}>취소</Button>
-                  <Button onClick={handlePasteUpload}>업로드 실행</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <BulkUploadDialog
+            title="활동지원사 일괄 업로드"
+            mapRows={mapWorkerRows}
+            onConfirm={handleBulkConfirm}
+            previewColumns={WORKER_PREVIEW_COLUMNS}
+            getPreviewValue={getWorkerPreviewValue}
+          />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -307,7 +281,7 @@ const WorkerManagement = () => {
                   <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.animalAllergy} onCheckedChange={(c) => setForm((f) => ({ ...f, animalAllergy: !!c }))} />동물 알러지</label>
                 </div>
                 <div><Label>근무상태</Label>
-                  <Select value={form.contractStatus} onValueChange={(v: any) => setForm((f) => ({ ...f, contractStatus: v }))}>
+                  <Select value={form.contractStatus} onValueChange={(v: Worker["contractStatus"]) => setForm((f) => ({ ...f, contractStatus: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="근무중">근무중</SelectItem>
@@ -343,21 +317,20 @@ const WorkerManagement = () => {
 
       <Card>
         <CardContent className="p-0">
-          {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
-                  {["이름", "성별", "연락처", "경력", "이수증번호", "최초근무일", "퇴사일", "희망지역", "상태", ""].map((h) => (
+                  {["이름", "성별", "연락처", "경력", "이수증번호", "희망지역", "상태", ""].map((h) => (
                     <th key={h} className="text-left p-3 font-medium text-muted-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {loading ? (
-                  <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
+                  <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
                 ) : (
                   filtered.map((w) => (
                     <tr key={w.id} className="hover:bg-muted/50">
@@ -366,15 +339,18 @@ const WorkerManagement = () => {
                       <td className="p-3">{w.phone}</td>
                       <td className="p-3">{w.experience}</td>
                       <td className="p-3">{w.certificateNumber}</td>
-                      <td className="p-3">{w.serviceStartDate}</td>
-                      <td className="p-3">{w.resignationDate}</td>
                       <td className="p-3">{w.preferredArea}</td>
                       <td className="p-3">
                         <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
                           {w.contractStatus}
                         </Badge>
                       </td>
-                      <td className="p-3"><Button variant="ghost" size="sm" onClick={() => startEdit(w)}>수정</Button></td>
+                      <td className="p-3 whitespace-nowrap">
+                        <Button variant="ghost" size="sm" onClick={() => startEdit(w)}>수정</Button>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(w)} title="삭제">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -382,7 +358,6 @@ const WorkerManagement = () => {
             </table>
           </div>
 
-          {/* Mobile Card List View */}
           <div className="block md:hidden divide-y">
             {loading ? (
               <p className="p-8 text-center text-muted-foreground">로딩중...</p>
@@ -392,7 +367,7 @@ const WorkerManagement = () => {
               filtered.map((w) => (
                 <div key={w.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
                   <div className="flex justify-between items-center">
-                    <span className="font-bold text-base text-foreground">{w.name} ({w.gender}, {w.age}세)</span>
+                    <span className="font-bold text-base">{w.name} ({w.gender}, {w.age}세)</span>
                     <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
                       {w.contractStatus}
                     </Badge>
@@ -401,11 +376,12 @@ const WorkerManagement = () => {
                     <p>📞 {w.phone}</p>
                     <p>💼 {w.experience} · 이수증: {w.certificateNumber || "없음"}</p>
                     <p>📍 {w.address}</p>
-                    {w.serviceStartDate && <p>📅 근무 시작: {w.serviceStartDate}</p>}
-                    {w.preferredArea && <p>🗺 희망지역: {w.preferredArea}</p>}
                   </div>
-                  <div className="flex justify-end mt-1">
+                  <div className="flex justify-end gap-2 mt-1">
                     <Button variant="outline" size="sm" onClick={() => startEdit(w)}>수정</Button>
+                    <Button variant="outline" size="sm" className="text-destructive" onClick={() => setDeleteTarget(w)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               ))
@@ -413,6 +389,23 @@ const WorkerManagement = () => {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>삭제 확인</AlertDialogTitle>
+            <AlertDialogDescription>
+              정말로 <strong>{deleteTarget?.name}</strong> 님의 정보를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

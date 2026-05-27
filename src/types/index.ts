@@ -50,6 +50,14 @@ export interface ServiceUser {
   guardianName: string;
   guardianRelation: string;
   guardianPhone: string;
+  /** 중단/해지 사유 (txtUMemostop) */
+  terminationReason: string;
+  /** 담당 활동지원사 ID (매칭 완료 시) */
+  assignedHelperId: string;
+  /** 담당 활동지원사 이름 */
+  assignedHelperName: string;
+  /** 담당 활동지원사 연락처 */
+  assignedHelperPhone: string;
   createdAt?: any;
   updatedAt?: any;
 }

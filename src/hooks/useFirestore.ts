@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { db, collection, getDocs, addDoc, updateDoc, doc, onSnapshot, query, orderBy, Timestamp, type QueryConstraint } from "@/lib/firebase";
+import { db, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, Timestamp, type QueryConstraint } from "@/lib/firebase";
 
 export function useCollection<T>(collectionName: string, constraints: QueryConstraint[] = []) {
   const [data, setData] = useState<(T & { id: string })[]>([]);
@@ -26,5 +26,9 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
     return updateDoc(doc(db, collectionName, id), { ...updates, updatedAt: Timestamp.now() } as any);
   }, [collectionName]);
 
-  return { data, loading, add, update };
+  const remove = useCallback(async (id: string) => {
+    return deleteDoc(doc(db, collectionName, id));
+  }, [collectionName]);
+
+  return { data, loading, add, update, remove };
 }

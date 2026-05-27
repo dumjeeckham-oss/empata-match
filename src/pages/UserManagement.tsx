@@ -1,38 +1,84 @@
 import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS } from "@/types";
+import { type ServiceUser, type Worker, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
+import { BulkUploadDialog } from "@/components/BulkUploadDialog";
+import {
+  rowsToEntities,
+  rowToServiceUser,
+  upsertByNamePhone,
+  makeUniqueKey,
+  type FieldKey,
+  type ParsedSheet,
+} from "@/lib/bulkUpload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
+import { Trash2 } from "lucide-react";
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
+  terminationReason: "", assignedHelperId: "", assignedHelperName: "", assignedHelperPhone: "",
 };
 
+const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
+  { key: "name", label: "이름" },
+  { key: "gender", label: "성별" },
+  { key: "phone", label: "연락처" },
+  { key: "age", label: "나이" },
+  { key: "disabilityType", label: "장애유형" },
+  { key: "address", label: "주소" },
+  { key: "assignedHelperName", label: "담당지원사" },
+  { key: "assignedHelperPhone", label: "담당지원사연락처" },
+  { key: "contractStatus", label: "계약상태" },
+  { key: "terminationReason", label: "중단사유" },
+];
+
 const UserManagement = () => {
-  const { data: users, add, update, loading } = useCollection<ServiceUser>("users");
+  const { data: users, add, update, remove, loading } = useCollection<ServiceUser>("users");
+  const { data: workers } = useCollection<Worker>("workers");
   const [form, setForm] = useState(emptyUser);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
-  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
-  const [pasteData, setPasteData] = useState("");
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+
+  const resolveAssignedHelper = (helperId: string) => {
+    const w = workers.find((x) => x.id === helperId);
+    if (w) {
+      setForm((f) => ({
+        ...f,
+        assignedHelperId: w.id,
+        assignedHelperName: w.name,
+        assignedHelperPhone: w.phone,
+      }));
+    }
+  };
 
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
@@ -58,80 +104,89 @@ const UserManagement = () => {
     setGeocoding(false);
   };
 
+  const geocodeIfNeeded = async (item: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">) => {
+    const copy = { ...item };
+    if (copy.address && !copy.lat) {
+      const geo = await geocodeAddress(copy.address);
+      if (geo) {
+        copy.lat = geo.lat;
+        copy.lng = geo.lng;
+      }
+    }
+    return copy;
+  };
+
   const handleSave = async () => {
     if (!form.name || !form.phone) {
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
     if (!form.lat && form.address) await handleGeocode();
+
+    const payload = { ...form };
     if (editingId) {
-      await update(editingId, form);
+      await update(editingId, payload);
       toast({ title: "수정 완료" });
     } else {
-      await add(form as any);
-      toast({ title: "등록 완료" });
+      const key = makeUniqueKey(form.name, form.phone);
+      const existing = users.find((u) => makeUniqueKey(u.name, u.phone) === key);
+      if (existing?.id) {
+        await update(existing.id, payload);
+        toast({ title: "기존 데이터 업데이트 완료", description: "동일 이름+연락처로 덮어썼습니다." });
+      } else {
+        await add(payload as Omit<ServiceUser, "id">);
+        toast({ title: "등록 완료" });
+      }
     }
     setForm(emptyUser);
     setEditingId(null);
     setDialogOpen(false);
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget?.id) return;
+    await remove(deleteTarget.id);
+    toast({ title: "삭제 완료", description: `${deleteTarget.name} 님의 정보가 삭제되었습니다.` });
+    setDeleteTarget(null);
+  };
+
+  const handleBulkConfirm = async (items: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[]) => {
+    return upsertByNamePhone(
+      items,
+      users,
+      (item) => add(item),
+      (id, item) => update(id, item),
+      geocodeIfNeeded
+    );
+  };
+
+  const mapUserRows = (sheet: ParsedSheet) =>
+    rowsToEntities(sheet, (row, headerMap) => {
+      const entity = rowToServiceUser(row, headerMap, workers);
+      if (!entity.name && !entity.phone) return null;
+      return entity;
+    });
+
+  const getUserPreviewValue = (item: Omit<ServiceUser, "id">, key: FieldKey): string => {
+    const map: Record<string, string | number> = {
+      name: item.name,
+      gender: item.gender,
+      phone: item.phone,
+      age: item.age,
+      disabilityType: item.disabilityType,
+      address: item.address,
+      assignedHelperName: item.assignedHelperName,
+      assignedHelperPhone: item.assignedHelperPhone,
+      contractStatus: item.contractStatus,
+      terminationReason: item.terminationReason,
+    };
+    return String(map[key] ?? "");
+  };
+
   const startEdit = (user: ServiceUser & { id: string }) => {
-    setForm({ ...user });
+    setForm({ ...user, terminationReason: user.terminationReason || "", assignedHelperId: user.assignedHelperId || "", assignedHelperName: user.assignedHelperName || "", assignedHelperPhone: user.assignedHelperPhone || "" });
     setEditingId(user.id);
     setDialogOpen(true);
-  };
-
-  const handlePasteUpload = async () => {
-    if (!pasteData) return;
-    const rows = pasteData.trim().split("\n").map(r => r.split("\t"));
-    if (rows.length < 2) {
-      toast({ title: "데이터 형식 오류", description: "헤더 행과 데이터가 포함되어야 합니다.", variant: "destructive" });
-      return;
-    }
-    const headers = rows[0].map(h => h.trim());
-    let count = 0;
-    for (let i = 1; i < rows.length; i++) {
-      const row = rows[i];
-      if (row.length === 1 && !row[0]) continue;
-      
-      const getVal = (colName: string) => {
-        const idx = headers.indexOf(colName);
-        return idx !== -1 ? (row[idx] || "").trim() : "";
-      };
-
-      const user: any = {
-        name: getVal("이름") || "", age: Number(getVal("나이")) || 0, gender: getVal("성별") || "남성",
-        phone: String(getVal("연락처") || ""), disabilityType: getVal("장애유형") || "",
-        voucherTier: Number(getVal("바우처구간")) || 1, requiredDays: getVal("필요요일") || "",
-        requiredHours: getVal("필요시간") || "", supportTypes: getVal("지원유형").split(",").map((s: string) => s.trim()).filter(Boolean),
-        environmentTags: getVal("환경태그").split(",").map((s: string) => s.trim()).filter(Boolean),
-        familyMembers: getVal("가족구성원") || "", address: getVal("주소") || "",
-        preferredWorkerTraits: getVal("선호도") || "", notes: getVal("비고") || "",
-        contractStatus: getVal("계약상태") || "서비스중", serviceStartDate: getVal("최초서비스제공일") || "",
-        guardianName: getVal("보호자이름") || "", guardianRelation: getVal("보호자관계") || "",
-        guardianPhone: String(getVal("보호자연락처") || ""),
-      };
-      if (user.address) {
-        const geo = await geocodeAddress(user.address);
-        if (geo) { user.lat = geo.lat; user.lng = geo.lng; }
-      }
-      await add(user);
-      count++;
-    }
-    toast({ title: `${count}명 업로드 완료` });
-    setPasteData("");
-    setPasteDialogOpen(false);
-  };
-
-  const copyExcelHeaders = () => {
-    const headers = [
-      "이름", "나이", "성별", "연락처", "장애유형", "바우처구간", "필요요일", "필요시간", 
-      "지원유형", "환경태그", "가족구성원", "주소", "선호도", "계약상태", "최초서비스제공일", 
-      "보호자이름", "보호자관계", "보호자연락처", "비고"
-    ].join("\t");
-    navigator.clipboard.writeText(headers);
-    toast({ title: "헤더 복사 완료", description: "엑셀 파일 첫 행(A1)에 붙여넣어 템플릿으로 사용하세요." });
   };
 
   const downloadExcel = () => {
@@ -142,7 +197,10 @@ const UserManagement = () => {
       "월바우처시간": VOUCHER_HOURS[u.voucherTier] || 0,
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
       지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
-      주소: u.address, 계약상태: u.contractStatus, 최초서비스제공일: u.serviceStartDate,
+      가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
+      담당활동지원사: u.assignedHelperName, 담당지원사연락처: u.assignedHelperPhone,
+      계약상태: u.contractStatus, 중단사유: u.terminationReason,
+      최초서비스제공일: u.serviceStartDate,
       보호자이름: u.guardianName, 보호자관계: u.guardianRelation, 보호자연락처: u.guardianPhone,
       비고: u.notes,
     }));
@@ -153,7 +211,13 @@ const UserManagement = () => {
   };
 
   const downloadTemplate = () => {
-    const template = [{ 이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1, 필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "", 주소: "", 계약상태: "서비스중", 최초서비스제공일: "2025-01-01", 보호자이름: "", 보호자관계: "", 보호자연락처: "", 비고: "" }];
+    const template = [{
+      이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1,
+      필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "",
+      가족구성원: "", 주소: "", 선호도: "", 담당활동지원사: "", 담당지원사연락처: "",
+      계약상태: "서비스중", 중단사유: "", 최초서비스제공일: "2025-01-01",
+      보호자이름: "", 보호자관계: "", 보호자연락처: "", 비고: "",
+    }];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "업로드양식");
@@ -181,76 +245,15 @@ const UserManagement = () => {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="page-header mb-0">이용자 관리</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={downloadTemplate}>📥 업로드양식</Button>
-          <Dialog open={pasteDialogOpen} onOpenChange={setPasteDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">📤 일괄 업로드 (붙여넣기)</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>엑셀 데이터 붙여넣기</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                  <p className="text-xs md:text-sm text-muted-foreground font-medium">
-                    💡 아래 가이드 표의 구조(첫 줄 제목 포함)에 맞춰 엑셀의 데이터 행들을 복사(Ctrl+C)하여 붙여넣으세요.
-                  </p>
-                  <Button size="sm" variant="outline" onClick={copyExcelHeaders} className="h-8 text-xs shrink-0">
-                    📋 가이드 헤더 복사
-                  </Button>
-                </div>
-                
-                {/* Excel guide grid preview */}
-                <div className="overflow-x-auto border rounded-md max-w-full bg-card">
-                  <table className="min-w-max w-full text-[11px] md:text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-muted divide-x divide-border border-b">
-                        <th className="p-1 text-center bg-muted/70 font-bold text-muted-foreground min-w-[24px] border-r"></th>
-                        {["이름", "나이", "성별", "연락처", "장애유형", "바우처구간", "필요요일", "필요시간", "지원유형", "환경태그", "가족구성원", "주소", "선호도", "계약상태", "최초서비스제공일", "보호자이름", "보호자관계", "보호자연락처", "비고"].map((col, idx) => (
-                          <th key={idx} className="p-1 px-2 text-left font-semibold text-muted-foreground">{col}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="divide-x divide-border border-b hover:bg-muted/10">
-                        <td className="p-1 text-center bg-muted/30 text-muted-foreground font-medium border-r">1</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">홍길동</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">45</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">남성</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">010-1234-5678</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">지체장애</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">3</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">월,수,금</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">09:00-13:00</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">신체활동,가사활동</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">독거</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">경기도 부천시 소사구...</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">운전 가능 지원사 선호</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">대기</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">2026-05-20</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">홍길순</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">자녀</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">010-8765-4321</td>
-                        <td className="p-1 px-2 text-muted-foreground/80">휠체어 이동 보조 필요</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <Textarea
-                  className="min-h-[200px] md:min-h-[300px] whitespace-pre font-mono text-xs"
-                  placeholder="여기에 복사한 엑셀 데이터를 붙여넣으세요 (Ctrl+V)...&#10;예시:&#10;이름&#9;나이&#9;성별&#9;연락처&#9;...&#10;홍길동&#9;45&#9;남성&#9;010-1234-5678&#9;..."
-                  value={pasteData}
-                  onChange={(e) => setPasteData(e.target.value)}
-                />
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setPasteDialogOpen(false)}>취소</Button>
-                  <Button onClick={handlePasteUpload}>업로드 실행</Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <BulkUploadDialog
+            title="이용자 일괄 업로드"
+            mapRows={mapUserRows}
+            onConfirm={handleBulkConfirm}
+            previewColumns={USER_PREVIEW_COLUMNS}
+            getPreviewValue={getUserPreviewValue}
+          />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -283,12 +286,8 @@ const UserManagement = () => {
                 <div><Label>바우처 구간</Label>
                   <div className="flex gap-2">
                     <Select value={isCustomVoucher ? "기타" : String(form.voucherTier)} onValueChange={(v) => {
-                      if (v === "기타") {
-                        setIsCustomVoucher(true);
-                      } else {
-                        setIsCustomVoucher(false);
-                        setForm((f) => ({ ...f, voucherTier: Number(v) }));
-                      }
+                      if (v === "기타") setIsCustomVoucher(true);
+                      else { setIsCustomVoucher(false); setForm((f) => ({ ...f, voucherTier: Number(v) })); }
                     }}>
                       <SelectTrigger className={isCustomVoucher ? "w-[120px]" : "w-full"}><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -297,15 +296,47 @@ const UserManagement = () => {
                       </SelectContent>
                     </Select>
                     {isCustomVoucher && (
-                      <Input
-                        type="number"
-                        className="flex-1"
-                        placeholder="숫자 입력"
-                        value={form.voucherTier || ""}
-                        onChange={(e) => setForm((f) => ({ ...f, voucherTier: Number(e.target.value) }))}
-                      />
+                      <Input type="number" className="flex-1" placeholder="숫자 입력" value={form.voucherTier || ""}
+                        onChange={(e) => setForm((f) => ({ ...f, voucherTier: Number(e.target.value) }))} />
                     )}
                   </div>
+                </div>
+                <div className="col-span-2 border rounded-lg p-3 bg-muted/30 space-y-3">
+                  <Label className="text-base font-semibold">담당 활동지원사</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">등록된 지원사에서 선택</Label>
+                      <Select
+                        value={form.assignedHelperId || "none"}
+                        onValueChange={(v) => {
+                          if (v === "none") {
+                            setForm((f) => ({ ...f, assignedHelperId: "", assignedHelperName: "", assignedHelperPhone: "" }));
+                          } else {
+                            resolveAssignedHelper(v);
+                          }
+                        }}
+                      >
+                        <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">미배정</SelectItem>
+                          {workers.filter((w) => w.contractStatus === "근무중").map((w) => (
+                            <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone})</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">또는 이름 직접입력</Label>
+                      <Input value={form.assignedHelperName} onChange={(e) => setForm((f) => ({ ...f, assignedHelperName: e.target.value, assignedHelperId: "" }))} placeholder="활동지원사 이름" />
+                    </div>
+                    <div className="col-span-2">
+                      <Label className="text-xs">연락처 (이름+연락처로 매칭)</Label>
+                      <Input value={form.assignedHelperPhone} onChange={(e) => setForm((f) => ({ ...f, assignedHelperPhone: e.target.value }))} placeholder="010-0000-0000" />
+                    </div>
+                  </div>
+                  {form.assignedHelperName && (
+                    <p className="text-xs text-primary">현재 담당: {form.assignedHelperName}{form.assignedHelperPhone ? ` (${form.assignedHelperPhone})` : ""}</p>
+                  )}
                 </div>
                 <div><Label>필요 요일</Label><Input value={form.requiredDays} onChange={(e) => setForm((f) => ({ ...f, requiredDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
                 <div><Label>필요 시간</Label><Input value={form.requiredHours} onChange={(e) => setForm((f) => ({ ...f, requiredHours: e.target.value }))} placeholder="09:00-18:00" /></div>
@@ -343,12 +374,21 @@ const UserManagement = () => {
                 <div><Label>보호자 관계</Label><Input value={form.guardianRelation} onChange={(e) => setForm((f) => ({ ...f, guardianRelation: e.target.value }))} /></div>
                 <div><Label>보호자 연락처</Label><Input value={form.guardianPhone} onChange={(e) => setForm((f) => ({ ...f, guardianPhone: e.target.value }))} /></div>
                 <div><Label>계약상태</Label>
-                  <Select value={form.contractStatus} onValueChange={(v: any) => setForm((f) => ({ ...f, contractStatus: v }))}>
+                  <Select value={form.contractStatus} onValueChange={(v: ServiceUser["contractStatus"]) => setForm((f) => ({ ...f, contractStatus: v }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="서비스중">서비스중</SelectItem>
                       <SelectItem value="계약해지">계약해지</SelectItem>
                       <SelectItem value="대기">대기</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>중단/해지 사유</Label>
+                  <Select value={form.terminationReason || "none"} onValueChange={(v) => setForm((f) => ({ ...f, terminationReason: v === "none" ? "" : v }))}>
+                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">없음</SelectItem>
+                      {TERMINATION_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
                     </SelectContent>
                   </Select>
                 </div>
@@ -378,38 +418,47 @@ const UserManagement = () => {
 
       <Card>
         <CardContent className="p-0">
-          {/* Desktop Table View */}
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="bg-muted">
                 <tr>
-                  {["이름", "성별", "연락처", "장애유형", "바우처", "주소", "서비스시작일", "보호자", "상태", ""].map((h) => (
+                  {["이름", "성별", "연락처", "담당지원사", "장애유형", "바우처", "주소", "상태", ""].map((h) => (
                     <th key={h} className="text-left p-3 font-medium text-muted-foreground">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {loading ? (
-                  <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
+                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
                 ) : filtered.length === 0 ? (
-                  <tr><td colSpan={10} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
+                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
                 ) : (
                   filtered.map((u) => (
                     <tr key={u.id} className="hover:bg-muted/50">
                       <td className="p-3 font-medium">{u.name}</td>
                       <td className="p-3">{u.gender}</td>
                       <td className="p-3">{u.phone}</td>
+                      <td className="p-3">
+                        {u.assignedHelperName ? (
+                          <span className="text-primary font-medium">{u.assignedHelperName}</span>
+                        ) : (
+                          <span className="text-muted-foreground">미배정</span>
+                        )}
+                      </td>
                       <td className="p-3">{u.disabilityType}</td>
                       <td className="p-3">{u.voucherTier}구간</td>
                       <td className="p-3 max-w-[150px] truncate">{u.address}</td>
-                      <td className="p-3">{u.serviceStartDate}</td>
-                      <td className="p-3">{u.guardianName}{u.guardianRelation ? `(${u.guardianRelation})` : ""}</td>
                       <td className="p-3">
                         <Badge variant={u.contractStatus === "서비스중" ? "default" : u.contractStatus === "계약해지" ? "destructive" : "secondary"}>
                           {u.contractStatus}
                         </Badge>
                       </td>
-                      <td className="p-3"><Button variant="ghost" size="sm" onClick={() => startEdit(u)}>수정</Button></td>
+                      <td className="p-3 whitespace-nowrap">
+                        <Button variant="ghost" size="sm" onClick={() => startEdit(u)}>수정</Button>
+                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(u)} title="삭제">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -417,7 +466,6 @@ const UserManagement = () => {
             </table>
           </div>
 
-          {/* Mobile Card List View */}
           <div className="block md:hidden divide-y">
             {loading ? (
               <p className="p-8 text-center text-muted-foreground">로딩중...</p>
@@ -427,20 +475,22 @@ const UserManagement = () => {
               filtered.map((u) => (
                 <div key={u.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
                   <div className="flex justify-between items-center">
-                    <span className="font-bold text-base text-foreground">{u.name} ({u.gender}, {u.age}세)</span>
+                    <span className="font-bold text-base">{u.name} ({u.gender}, {u.age}세)</span>
                     <Badge variant={u.contractStatus === "서비스중" ? "default" : u.contractStatus === "계약해지" ? "destructive" : "secondary"}>
                       {u.contractStatus}
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1.5">
                     <p>📞 {u.phone}</p>
-                    <p>♿ {u.disabilityType} · {u.voucherTier}구간 ({VOUCHER_HOURS[u.voucherTier] || 0}시간)</p>
+                    <p>👤 담당: {u.assignedHelperName || "미배정"}{u.assignedHelperPhone ? ` (${u.assignedHelperPhone})` : ""}</p>
+                    <p>♿ {u.disabilityType} · {u.voucherTier}구간</p>
                     <p className="truncate">📍 {u.address}</p>
-                    {u.serviceStartDate && <p>📅 서비스 시작: {u.serviceStartDate}</p>}
-                    {u.guardianName && <p>👤 보호자: {u.guardianName} ({u.guardianRelation})</p>}
                   </div>
-                  <div className="flex justify-end mt-1">
+                  <div className="flex justify-end gap-2 mt-1">
                     <Button variant="outline" size="sm" onClick={() => startEdit(u)}>수정</Button>
+                    <Button variant="outline" size="sm" className="text-destructive" onClick={() => setDeleteTarget(u)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </div>
               ))
@@ -448,6 +498,23 @@ const UserManagement = () => {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>삭제 확인</AlertDialogTitle>
+            <AlertDialogDescription>
+              정말로 <strong>{deleteTarget?.name}</strong> 님의 정보를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
