@@ -7,7 +7,7 @@ import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import {
   rowsToEntities,
   rowToWorker,
-  upsertByNamePhone,
+  upsertByNamePhoneBatch,
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
@@ -62,7 +62,7 @@ const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 ];
 
 const WorkerManagement = () => {
-  const { data: workers, add, update, remove, loading } = useCollection<Worker>("workers");
+  const { data: workers, add, update, remove, loading, error: workersError } = useCollection<Worker>("workers");
   const { data: users, update: updateUser } = useCollection<ServiceUser>("users");
   const [form, setForm] = useState(emptyWorker);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -151,20 +151,19 @@ const WorkerManagement = () => {
   };
 
   const handleBulkConfirm = async (items: Omit<Worker, "id" | "createdAt" | "updatedAt">[]) => {
-    return upsertByNamePhone(
+    return upsertByNamePhoneBatch({
+      collectionName: "workers",
       items,
-      workers,
-      (item) => add(item).then((ref) => ({ id: ref.id })),
-      (id, item) => update(id, item),
-      geocodeIfNeeded,
-      async (workerId, item, isUpdate) => {
+      existing: workers,
+      beforeSave: geocodeIfNeeded,
+      onSaved: async (workerId, item, isUpdate) => {
         if (!item.assignedUserIds?.length) return;
         const prev = isUpdate
           ? workers.find((w) => w.id === workerId)?.assignedUserIds ?? []
           : [];
         await syncWorkerToUsers(workerId, item, users, prev, updateUser);
-      }
-    );
+      },
+    });
   };
 
   const mapWorkerRows = (sheet: ParsedSheet) =>
@@ -385,7 +384,9 @@ const WorkerManagement = () => {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {loading ? (
+                {workersError ? (
+                  <tr><td colSpan={7} className="p-8 text-center text-destructive font-medium">{workersError}</td></tr>
+                ) : loading ? (
                   <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
                 ) : filtered.length === 0 ? (
                   <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
@@ -416,7 +417,9 @@ const WorkerManagement = () => {
           </div>
 
           <div className="block md:hidden divide-y">
-            {loading ? (
+            {workersError ? (
+              <p className="p-8 text-center text-destructive font-medium">{workersError}</p>
+            ) : loading ? (
               <p className="p-8 text-center text-muted-foreground">로딩중...</p>
             ) : filtered.length === 0 ? (
               <p className="p-8 text-center text-muted-foreground">데이터가 없습니다.</p>

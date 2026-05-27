@@ -1,5 +1,8 @@
 import * as XLSX from "xlsx";
 import type { ServiceUser, Worker } from "@/types";
+import { db, collection, doc, writeBatch, Timestamp } from "@/lib/firebase";
+
+const FIRESTORE_BATCH_LIMIT = 500;
 
 export function safeStr(val: unknown): string {
   if (val === null || val === undefined) return "";
@@ -376,14 +379,88 @@ export interface UpsertResult {
   skipped: number;
 }
 
-export async function upsertByNamePhone<T extends { name: string; phone: string }>(
-  items: T[],
-  existing: (T & { id: string })[],
-  addFn: (item: Omit<T, "id">) => Promise<{ id: string }>,
-  updateFn: (id: string, item: Partial<T>) => Promise<unknown>,
-  beforeSave?: (item: T) => Promise<T>,
-  onSaved?: (id: string, item: T, isUpdate: boolean) => Promise<void>
+/** Firestore에 저장 가능한 형태로 정제 (undefined 제거, null·NaN 안전 처리) */
+export function sanitizeForFirestore(data: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(data)) {
+    if (value === undefined) continue;
+
+    if (value === null) {
+      result[key] = "";
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      result[key] = value.map((v) =>
+        v === null || v === undefined ? "" : typeof v === "string" ? v : v
+      );
+      continue;
+    }
+
+    if (typeof value === "number" && Number.isNaN(value)) {
+      result[key] = 0;
+      continue;
+    }
+
+    if (typeof value === "object" && value !== null && !(value instanceof Date)) {
+      const maybeTimestamp = value as { toMillis?: () => number };
+      if (typeof maybeTimestamp.toMillis === "function") {
+        result[key] = value;
+        continue;
+      }
+    }
+
+    result[key] = value;
+  }
+
+  return result;
+}
+
+type BatchOp<T> = {
+  type: "create" | "update";
+  id: string;
+  item: T;
+  payload: Record<string, unknown>;
+};
+
+async function commitBatchChunks(
+  collectionName: string,
+  operations: BatchOp<unknown>[]
+): Promise<void> {
+  for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
+    const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
+    const batch = writeBatch(db);
+
+    for (const op of chunk) {
+      const ref = doc(db, collectionName, op.id);
+      if (op.type === "create") {
+        batch.set(ref, op.payload);
+      } else {
+        batch.update(ref, op.payload);
+      }
+    }
+
+    await batch.commit();
+  }
+}
+
+export interface BatchUpsertOptions<T extends { name: string; phone: string }> {
+  collectionName: string;
+  items: T[];
+  existing: (T & { id: string })[];
+  beforeSave?: (item: T) => Promise<T>;
+  onSaved?: (id: string, item: T, isUpdate: boolean) => Promise<void>;
+}
+
+/**
+ * 이름+연락처 기준 upsert를 Firestore writeBatch(최대 500건/배치)로 일괄 저장.
+ * 개별 addDoc/updateDoc 반복 호출 대비 네트워크 안정성이 높음.
+ */
+export async function upsertByNamePhoneBatch<T extends { name: string; phone: string }>(
+  options: BatchUpsertOptions<T>
 ): Promise<UpsertResult> {
+  const { collectionName, items, existing, beforeSave, onSaved } = options;
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
@@ -395,6 +472,9 @@ export async function upsertByNamePhone<T extends { name: string; phone: string 
     }
   }
 
+  const operations: BatchOp<T>[] = [];
+  const now = Timestamp.now();
+
   for (let i = 0; i < items.length; i++) {
     const raw = cloneRowEntity(items[i] as Record<string, unknown>) as T;
     if (!raw.name && !raw.phone) {
@@ -405,19 +485,42 @@ export async function upsertByNamePhone<T extends { name: string; phone: string 
     const item = beforeSave ? await beforeSave(raw) : raw;
     const key = makeUniqueKey(item.name, item.phone);
     const found = existingMap.get(key);
+    const { id: _omitId, createdAt: _c, updatedAt: _u, ...rest } = item as Record<string, unknown>;
+    const basePayload = sanitizeForFirestore({
+      ...rest,
+      updatedAt: now,
+    });
 
     if (found?.id) {
-      await updateFn(found.id, item);
+      operations.push({
+        type: "update",
+        id: found.id,
+        item,
+        payload: basePayload,
+      });
       existingMap.set(key, { ...found, ...item });
-      await onSaved?.(found.id, item, true);
       updated++;
     } else {
-      const ref = await addFn(item);
-      existingMap.set(key, { id: ref.id, ...item } as T & { id: string });
-      await onSaved?.(ref.id, item, false);
+      const newRef = doc(collection(db, collectionName));
+      operations.push({
+        type: "create",
+        id: newRef.id,
+        item,
+        payload: { ...basePayload, createdAt: now },
+      });
+      existingMap.set(key, { id: newRef.id, ...item } as T & { id: string });
       inserted++;
     }
   }
 
+  if (operations.length > 0) {
+    await commitBatchChunks(collectionName, operations);
+  }
+
+  for (const op of operations) {
+    await onSaved?.(op.id, op.item, op.type === "update");
+  }
+
   return { inserted, updated, skipped };
 }
+

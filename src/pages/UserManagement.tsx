@@ -7,7 +7,7 @@ import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import {
   rowsToEntities,
   rowToServiceUser,
-  upsertByNamePhone,
+  upsertByNamePhoneBatch,
   makeUniqueKey,
   type FieldKey,
   type ParsedSheet,
@@ -63,7 +63,7 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 ];
 
 const UserManagement = () => {
-  const { data: users, add, update, remove, loading } = useCollection<ServiceUser>("users");
+  const { data: users, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>("users");
   const { data: workers, update: updateWorker } = useCollection<Worker>("workers");
   const [form, setForm] = useState(emptyUser);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -161,20 +161,19 @@ const UserManagement = () => {
   };
 
   const handleBulkConfirm = async (items: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[]) => {
-    return upsertByNamePhone(
+    return upsertByNamePhoneBatch({
+      collectionName: "users",
       items,
-      users,
-      (item) => add(item).then((ref) => ({ id: ref.id })),
-      (id, item) => update(id, item),
-      geocodeIfNeeded,
-      async (userId, item, isUpdate) => {
+      existing: users,
+      beforeSave: geocodeIfNeeded,
+      onSaved: async (userId, item, isUpdate) => {
         if (!item.assignedHelperIds?.length) return;
         const prev = isUpdate
           ? users.find((u) => u.id === userId)?.assignedHelperIds ?? []
           : [];
         await syncUserToWorkers(userId, item, workers, prev, updateWorker);
-      }
-    );
+      },
+    });
   };
 
   const mapUserRows = (sheet: ParsedSheet) =>
@@ -437,7 +436,9 @@ const UserManagement = () => {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {loading ? (
+                {usersError ? (
+                  <tr><td colSpan={9} className="p-8 text-center text-destructive font-medium">{usersError}</td></tr>
+                ) : loading ? (
                   <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
                 ) : filtered.length === 0 ? (
                   <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
@@ -476,7 +477,9 @@ const UserManagement = () => {
           </div>
 
           <div className="block md:hidden divide-y">
-            {loading ? (
+            {usersError ? (
+              <p className="p-8 text-center text-destructive font-medium">{usersError}</p>
+            ) : loading ? (
               <p className="p-8 text-center text-muted-foreground">로딩중...</p>
             ) : filtered.length === 0 ? (
               <p className="p-8 text-center text-muted-foreground">데이터가 없습니다.</p>
