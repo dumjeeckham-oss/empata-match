@@ -435,15 +435,6 @@ type BatchOp<T> = {
   payload: Record<string, unknown>;
 };
 
-class BulkUploadError extends Error {
-  code: string;
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = "BulkUploadError";
-    this.code = code;
-  }
-}
-
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -471,54 +462,62 @@ async function commitBatchChunks(
   collectionName: string,
   operations: BatchOp<unknown>[]
 ): Promise<void> {
+  // 요구사항 반영:
+  // - 중첩 try/catch 제거 (함수 전체 단일 try/catch)
+  // - commit 실패 시 중간에서 catch 후 throw로 흐름을 끊지 않음(자연스럽게 catch로 내려오게)
+  // - 최종 commit 직후 성공 alert 실행
   try {
-    const user = auth.currentUser;
-    if (!user) {
-      // 요구사항: 성공/실패 모두 alert가 떠야 하므로, try 블록 안에서 예외로 처리해 catch로 흘려보냄
-      throw new BulkUploadError(
-        "auth/not-authenticated",
-        "로그인이 필요한 서비스입니다. 로그인 후 다시 시도해 주세요."
+    // 컬렉션 이름(복수형) 강제 검증: user/worker 오타로 다른 컬렉션이 생기는 사고 방지
+    if (collectionName !== USERS_COLLECTION && collectionName !== WORKERS_COLLECTION) {
+      const err = Object.assign(
+        new Error(`잘못된 컬렉션 이름입니다: "${collectionName}" (허용: "${USERS_COLLECTION}", "${WORKERS_COLLECTION}")`),
+        { code: "invalid-collection" }
       );
+      throw err;
+    }
+
+    if (!auth.currentUser) {
+      const err = Object.assign(
+        new Error("로그인이 필요한 서비스입니다. 로그인 후 다시 시도해 주세요."),
+        { code: "auth/not-authenticated" }
+      );
+      throw err;
     }
 
     console.log(`Bulk upload commit started: ${collectionName}, ${operations.length} records`);
+
     for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
       const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
       const batch = writeBatch(db);
 
       for (const op of chunk) {
         const ref = doc(db, collectionName, op.id);
-        if (op.type === "create") {
-          batch.set(ref, op.payload);
-        } else {
-          batch.update(ref, op.payload);
-        }
+        if (op.type === "create") batch.set(ref, op.payload);
+        else batch.update(ref, op.payload);
       }
 
-      // 요구사항: batch.commit()을 try/catch로 감싸서 에러 사유를 확실히 포착
-      try {
-        await batch.commit();
-      } catch (err) {
-        const code = getFirebaseErrorCode(err);
-        const message = getErrorMessage(err);
-        console.error(
-          `Firestore batch commit failed (collection=${collectionName}, chunk=${i / FIRESTORE_BATCH_LIMIT + 1}):`,
-          err
+      // 최종 커밋 실행
+      await batch.commit();
+
+      // 마지막 커밋 직후 즉시 성공 알림
+      const isLastCommit = i + FIRESTORE_BATCH_LIMIT >= operations.length;
+      if (isLastCommit && typeof window !== "undefined") {
+        alert(
+          `🎉 성공: Firebase 데이터베이스(${collectionName})에 ${operations.length}명의 데이터 저장을 완료했습니다!`
         );
-        throw new BulkUploadError(code, message);
       }
     }
-    if (typeof window !== "undefined") {
-      alert(`🎉 성공: Firebase 데이터베이스에 ${operations.length}명의 데이터 저장을 완료했습니다!`);
-    }
   } catch (error) {
-    const message = getErrorMessage(error);
-    const code = getFirebaseErrorCode(error);
-    console.error(`Firestore batch commit failed (${collectionName}):`, error);
+    console.error("Firestore 전송 실패 원인:", error);
     cacheFailedOperations(collectionName, operations);
+
+    const code = getFirebaseErrorCode(error);
+    const message = getErrorMessage(error);
+
     if (typeof window !== "undefined") {
       alert("❌ 실패: Firestore 전송 중 에러 발생!\n코드: " + code + "\n사유: " + message);
     }
+    // 상위 로직에서도 실패를 인지할 수 있도록 에러는 그대로 전달
     throw error;
   }
 }
