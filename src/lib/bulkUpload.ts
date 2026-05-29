@@ -397,14 +397,15 @@ export function sanitizeForFirestore(data: Record<string, unknown>): Record<stri
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined) continue;
 
+    // Firestore는 null을 허용합니다. (undefined만 금지)
     if (value === null) {
-      result[key] = "";
+      result[key] = null;
       continue;
     }
 
     if (Array.isArray(value)) {
       result[key] = value.map((v) =>
-        v === null || v === undefined ? "" : typeof v === "string" ? v : v
+        v === undefined ? null : v === null ? null : typeof v === "string" ? v : v
       );
       continue;
     }
@@ -439,9 +440,44 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function getErrorStack(error: unknown): string {
+  return error instanceof Error ? error.stack ?? "" : "";
+}
+
 function getFirebaseErrorCode(error: unknown): string {
   const firebaseError = error as { code?: string };
   return firebaseError?.code ?? "unknown";
+}
+
+/**
+ * Firestore는 undefined 값을 허용하지 않습니다.
+ * payload 내부 어디에 있든 undefined가 섞여 있으면 batch.commit() 단계에서 거절될 수 있으므로,
+ * Timestamp/Date 등 Firestore에서 허용되는 객체는 보존하고, undefined만 null로 치환합니다.
+ */
+function deepReplaceUndefined(value: unknown): unknown {
+  if (value === undefined) return null;
+  if (value === null) return null;
+
+  // Firestore Timestamp / Date 객체는 그대로 유지
+  if (value instanceof Timestamp) return value;
+  if (value instanceof Date) return value;
+
+  if (Array.isArray(value)) return value.map(deepReplaceUndefined);
+
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    const result: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(obj)) {
+      result[k] = deepReplaceUndefined(v);
+    }
+    return result;
+  }
+
+  return value;
+}
+
+function sanitizeBatchPayload(payload: Record<string, unknown>): Record<string, unknown> {
+  return deepReplaceUndefined(payload) as Record<string, unknown>;
 }
 
 function getCacheKey(collectionName: string): string {
@@ -492,8 +528,9 @@ async function commitBatchChunks(
 
       for (const op of chunk) {
         const ref = doc(db, collectionName, op.id);
-        if (op.type === "create") batch.set(ref, op.payload);
-        else batch.update(ref, op.payload);
+        const sanitizedPayload = sanitizeBatchPayload(op.payload);
+        if (op.type === "create") batch.set(ref, sanitizedPayload);
+        else batch.update(ref, sanitizedPayload);
       }
 
       // 최종 커밋 실행
@@ -513,9 +550,21 @@ async function commitBatchChunks(
 
     const code = getFirebaseErrorCode(error);
     const message = getErrorMessage(error);
+    const stack = getErrorStack(error);
 
     if (typeof window !== "undefined") {
-      alert("❌ 실패: Firestore 전송 중 에러 발생!\n코드: " + code + "\n사유: " + message);
+      alert(
+        "❌ 서버 저장 실패!\n" +
+          "컬렉션: " +
+          collectionName +
+          "\n" +
+          "코드: " +
+          code +
+          "\n" +
+          "사유: " +
+          message +
+          (stack ? "\n\n[stack]\n" + stack : "")
+      );
     }
     // 상위 로직에서도 실패를 인지할 수 있도록 에러는 그대로 전달
     throw error;
