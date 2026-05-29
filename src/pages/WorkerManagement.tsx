@@ -154,27 +154,52 @@ const WorkerManagement = () => {
   };
 
   const handleBulkConfirm = async (items: Omit<Worker, "id" | "createdAt" | "updatedAt">[]) => {
-    return upsertByNamePhoneBatch({
-      collectionName: WORKERS_COLLECTION,
-      items,
-      existing: workers,
-      beforeSave: geocodeIfNeeded,
-      onSaved: async (workerId, item, isUpdate) => {
-        if (!item.assignedUserIds?.length) return;
-        const prev = isUpdate
-          ? workers.find((w) => w.id === workerId)?.assignedUserIds ?? []
-          : [];
-        await syncWorkerToUsers(workerId, item, users, prev, updateUser);
-      },
-    });
+    try {
+      console.log("[WorkerManagement] bulk confirm start:", items.length);
+      return await upsertByNamePhoneBatch({
+        collectionName: WORKERS_COLLECTION,
+        items,
+        existing: workers,
+        beforeSave: geocodeIfNeeded,
+        onSaved: async (workerId, item, isUpdate) => {
+          if (!item.assignedUserIds?.length) return;
+          const prev = isUpdate
+            ? workers.find((w) => w.id === workerId)?.assignedUserIds ?? []
+            : [];
+          await syncWorkerToUsers(workerId, item, users, prev, updateUser);
+        },
+      });
+    } catch (e: any) {
+      console.error("[WorkerManagement] 업로드 확정 처리 중 치명적 에러:", e);
+      alert(
+        `❌ 업로드 준비 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: 활동지원사 업로드 확정(handleBulkConfirm)\n` +
+          `사유: ${e?.message ?? String(e)}\n` +
+          (e?.stack ? `\n[stack]\n${e.stack}` : "")
+      );
+      throw e;
+    }
   };
 
-  const mapWorkerRows = (sheet: ParsedSheet) =>
-    rowsToEntities(sheet, (row, headerMap) => {
-      const entity = rowToWorker(row, headerMap, users);
-      if (!entity.name && !entity.phone) return null;
-      return entity;
-    });
+  const mapWorkerRows = (sheet: ParsedSheet) => {
+    try {
+      console.log("[WorkerManagement] mapWorkerRows start");
+      return rowsToEntities(sheet, (row, headerMap) => {
+        const entity = rowToWorker(row, headerMap, users);
+        if (!entity.name && !entity.phone) return null;
+        return entity;
+      });
+    } catch (e: any) {
+      console.error("[WorkerManagement] 엑셀 파싱/매핑 중 치명적 에러:", e);
+      alert(
+        `❌ 업로드 준비 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: 활동지원사 엑셀 매핑(mapWorkerRows)\n` +
+          `사유: ${e?.message ?? String(e)}\n` +
+          (e?.stack ? `\n[stack]\n${e.stack}` : "")
+      );
+      return [];
+    }
+  };
 
   const getWorkerPreviewValue = (item: Omit<Worker, "id">, key: FieldKey): string => {
     const map: Record<string, string | number | boolean> = {

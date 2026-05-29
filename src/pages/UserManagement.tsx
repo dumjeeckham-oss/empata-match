@@ -165,27 +165,52 @@ const UserManagement = () => {
   };
 
   const handleBulkConfirm = async (items: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[]) => {
-    return upsertByNamePhoneBatch({
-      collectionName: USERS_COLLECTION,
-      items,
-      existing: users,
-      beforeSave: geocodeIfNeeded,
-      onSaved: async (userId, item, isUpdate) => {
-        if (!item.assignedHelperIds?.length) return;
-        const prev = isUpdate
-          ? users.find((u) => u.id === userId)?.assignedHelperIds ?? []
-          : [];
-        await syncUserToWorkers(userId, item, workers, prev, updateWorker);
-      },
-    });
+    try {
+      console.log("[UserManagement] bulk confirm start:", items.length);
+      return await upsertByNamePhoneBatch({
+        collectionName: USERS_COLLECTION,
+        items,
+        existing: users,
+        beforeSave: geocodeIfNeeded,
+        onSaved: async (userId, item, isUpdate) => {
+          if (!item.assignedHelperIds?.length) return;
+          const prev = isUpdate
+            ? users.find((u) => u.id === userId)?.assignedHelperIds ?? []
+            : [];
+          await syncUserToWorkers(userId, item, workers, prev, updateWorker);
+        },
+      });
+    } catch (e: any) {
+      console.error("[UserManagement] 업로드 확정 처리 중 치명적 에러:", e);
+      alert(
+        `❌ 업로드 준비 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: 이용자 업로드 확정(handleBulkConfirm)\n` +
+          `사유: ${e?.message ?? String(e)}\n` +
+          (e?.stack ? `\n[stack]\n${e.stack}` : "")
+      );
+      throw e;
+    }
   };
 
-  const mapUserRows = (sheet: ParsedSheet) =>
-    rowsToEntities(sheet, (row, headerMap) => {
-      const entity = rowToServiceUser(row, headerMap, workers);
-      if (!entity.name && !entity.phone) return null;
-      return entity;
-    });
+  const mapUserRows = (sheet: ParsedSheet) => {
+    try {
+      console.log("[UserManagement] mapUserRows start");
+      return rowsToEntities(sheet, (row, headerMap) => {
+        const entity = rowToServiceUser(row, headerMap, workers);
+        if (!entity.name && !entity.phone) return null;
+        return entity;
+      });
+    } catch (e: any) {
+      console.error("[UserManagement] 엑셀 파싱/매핑 중 치명적 에러:", e);
+      alert(
+        `❌ 업로드 준비 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: 이용자 엑셀 매핑(mapUserRows)\n` +
+          `사유: ${e?.message ?? String(e)}\n` +
+          (e?.stack ? `\n[stack]\n${e.stack}` : "")
+      );
+      return [];
+    }
+  };
 
   const getUserPreviewValue = (item: Omit<ServiceUser, "id">, key: FieldKey): string => {
     const map: Record<string, string | number> = {

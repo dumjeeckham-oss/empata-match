@@ -14,6 +14,16 @@ import {
 import { toast } from "@/hooks/use-toast";
 import { Upload, FileSpreadsheet } from "lucide-react";
 
+function getErrMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function getErrStack(err: unknown): string {
+  if (err instanceof Error) return err.stack ?? "";
+  return "";
+}
+
 interface BulkUploadDialogProps<T> {
   title: string;
   triggerLabel?: string;
@@ -49,16 +59,29 @@ export function BulkUploadDialog<T>({
   const buildPreview = useCallback(
     (sheet: ParsedSheet) => {
       setRawSheet(sheet);
-      const items = mapRows(sheet);
-      setPreviewItems(items);
-      if (items.length === 0) {
-        toast({
-          title: "미리보기 데이터 없음",
-          description: "헤더와 데이터 행을 확인해 주세요.",
-          variant: "destructive",
-        });
-      } else {
-        toast({ title: `미리보기 ${items.length}건 준비됨`, description: "내용 확인 후 [최종 업로드 확정]을 눌러주세요." });
+      try {
+        console.log("[BulkUploadDialog] 미리보기 생성 시작");
+        const items = mapRows(sheet);
+        console.log("[BulkUploadDialog] 미리보기 생성 완료:", items.length);
+        setPreviewItems(items);
+        if (items.length === 0) {
+          toast({
+            title: "미리보기 데이터 없음",
+            description: "헤더와 데이터 행을 확인해 주세요.",
+            variant: "destructive",
+          });
+        } else {
+          toast({ title: `미리보기 ${items.length}건 준비됨`, description: "내용 확인 후 [최종 업로드 확정]을 눌러주세요." });
+        }
+      } catch (err) {
+        console.error("[BulkUploadDialog] 미리보기 생성 중 오류:", err);
+        alert(
+          `❌ 업로드 준비 중 오류 발생!\n` +
+            `이 단계에서 코드가 멈췄습니다: 미리보기 생성(mapRows)\n` +
+            `사유: ${getErrMessage(err)}\n` +
+            (getErrStack(err) ? `\n[stack]\n${getErrStack(err)}` : "")
+        );
+        setPreviewItems([]);
       }
     },
     [mapRows]
@@ -66,16 +89,37 @@ export function BulkUploadDialog<T>({
 
   const handleFile = async (file: File) => {
     try {
+      console.log("[BulkUploadDialog] 파일 읽기 시작:", file.name, file.size);
       const sheet = await parseSpreadsheetFile(file);
+      console.log("[BulkUploadDialog] 파일 파싱 완료. headers:", sheet.headers?.length, "rows:", sheet.rows?.length);
       buildPreview(sheet);
-    } catch {
-      toast({ title: "파일 읽기 실패", variant: "destructive" });
+    } catch (err) {
+      console.error("[BulkUploadDialog] 파일 읽기/파싱 실패:", err);
+      alert(
+        `❌ 업로드 준비 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: 파일 읽기/엑셀 파싱\n` +
+          `파일: ${file?.name ?? "(unknown)"}\n` +
+          `사유: ${getErrMessage(err)}\n` +
+          (getErrStack(err) ? `\n[stack]\n${getErrStack(err)}` : "")
+      );
+      toast({ title: "파일 읽기 실패", description: getErrMessage(err), variant: "destructive" });
     }
   };
 
   const handlePastePreview = () => {
     if (!pasteData.trim()) return;
-    buildPreview(parsePasteData(pasteData));
+    try {
+      console.log("[BulkUploadDialog] 붙여넣기 데이터 파싱 시작");
+      buildPreview(parsePasteData(pasteData));
+    } catch (err) {
+      console.error("[BulkUploadDialog] 붙여넣기 파싱 실패:", err);
+      alert(
+        `❌ 업로드 준비 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: 붙여넣기 파싱\n` +
+          `사유: ${getErrMessage(err)}\n` +
+          (getErrStack(err) ? `\n[stack]\n${getErrStack(err)}` : "")
+      );
+    }
   };
 
   const handleConfirm = async () => {
@@ -85,6 +129,7 @@ export function BulkUploadDialog<T>({
     }
     setUploading(true);
     try {
+      console.log("[BulkUploadDialog] Firebase 전송 시작:", previewItems.length);
       const result = await onConfirm(previewItems);
       toast({
         title: "업로드 완료",
@@ -93,8 +138,15 @@ export function BulkUploadDialog<T>({
       setPasteData("");
       resetPreview();
       setOpen(false);
-    } catch {
-      toast({ title: "업로드 실패", variant: "destructive" });
+    } catch (err) {
+      console.error("[BulkUploadDialog] 업로드 실패(onConfirm):", err);
+      alert(
+        `❌ 업로드 준비/전송 중 오류 발생!\n` +
+          `이 단계에서 코드가 멈췄습니다: Firebase 전송(onConfirm)\n` +
+          `사유: ${getErrMessage(err)}\n` +
+          (getErrStack(err) ? `\n[stack]\n${getErrStack(err)}` : "")
+      );
+      toast({ title: "업로드 실패", description: getErrMessage(err), variant: "destructive" });
     } finally {
       setUploading(false);
     }
