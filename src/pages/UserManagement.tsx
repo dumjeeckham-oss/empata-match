@@ -121,8 +121,11 @@ const UserManagement = () => {
     const payload = {
       ...form,
       assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
       assignedHelperNames: arrays.names,
       assignedHelperPhones: arrays.phones,
+      txtUSex: form.gender,
+      txtUMemostop: form.terminationReason,
     };
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []

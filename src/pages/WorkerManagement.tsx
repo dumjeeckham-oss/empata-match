@@ -119,8 +119,10 @@ const WorkerManagement = () => {
     const payload = {
       ...form,
       assignedUserIds: arrays.ids,
+      assigned_users: arrays.ids,
       assignedUserNames: arrays.names,
       assignedUserPhones: arrays.phones,
+      txtHSex: form.gender,
     };
     const prevUserIds = editingId
       ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []

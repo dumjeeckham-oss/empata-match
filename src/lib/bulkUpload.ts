@@ -75,9 +75,9 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "guardianPhone", patterns: [/보호자연락/, /보호자\s*연락/, /보호자전화/] },
   { field: "notes", patterns: [/비고/, /메모/, /^note/i] },
   { field: "terminationReason", patterns: [/중단/, /중단사유/, /txtUMemostop/i, /해지사유/, /종료사유/] },
-  { field: "assignedHelperName", patterns: [/담당.*지원사/, /활동지원사.*이름/, /매칭.*이름/, /담당자/] },
+  { field: "assignedHelperName", patterns: [/담당.*지원사/, /활동지원사.*이름/, /매칭.*이름/, /담당자/, /assigned_workers/i, /assignedHelpers?/i] },
   { field: "assignedHelperPhone", patterns: [/담당.*연락/, /활동지원사.*연락/, /매칭.*연락/] },
-  { field: "assignedUserName", patterns: [/담당.*이용자/, /이용자.*이름/, /매칭.*이용자/, /담당대상/] },
+  { field: "assignedUserName", patterns: [/담당.*이용자/, /이용자.*이름/, /매칭.*이용자/, /담당대상/, /assigned_users/i, /assignedUsers?/i] },
   { field: "assignedUserPhone", patterns: [/담당.*이용자.*연락/, /이용자.*연락/] },
   { field: "residenceArea", patterns: [/거주지역/, /거주지역/] },
   { field: "preferredArea", patterns: [/희망지역/, /근무희망/] },
@@ -163,7 +163,7 @@ export function getCell(
 
 export function splitList(val: string): string[] {
   if (!val) return [];
-  return val.split(/[,，、\/]/).map((s) => s.trim()).filter(Boolean);
+  return val.split(/[,，、/]/).map((s) => s.trim()).filter(Boolean);
 }
 
 function parseYesNo(val: string): boolean {
@@ -290,10 +290,14 @@ export function rowToServiceUser(
     getCell(row, headerMap, "assignedHelperPhone")
   );
 
+  const gender = getCell(row, headerMap, "gender") || "남성";
+  const terminationReason = getCell(row, headerMap, "terminationReason");
+
   return {
     name: getCell(row, headerMap, "name"),
     age: Number(getCell(row, headerMap, "age")) || 0,
-    gender: getCell(row, headerMap, "gender") || "남성",
+    gender,
+    txtUSex: gender,
     phone: getCell(row, headerMap, "phone"),
     disabilityType: getCell(row, headerMap, "disabilityType"),
     voucherTier: Number(getCell(row, headerMap, "voucherTier")) || 1,
@@ -310,7 +314,9 @@ export function rowToServiceUser(
     guardianName: getCell(row, headerMap, "guardianName"),
     guardianRelation: getCell(row, headerMap, "guardianRelation"),
     guardianPhone: getCell(row, headerMap, "guardianPhone"),
-    terminationReason: getCell(row, headerMap, "terminationReason"),
+    terminationReason,
+    txtUMemostop: terminationReason,
+    assigned_workers: [...helpers.ids],
     assignedHelperIds: [...helpers.ids],
     assignedHelperNames: [...helpers.names],
     assignedHelperPhones: [...helpers.phones],
@@ -329,10 +335,13 @@ export function rowToWorker(
     getCell(row, headerMap, "assignedUserPhone")
   );
 
+  const gender = getCell(row, headerMap, "gender") || "여성";
+
   return {
     name: getCell(row, headerMap, "name"),
     age: Number(getCell(row, headerMap, "age")) || 0,
-    gender: getCell(row, headerMap, "gender") || "여성",
+    gender,
+    txtHSex: gender,
     phone: getCell(row, headerMap, "phone"),
     residenceArea: getCell(row, headerMap, "residenceArea"),
     preferredArea: getCell(row, headerMap, "preferredArea"),
@@ -349,6 +358,7 @@ export function rowToWorker(
     serviceStartDate: getCell(row, headerMap, "serviceStartDate"),
     resignationDate: getCell(row, headerMap, "resignationDate"),
     notes: getCell(row, headerMap, "notes"),
+    assigned_users: [...assigned.ids],
     assignedUserIds: [...assigned.ids],
     assignedUserNames: [...assigned.names],
     assignedUserPhones: [...assigned.phones],
@@ -424,24 +434,37 @@ type BatchOp<T> = {
   payload: Record<string, unknown>;
 };
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function commitBatchChunks(
   collectionName: string,
   operations: BatchOp<unknown>[]
 ): Promise<void> {
-  for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
-    const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
-    const batch = writeBatch(db);
+  try {
+    for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
+      const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
+      const batch = writeBatch(db);
 
-    for (const op of chunk) {
-      const ref = doc(db, collectionName, op.id);
-      if (op.type === "create") {
-        batch.set(ref, op.payload);
-      } else {
-        batch.update(ref, op.payload);
+      for (const op of chunk) {
+        const ref = doc(db, collectionName, op.id);
+        if (op.type === "create") {
+          batch.set(ref, op.payload);
+        } else {
+          batch.update(ref, op.payload);
+        }
       }
-    }
 
-    await batch.commit();
+      await batch.commit();
+    }
+  } catch (error) {
+    const message = getErrorMessage(error);
+    console.error(`Firestore batch commit failed (${collectionName}):`, error);
+    if (typeof window !== "undefined") {
+      alert("Firebase 전송 실패 사유: " + message);
+    }
+    throw error;
   }
 }
 
@@ -486,8 +509,23 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
     const key = makeUniqueKey(item.name, item.phone);
     const found = existingMap.get(key);
     const { id: _omitId, createdAt: _c, updatedAt: _u, ...rest } = item as Record<string, unknown>;
+    const compatibilityPayload =
+      collectionName === "users"
+        ? {
+            assigned_workers: (item as Record<string, unknown>).assignedHelperIds ?? [],
+            txtUSex: (item as Record<string, unknown>).gender ?? "",
+            txtUMemostop: (item as Record<string, unknown>).terminationReason ?? "",
+          }
+        : collectionName === "workers"
+          ? {
+              assigned_users: (item as Record<string, unknown>).assignedUserIds ?? [],
+              txtHSex: (item as Record<string, unknown>).gender ?? "",
+            }
+          : {};
+
     const basePayload = sanitizeForFirestore({
       ...rest,
+      ...compatibilityPayload,
       updatedAt: now,
     });
 
@@ -523,4 +561,3 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
-

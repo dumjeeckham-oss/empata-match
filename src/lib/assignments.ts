@@ -4,6 +4,8 @@ import type { ServiceUser, Worker } from "@/types";
 export function normalizeServiceUser(raw: Record<string, unknown>): Partial<ServiceUser> {
   const ids = Array.isArray(raw.assignedHelperIds)
     ? (raw.assignedHelperIds as string[])
+    : Array.isArray(raw.assigned_workers)
+      ? (raw.assigned_workers as string[])
     : raw.assignedHelperId
       ? [String(raw.assignedHelperId)]
       : [];
@@ -21,15 +23,21 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
   return {
     ...raw,
     assignedHelperIds: ids.filter(Boolean),
+    assigned_workers: ids.filter(Boolean),
     assignedHelperNames: names,
     assignedHelperPhones: phones,
-    terminationReason: String(raw.terminationReason ?? ""),
+    gender: String(raw.gender ?? raw.txtUSex ?? ""),
+    txtUSex: String(raw.txtUSex ?? raw.gender ?? ""),
+    terminationReason: String(raw.terminationReason ?? raw.txtUMemostop ?? ""),
+    txtUMemostop: String(raw.txtUMemostop ?? raw.terminationReason ?? ""),
   } as Partial<ServiceUser>;
 }
 
 export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   const ids = Array.isArray(raw.assignedUserIds)
     ? (raw.assignedUserIds as string[])
+    : Array.isArray(raw.assigned_users)
+      ? (raw.assigned_users as string[])
     : raw.assignedUserId
       ? [String(raw.assignedUserId)]
       : [];
@@ -47,8 +55,11 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   return {
     ...raw,
     assignedUserIds: ids.filter(Boolean),
+    assigned_users: ids.filter(Boolean),
     assignedUserNames: names,
     assignedUserPhones: phones,
+    gender: String(raw.gender ?? raw.txtHSex ?? ""),
+    txtHSex: String(raw.txtHSex ?? raw.gender ?? ""),
   } as Partial<Worker>;
 }
 
@@ -92,7 +103,7 @@ export async function syncUserToWorkers(
       phones.push(user.phone);
     }
     if (!prev.has(workerId) || existIdx >= 0) {
-      await updateWorker(workerId, { assignedUserIds: ids, assignedUserNames: names, assignedUserPhones: phones });
+      await updateWorker(workerId, { assignedUserIds: ids, assigned_users: ids, assignedUserNames: names, assignedUserPhones: phones });
     }
   }
 
@@ -104,6 +115,7 @@ export async function syncUserToWorkers(
     if (removeIdx < 0) continue;
     await updateWorker(workerId, {
       assignedUserIds: (worker.assignedUserIds ?? []).filter((id) => id !== userId),
+      assigned_users: (worker.assignedUserIds ?? []).filter((id) => id !== userId),
       assignedUserNames: (worker.assignedUserNames ?? []).filter((_, i) => i !== removeIdx),
       assignedUserPhones: (worker.assignedUserPhones ?? []).filter((_, i) => i !== removeIdx),
     });
@@ -138,7 +150,7 @@ export async function syncWorkerToUsers(
       phones.push(worker.phone);
     }
     if (!prev.has(userId) || existIdx >= 0) {
-      await updateUser(userId, { assignedHelperIds: ids, assignedHelperNames: names, assignedHelperPhones: phones });
+      await updateUser(userId, { assignedHelperIds: ids, assigned_workers: ids, assignedHelperNames: names, assignedHelperPhones: phones });
     }
   }
 
@@ -150,6 +162,7 @@ export async function syncWorkerToUsers(
     if (removeIdx < 0) continue;
     await updateUser(userId, {
       assignedHelperIds: (user.assignedHelperIds ?? []).filter((id) => id !== workerId),
+      assigned_workers: (user.assignedHelperIds ?? []).filter((id) => id !== workerId),
       assignedHelperNames: (user.assignedHelperNames ?? []).filter((_, i) => i !== removeIdx),
       assignedHelperPhones: (user.assignedHelperPhones ?? []).filter((_, i) => i !== removeIdx),
     });

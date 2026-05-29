@@ -32,6 +32,8 @@ export interface ServiceUser {
   name: string;
   age: number;
   gender: string;
+  /** Excel/Firebase 원본 필드 호환: 이용자 성별 */
+  txtUSex?: string;
   phone: string;
   disabilityType: string;
   voucherTier: number;
@@ -52,14 +54,18 @@ export interface ServiceUser {
   guardianPhone: string;
   /** 중단/해지 사유 (txtUMemostop) */
   terminationReason: string;
+  /** Excel/Firebase 원본 필드 호환: 중단/해지 사유 */
+  txtUMemostop?: string;
+  /** Firestore 업무 필드: 담당 활동지원사 ID 배열 */
+  assigned_workers?: string[];
   /** 담당 활동지원사 ID 목록 (N:M) */
   assignedHelperIds: string[];
   /** 담당 활동지원사 이름 목록 */
   assignedHelperNames: string[];
   /** 담당 활동지원사 연락처 목록 */
   assignedHelperPhones: string[];
-  createdAt?: any;
-  updatedAt?: any;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export interface Worker {
@@ -67,6 +73,8 @@ export interface Worker {
   name: string;
   age: number;
   gender: string;
+  /** Excel/Firebase 원본 필드 호환: 활동지원사 성별 */
+  txtHSex?: string;
   phone: string;
   residenceArea: string;
   preferredArea: string;
@@ -87,12 +95,14 @@ export interface Worker {
   notes: string;
   /** 담당 이용자 ID 목록 (N:M) */
   assignedUserIds: string[];
+  /** Firestore 업무 필드: 담당 이용자 ID 배열 */
+  assigned_users?: string[];
   /** 담당 이용자 이름 목록 */
   assignedUserNames: string[];
   /** 담당 이용자 연락처 목록 */
   assignedUserPhones: string[];
-  createdAt?: any;
-  updatedAt?: any;
+  createdAt?: unknown;
+  updatedAt?: unknown;
 }
 
 export interface CounselingRecord {
@@ -104,7 +114,7 @@ export interface CounselingRecord {
   date: string;
   content: string;
   category: string;
-  createdAt?: any;
+  createdAt?: unknown;
 }
 
 export interface MatchResult {
