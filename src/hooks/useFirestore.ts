@@ -56,7 +56,7 @@ export function getFirestoreErrorMessage(err: unknown): string {
   const message = firebaseErr?.message ?? String(err);
 
   if (message.includes("Database '(default)' not found") || message.includes("database") && message.includes("not found")) {
-    return "Firestore 데이터베이스를 찾지 못했습니다. Firebase 콘솔의 Database ID와 VITE_FIRESTORE_DATABASE_ID 설정을 확인하세요.";
+    return "Firestore 데이터베이스를 찾지 못했습니다. Firebase 콘솔에서 Firestore(Database) 생성 여부와 프로젝트 설정(projectId)이 올바른지 확인하세요.";
   }
   if (code === "failed-precondition" || message.includes("index")) {
     return "데이터를 불러오지 못했습니다. Firebase 인덱스를 확인하세요.";
@@ -89,20 +89,34 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
       unsub = onSnapshot(
         q,
         (snap) => {
-          const items = snap.docs.map((d) => {
-            const raw = d.data() as Record<string, unknown>;
-            const normalized =
-              collectionName === "users"
-                ? normalizeServiceUser(raw)
-                : collectionName === "workers"
-                  ? normalizeWorker(raw)
-                  : raw;
-            return { id: d.id, ...raw, ...normalized } as T & { id: string };
-          });
-          setData(items);
-          writeCachedCollection(collectionName, items);
-          setLoading(false);
-          setError(null);
+          try {
+            const items = snap.docs.map((d) => {
+              const raw = d.data() as Record<string, unknown>;
+              const normalized =
+                collectionName === "users"
+                  ? normalizeServiceUser(raw)
+                  : collectionName === "workers"
+                    ? normalizeWorker(raw)
+                    : raw;
+              return { id: d.id, ...raw, ...normalized } as T & { id: string };
+            });
+            setData(items);
+            writeCachedCollection(collectionName, items);
+            setLoading(false);
+            setError(null);
+          } catch (mappingErr) {
+            console.error(`Firestore snapshot mapping error (${collectionName}):`, mappingErr);
+            const msg = getFirestoreErrorMessage(mappingErr);
+            const cachedItems = readCachedCollection<T>(collectionName);
+            setError(msg);
+            setLoading(false);
+            setData(cachedItems);
+            toast({
+              title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
+              description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
+              variant: "destructive",
+            });
+          }
         },
         (err) => {
           console.error(`Firestore error (${collectionName}):`, err);

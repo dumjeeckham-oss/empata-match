@@ -434,6 +434,15 @@ type BatchOp<T> = {
   payload: Record<string, unknown>;
 };
 
+class BulkUploadError extends Error {
+  code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = "BulkUploadError";
+    this.code = code;
+  }
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -461,16 +470,16 @@ async function commitBatchChunks(
   collectionName: string,
   operations: BatchOp<unknown>[]
 ): Promise<void> {
-  const user = auth.currentUser;
-  if (!user) {
-    const message = "로그인이 필요한 서비스입니다. 로그인 후 다시 시도해 주세요.";
-    if (typeof window !== "undefined") {
-      alert(message);
-    }
-    throw new Error(message);
-  }
-
   try {
+    const user = auth.currentUser;
+    if (!user) {
+      // 요구사항: 성공/실패 모두 alert가 떠야 하므로, try 블록 안에서 예외로 처리해 catch로 흘려보냄
+      throw new BulkUploadError(
+        "auth/not-authenticated",
+        "로그인이 필요한 서비스입니다. 로그인 후 다시 시도해 주세요."
+      );
+    }
+
     console.log(`Bulk upload commit started: ${collectionName}, ${operations.length} records`);
     for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
       const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
@@ -485,7 +494,18 @@ async function commitBatchChunks(
         }
       }
 
-      await batch.commit();
+      // 요구사항: batch.commit()을 try/catch로 감싸서 에러 사유를 확실히 포착
+      try {
+        await batch.commit();
+      } catch (err) {
+        const code = getFirebaseErrorCode(err);
+        const message = getErrorMessage(err);
+        console.error(
+          `Firestore batch commit failed (collection=${collectionName}, chunk=${i / FIRESTORE_BATCH_LIMIT + 1}):`,
+          err
+        );
+        throw new BulkUploadError(code, message);
+      }
     }
     if (typeof window !== "undefined") {
       alert(`🎉 성공: Firebase 데이터베이스에 ${operations.length}명의 데이터 저장을 완료했습니다!`);
