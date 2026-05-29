@@ -6,6 +6,50 @@ import { toast } from "@/hooks/use-toast";
 
 const EMPTY_CONSTRAINTS: QueryConstraint[] = [];
 
+function getCacheKey(collectionName: string): string {
+  return `cached_${collectionName}`;
+}
+
+function readCachedCollection<T>(collectionName: string): (T & { id: string })[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const cached = localStorage.getItem(getCacheKey(collectionName));
+    if (!cached) return [];
+
+    const parsed = JSON.parse(cached);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.map((item, index) => {
+      const raw = item as Record<string, unknown>;
+      const normalized =
+        collectionName === "users"
+          ? normalizeServiceUser(raw)
+          : collectionName === "workers"
+            ? normalizeWorker(raw)
+            : raw;
+      return {
+        id: String(raw.id ?? `cached-${index}`),
+        ...raw,
+        ...normalized,
+      } as T & { id: string };
+    });
+  } catch (err) {
+    console.error(`Local cache read failed (${collectionName}):`, err);
+    return [];
+  }
+}
+
+function writeCachedCollection<T>(collectionName: string, items: (T & { id: string })[]): void {
+  if (typeof window === "undefined") return;
+
+  try {
+    localStorage.setItem(getCacheKey(collectionName), JSON.stringify(items));
+  } catch (err) {
+    console.error(`Local cache write failed (${collectionName}):`, err);
+  }
+}
+
 export function getFirestoreErrorMessage(err: unknown): string {
   const firebaseErr = err as { code?: string; message?: string };
   const code = firebaseErr?.code ?? "";
@@ -56,18 +100,20 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
             return { id: d.id, ...raw, ...normalized } as T & { id: string };
           });
           setData(items);
+          writeCachedCollection(collectionName, items);
           setLoading(false);
           setError(null);
         },
         (err) => {
           console.error(`Firestore error (${collectionName}):`, err);
           const msg = getFirestoreErrorMessage(err);
+          const cachedItems = readCachedCollection<T>(collectionName);
           setError(msg);
           setLoading(false);
-          setData([]);
+          setData(cachedItems);
           toast({
-            title: "데이터 로드 실패",
-            description: msg,
+            title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
+            description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
             variant: "destructive",
           });
         }
@@ -75,12 +121,13 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
     } catch (err) {
       console.error(`Firestore setup error (${collectionName}):`, err);
       const msg = getFirestoreErrorMessage(err);
+      const cachedItems = readCachedCollection<T>(collectionName);
       setError(msg);
       setLoading(false);
-      setData([]);
+      setData(cachedItems);
       toast({
-        title: "데이터 로드 실패",
-        description: msg,
+        title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
+        description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
         variant: "destructive",
       });
     }

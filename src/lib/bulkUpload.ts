@@ -443,6 +443,20 @@ function getFirebaseErrorCode(error: unknown): string {
   return firebaseError?.code ?? "unknown";
 }
 
+function getCacheKey(collectionName: string): string {
+  return `cached_${collectionName}`;
+}
+
+function cacheFailedOperations(collectionName: string, operations: BatchOp<unknown>[]): void {
+  if (typeof window === "undefined") return;
+
+  const cachedItems = operations.map((op) => ({
+    id: op.id,
+    ...op.payload,
+  }));
+  localStorage.setItem(getCacheKey(collectionName), JSON.stringify(cachedItems));
+}
+
 async function commitBatchChunks(
   collectionName: string,
   operations: BatchOp<unknown>[]
@@ -457,6 +471,7 @@ async function commitBatchChunks(
   }
 
   try {
+    console.log(`Bulk upload commit started: ${collectionName}, ${operations.length} records`);
     for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
       const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
       const batch = writeBatch(db);
@@ -473,14 +488,15 @@ async function commitBatchChunks(
       await batch.commit();
     }
     if (typeof window !== "undefined") {
-      alert("🎉 성공: Firebase 클라우드 서버에 데이터 저장을 완료했습니다!");
+      alert(`🎉 성공: Firebase 데이터베이스에 ${operations.length}명의 데이터 저장을 완료했습니다!`);
     }
   } catch (error) {
     const message = getErrorMessage(error);
     const code = getFirebaseErrorCode(error);
     console.error(`Firestore batch commit failed (${collectionName}):`, error);
+    cacheFailedOperations(collectionName, operations);
     if (typeof window !== "undefined") {
-      alert("Firestore 저장 실패 코드: " + code + "\n사유: " + message);
+      alert("❌ 실패: Firestore 전송 중 에러 발생!\n코드: " + code + "\n사유: " + message);
     }
     throw error;
   }
@@ -571,6 +587,8 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   if (operations.length > 0) {
     await commitBatchChunks(collectionName, operations);
+  } else if (typeof window !== "undefined") {
+    alert("업로드할 유효 데이터가 없습니다. 미리보기 표의 이름/연락처 값을 확인해 주세요.");
   }
 
   for (const op of operations) {
