@@ -163,7 +163,7 @@ export function getCell(
 
 export function splitList(val: string): string[] {
   if (!val) return [];
-  return val.split(/[,，、/]/).map((s) => s.trim()).filter(Boolean);
+  return val.split(/[,\uFF0C\u3001/]/).map((s) => s.trim()).filter(Boolean);
 }
 
 function parseYesNo(val: string): boolean {
@@ -458,11 +458,14 @@ async function commitBatchChunks(
 
       await batch.commit();
     }
+    if (typeof window !== "undefined") {
+      alert("🎉 성공: Firebase 클라우드 서버에 데이터 저장을 완료했습니다!");
+    }
   } catch (error) {
     const message = getErrorMessage(error);
     console.error(`Firestore batch commit failed (${collectionName}):`, error);
     if (typeof window !== "undefined") {
-      alert("Firebase 전송 실패 사유: " + message);
+      alert("❌ 실패: Firebase 전송 중 오류 발생 - 사유: " + message);
     }
     throw error;
   }

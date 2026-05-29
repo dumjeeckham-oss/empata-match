@@ -38,6 +38,9 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
     let unsub: (() => void) | undefined;
 
     try {
+      if (!db || !db.app?.options?.projectId) {
+        throw new Error("Firebase Firestore DB 객체가 아직 정상적으로 초기화되지 않았습니다.");
+      }
       const q = query(collection(db, collectionName), ...constraints);
       unsub = onSnapshot(
         q,

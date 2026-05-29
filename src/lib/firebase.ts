@@ -1,4 +1,4 @@
-import { initializeApp } from "firebase/app";
+import { getApps, initializeApp } from "firebase/app";
 import { getFirestore, collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, orderBy, onSnapshot, Timestamp, type DocumentData, type QueryConstraint } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, type User } from "firebase/auth";
 
@@ -12,7 +12,7 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || "G-3S03D8H5FE"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 
 const firestoreDatabaseId =
   import.meta.env.VITE_FIRESTORE_DATABASE_ID ||
@@ -26,6 +26,7 @@ try {
   console.log("Firebase 연결 시도 중... 프로젝트 ID:", app.options.projectId);
   console.log("Firestore Database ID:", firestoreDatabaseId);
   console.log("Firestore 로딩 성공 여부:", !!db);
+  console.log("🔥 Firebase 연결 엔진 기동 성공:", db.app.options.projectId);
 } catch (e) {
   console.error("Firebase 초기화 자체 실패:", e);
 }
