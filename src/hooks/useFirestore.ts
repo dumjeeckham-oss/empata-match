@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { db, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, Timestamp, type QueryConstraint } from "@/lib/firebase";
 import { normalizeServiceUser, normalizeWorker } from "@/lib/assignments";
 import { sanitizeForFirestore } from "@/lib/bulkUpload";
+import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 import { toast } from "@/hooks/use-toast";
 
 const EMPTY_CONSTRAINTS: QueryConstraint[] = [];
@@ -23,9 +24,9 @@ function readCachedCollection<T>(collectionName: string): (T & { id: string })[]
     return parsed.map((item, index) => {
       const raw = item as Record<string, unknown>;
       const normalized =
-        collectionName === "users"
+        collectionName === USERS_COLLECTION
           ? normalizeServiceUser(raw)
-          : collectionName === "workers"
+          : collectionName === WORKERS_COLLECTION
             ? normalizeWorker(raw)
             : raw;
       return {
@@ -93,9 +94,9 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
             const items = snap.docs.map((d) => {
               const raw = d.data() as Record<string, unknown>;
               const normalized =
-                collectionName === "users"
+                collectionName === USERS_COLLECTION
                   ? normalizeServiceUser(raw)
-                  : collectionName === "workers"
+                  : collectionName === WORKERS_COLLECTION
                     ? normalizeWorker(raw)
                     : raw;
               return { id: d.id, ...raw, ...normalized } as T & { id: string };

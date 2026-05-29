@@ -7,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const Matching = () => {
-  const { data: users } = useCollection<ServiceUser>("users");
-  const { data: workers } = useCollection<Worker>("workers");
+  const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
   const [selectedUserId, setSelectedUserId] = useState<string>("" );
   const [nameSearch, setNameSearch] = useState<string>("");

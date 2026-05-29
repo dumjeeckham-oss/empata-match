@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import type { ServiceUser, Worker } from "@/types";
 import { auth, db, collection, doc, writeBatch, Timestamp } from "@/lib/firebase";
+import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const FIRESTORE_BATCH_LIMIT = 500;
 
@@ -564,13 +565,13 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
     const found = existingMap.get(key);
     const { id: _omitId, createdAt: _c, updatedAt: _u, ...rest } = item as Record<string, unknown>;
     const compatibilityPayload =
-      collectionName === "users"
+      collectionName === USERS_COLLECTION
         ? {
             assigned_workers: (item as Record<string, unknown>).assignedHelperIds ?? [],
             txtUSex: (item as Record<string, unknown>).gender ?? "",
             txtUMemostop: (item as Record<string, unknown>).terminationReason ?? "",
           }
-        : collectionName === "workers"
+        : collectionName === WORKERS_COLLECTION
           ? {
               assigned_users: (item as Record<string, unknown>).assignedUserIds ?? [],
               txtHSex: (item as Record<string, unknown>).gender ?? "",

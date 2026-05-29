@@ -4,10 +4,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { startOfWeek, endOfWeek, parseISO, isWithinInterval } from "date-fns";
 import { matchUserWithWorkers } from "@/lib/matching";
+import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const Dashboard = () => {
-  const { data: users } = useCollection<ServiceUser>("users");
-  const { data: workers } = useCollection<Worker>("workers");
+  const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: records } = useCollection<CounselingRecord>("counseling");
 
   const activeUsers = users.filter((u) => u.contractStatus === "서비스중");

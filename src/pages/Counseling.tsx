@@ -13,11 +13,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
+import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const Counseling = () => {
   const { data: records, add: addRecord } = useCollection<CounselingRecord>("counseling");
-  const { data: users } = useCollection<ServiceUser>("users");
-  const { data: workers } = useCollection<Worker>("workers");
+  const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
   const [form, setForm] = useState({ targetType: "이용자" as "이용자" | "활동지원사", targetId: "", targetName: "", counselorName: "", date: new Date().toISOString().slice(0, 10), content: "", category: "일반상담" });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isTargetLocked, setIsTargetLocked] = useState(false);

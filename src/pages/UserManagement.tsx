@@ -12,6 +12,7 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
+import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 import {
   buildHelperArraysFromIds,
   formatHelperList,
@@ -63,8 +64,8 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 ];
 
 const UserManagement = () => {
-  const { data: users, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>("users");
-  const { data: workers, update: updateWorker } = useCollection<Worker>("workers");
+  const { data: users, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workers, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const [form, setForm] = useState(emptyUser);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -165,7 +166,7 @@ const UserManagement = () => {
 
   const handleBulkConfirm = async (items: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[]) => {
     return upsertByNamePhoneBatch({
-      collectionName: "users",
+      collectionName: USERS_COLLECTION,
       items,
       existing: users,
       beforeSave: geocodeIfNeeded,
