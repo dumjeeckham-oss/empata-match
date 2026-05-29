@@ -1,6 +1,6 @@
 import * as XLSX from "xlsx";
 import type { ServiceUser, Worker } from "@/types";
-import { db, collection, doc, writeBatch, Timestamp } from "@/lib/firebase";
+import { auth, db, collection, doc, writeBatch, Timestamp } from "@/lib/firebase";
 
 const FIRESTORE_BATCH_LIMIT = 500;
 
@@ -438,10 +438,24 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function getFirebaseErrorCode(error: unknown): string {
+  const firebaseError = error as { code?: string };
+  return firebaseError?.code ?? "unknown";
+}
+
 async function commitBatchChunks(
   collectionName: string,
   operations: BatchOp<unknown>[]
 ): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) {
+    const message = "로그인이 필요한 서비스입니다. 로그인 후 다시 시도해 주세요.";
+    if (typeof window !== "undefined") {
+      alert(message);
+    }
+    throw new Error(message);
+  }
+
   try {
     for (let i = 0; i < operations.length; i += FIRESTORE_BATCH_LIMIT) {
       const chunk = operations.slice(i, i + FIRESTORE_BATCH_LIMIT);
@@ -463,9 +477,10 @@ async function commitBatchChunks(
     }
   } catch (error) {
     const message = getErrorMessage(error);
+    const code = getFirebaseErrorCode(error);
     console.error(`Firestore batch commit failed (${collectionName}):`, error);
     if (typeof window !== "undefined") {
-      alert("❌ 실패: Firebase 전송 중 오류 발생 - 사유: " + message);
+      alert("Firestore 저장 실패 코드: " + code + "\n사유: " + message);
     }
     throw error;
   }
