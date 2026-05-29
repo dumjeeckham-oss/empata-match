@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { db, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot, query, Timestamp, type QueryConstraint } from "@/lib/firebase";
+import { auth, db, collection, addDoc, updateDoc, deleteDoc, doc, onAuthStateChanged, onSnapshot, query, Timestamp, type QueryConstraint } from "@/lib/firebase";
 import { normalizeServiceUser, normalizeWorker } from "@/lib/assignments";
 import { sanitizeForFirestore } from "@/lib/bulkUpload";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
@@ -77,37 +77,61 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // 새로고침 직후에는 auth.currentUser가 null로 보일 수 있으므로,
+    // 인증 상태가 "확정"될 때까지는 데이터를 0명으로 결론내리지 않고 loading=true를 유지한다.
     setLoading(true);
     setError(null);
 
-    let unsub: (() => void) | undefined;
+    let unsubSnapshot: (() => void) | undefined;
 
-    try {
-      if (!db || !db.app?.options?.projectId) {
-        throw new Error("Firebase Firestore DB 객체가 아직 정상적으로 초기화되지 않았습니다.");
-      }
-      const q = query(collection(db, collectionName), ...constraints);
-      unsub = onSnapshot(
-        q,
-        (snap) => {
-          try {
-            const items = snap.docs.map((d) => {
-              const raw = d.data() as Record<string, unknown>;
-              const normalized =
-                collectionName === USERS_COLLECTION
-                  ? normalizeServiceUser(raw)
-                  : collectionName === WORKERS_COLLECTION
-                    ? normalizeWorker(raw)
-                    : raw;
-              return { id: d.id, ...raw, ...normalized } as T & { id: string };
-            });
-            setData(items);
-            writeCachedCollection(collectionName, items);
-            setLoading(false);
-            setError(null);
-          } catch (mappingErr) {
-            console.error(`Firestore snapshot mapping error (${collectionName}):`, mappingErr);
-            const msg = getFirestoreErrorMessage(mappingErr);
+    const cleanupSnapshot = () => {
+      unsubSnapshot?.();
+      unsubSnapshot = undefined;
+    };
+
+    const startSnapshot = () => {
+      cleanupSnapshot();
+      try {
+        if (!db || !db.app?.options?.projectId) {
+          throw new Error("Firebase Firestore DB 객체가 아직 정상적으로 초기화되지 않았습니다.");
+        }
+
+        const q = query(collection(db, collectionName), ...constraints);
+        unsubSnapshot = onSnapshot(
+          q,
+          (snap) => {
+            try {
+              const items = snap.docs.map((d) => {
+                const raw = d.data() as Record<string, unknown>;
+                const normalized =
+                  collectionName === USERS_COLLECTION
+                    ? normalizeServiceUser(raw)
+                    : collectionName === WORKERS_COLLECTION
+                      ? normalizeWorker(raw)
+                      : raw;
+                return { id: d.id, ...raw, ...normalized } as T & { id: string };
+              });
+              setData(items);
+              writeCachedCollection(collectionName, items);
+              setLoading(false);
+              setError(null);
+            } catch (mappingErr) {
+              console.error(`Firestore snapshot mapping error (${collectionName}):`, mappingErr);
+              const msg = getFirestoreErrorMessage(mappingErr);
+              const cachedItems = readCachedCollection<T>(collectionName);
+              setError(msg);
+              setLoading(false);
+              setData(cachedItems);
+              toast({
+                title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
+                description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
+                variant: "destructive",
+              });
+            }
+          },
+          (err) => {
+            console.error(`Firestore error (${collectionName}):`, err);
+            const msg = getFirestoreErrorMessage(err);
             const cachedItems = readCachedCollection<T>(collectionName);
             setError(msg);
             setLoading(false);
@@ -118,37 +142,53 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
               variant: "destructive",
             });
           }
-        },
-        (err) => {
-          console.error(`Firestore error (${collectionName}):`, err);
-          const msg = getFirestoreErrorMessage(err);
-          const cachedItems = readCachedCollection<T>(collectionName);
-          setError(msg);
+        );
+      } catch (err) {
+        console.error(`Firestore setup error (${collectionName}):`, err);
+        const msg = getFirestoreErrorMessage(err);
+        const cachedItems = readCachedCollection<T>(collectionName);
+        setError(msg);
+        setLoading(false);
+        setData(cachedItems);
+        toast({
+          title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
+          description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
+          variant: "destructive",
+        });
+      }
+    };
+
+    // 1) 인증 상태 확정 시점에만 snapshot을 시작(또는 재시작)
+    const unsubAuth = onAuthStateChanged(
+      auth,
+      (user) => {
+        cleanupSnapshot();
+
+        if (!user) {
+          // "진짜로 로그인 정보가 없는 경우" (인증 상태 확정)
+          setData([]);
           setLoading(false);
-          setData(cachedItems);
-          toast({
-            title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
-            description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
-            variant: "destructive",
-          });
+          setError(null);
+          return;
         }
-      );
-    } catch (err) {
-      console.error(`Firestore setup error (${collectionName}):`, err);
-      const msg = getFirestoreErrorMessage(err);
-      const cachedItems = readCachedCollection<T>(collectionName);
-      setError(msg);
-      setLoading(false);
-      setData(cachedItems);
-      toast({
-        title: cachedItems.length ? "로컬 백업 데이터로 복구" : "데이터 로드 실패",
-        description: cachedItems.length ? `${msg} 저장된 임시 데이터를 표시합니다.` : msg,
-        variant: "destructive",
-      });
-    }
+
+        // 로그인 확정 → dong100 DB 인스턴스(db)로 실시간 구독 시작
+        setLoading(true);
+        setError(null);
+        startSnapshot();
+      },
+      (authErr) => {
+        console.error("Auth state check failed:", authErr);
+        const cachedItems = readCachedCollection<T>(collectionName);
+        setData(cachedItems);
+        setLoading(false);
+        setError("인증 상태 확인 중 오류가 발생했습니다. 다시 로그인해 주세요.");
+      }
+    );
 
     return () => {
-      unsub?.();
+      cleanupSnapshot();
+      unsubAuth();
     };
   }, [collectionName, constraints]);
 
