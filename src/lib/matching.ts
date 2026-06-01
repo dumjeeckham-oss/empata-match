@@ -3,12 +3,12 @@ import { calculateDistance } from "@/lib/kakao";
 
 function parseTimeSlots(timeStr: string): string[] {
   if (!timeStr) return [];
-  return timeStr.split(",").map((s) => s.trim().toLowerCase());
+  return String(timeStr || "").split(",").map((s) => String(s || "").trim().toLowerCase());
 }
 
 function parseDays(dayStr: string): string[] {
   if (!dayStr) return [];
-  return dayStr.split(",").map((s) => s.trim());
+  return String(dayStr || "").split(",").map((s) => String(s || "").trim());
 }
 
 function timeOverlapScore(userDays: string, userHours: string, workerDays: string, workerHours: string): number {

@@ -105,10 +105,10 @@ function padRow(row: string[], length: number): string[] {
 }
 
 function sheetFromMatrix(matrix: string[][]): ParsedSheet {
-  const nonEmpty = matrix.filter((row) => row.some((cell) => cell.trim()));
+  const nonEmpty = matrix.filter((row) => row.some((cell) => String(cell || "").trim()));
   if (nonEmpty.length === 0) return { headers: [], rows: [] };
 
-  const headers = nonEmpty[0].map((h) => h.trim());
+  const headers = nonEmpty[0].map((h) => String(h || "").trim());
   const rows = nonEmpty.slice(1).map((row) => padRow(row.map(safeStr), headers.length));
   return { headers, rows };
 }
@@ -130,7 +130,7 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedSheet> {
 }
 
 export function parsePasteData(paste: string): ParsedSheet {
-  const lines = paste.trim().split(/\r?\n/);
+  const lines = String(paste || "").trim().split(/\r?\n/);
   const matrix = lines.map((line) => line.split("\t").map(safeStr));
   return sheetFromMatrix(matrix);
 }
@@ -164,11 +164,11 @@ export function getCell(
 
 export function splitList(val: string): string[] {
   if (!val) return [];
-  return val.split(/[,\uFF0C\u3001/]/).map((s) => s.trim()).filter(Boolean);
+  return val.split(/[,\uFF0C\u3001/]/).map((s) => String(s || "").trim()).filter(Boolean);
 }
 
-function parseYesNo(val: string): boolean {
-  const v = val.trim().toLowerCase();
+function parseYesNo(val: unknown): boolean {
+  const v = String(val || "").trim().toLowerCase();
   return v === "예" || v === "y" || v === "yes" || v === "true" || v === "1" || v === "o";
 }
 
@@ -185,8 +185,8 @@ function resolveWorker(
   if (name) {
     const byName = workers.find(
       (w) =>
-        w.name.trim() === name.trim() &&
-        (!normPhone || normalizePhone(w.phone) === normPhone)
+        String(w?.name || "").trim() === String(name || "").trim() &&
+        (!normPhone || normalizePhone(w?.phone) === normPhone)
     );
     if (byName) return { id: byName.id, name: byName.name, phone: byName.phone };
   }
@@ -256,7 +256,7 @@ function resolveMultipleUsers(
     }
     if (!matched && name) {
       matched = users.find(
-        (u) => u.name.trim() === name.trim() && (!normPhone || normalizePhone(u.phone) === normPhone)
+        (u) => String(u?.name || "").trim() === String(name || "").trim() && (!normPhone || normalizePhone(u?.phone) === normPhone)
       );
     }
     if (matched?.id) {
@@ -376,7 +376,7 @@ export function rowsToEntities<T>(
 
   for (let i = 0; i < sheet.rows.length; i++) {
     const row = sheet.rows[i];
-    if (row.every((cell) => !cell.trim())) continue;
+    if (row.every((cell) => !String(cell || "").trim())) continue;
     const entity = mapper(row, headerMap, i);
     if (entity) results.push(cloneRowEntity(entity as Record<string, unknown>) as T);
   }
