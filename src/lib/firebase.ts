@@ -23,11 +23,8 @@ try {
   throw e;
 }
 
-/**
- * 핵심 수정: (default)가 아닌 실제 데이터베이스 ID인 'dong100'을 강제 지정
- * Web SDK에서는 getFirestore(app, databaseId) 형태가 가장 확실하게 적용됩니다.
- */
-export const db = getFirestore(app, "dong100");
+// databaseId 옵션을 지워서 (default) 데이터베이스를 바라보게 만듦
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 
 try {
