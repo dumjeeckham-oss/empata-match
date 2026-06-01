@@ -69,7 +69,7 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "familyMembers", patterns: [/가족/] },
   { field: "address", patterns: [/주소/, /거주지/, /^address$/i] },
   { field: "preferredWorkerTraits", patterns: [/선호/, /선호도/] },
-  { field: "contractStatus", patterns: [/계약상태/, /서비스상태/, /이용상태/] },
+  { field: "contractStatus", patterns: [/계약상태/, /서비스상태/, /이용상태/, /^상태$/] },
   { field: "serviceStartDate", patterns: [/최초서비스/, /서비스시작/, /서비스제공/] },
   { field: "guardianName", patterns: [/보호자이름/, /보호자명/, /보호자\s*이름/] },
   { field: "guardianRelation", patterns: [/보호자관계/, /보호자\s*관계/] },
@@ -633,13 +633,46 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
     });
 
     if (found?.id) {
+      const mergedPayload = { ...basePayload };
+      const mergedItem = { ...found, ...item };
+
+      if (collectionName === USERS_COLLECTION) {
+        const userFound = found as unknown as ServiceUser;
+        const userItem = item as unknown as ServiceUser;
+        if (!userItem.assignedHelperIds || userItem.assignedHelperIds.length === 0) {
+          mergedPayload.assignedHelperIds = userFound.assignedHelperIds ?? [];
+          mergedPayload.assignedHelperNames = userFound.assignedHelperNames ?? [];
+          mergedPayload.assignedHelperPhones = userFound.assignedHelperPhones ?? [];
+          mergedPayload.assigned_workers = userFound.assigned_workers ?? [];
+
+          (mergedItem as unknown as ServiceUser).assignedHelperIds = userFound.assignedHelperIds ?? [];
+          (mergedItem as unknown as ServiceUser).assignedHelperNames = userFound.assignedHelperNames ?? [];
+          (mergedItem as unknown as ServiceUser).assignedHelperPhones = userFound.assignedHelperPhones ?? [];
+          (mergedItem as unknown as ServiceUser).assigned_workers = userFound.assigned_workers ?? [];
+        }
+      } else if (collectionName === WORKERS_COLLECTION) {
+        const workerFound = found as unknown as Worker;
+        const workerItem = item as unknown as Worker;
+        if (!workerItem.assignedUserIds || workerItem.assignedUserIds.length === 0) {
+          mergedPayload.assignedUserIds = workerFound.assignedUserIds ?? [];
+          mergedPayload.assignedUserNames = workerFound.assignedUserNames ?? [];
+          mergedPayload.assignedUserPhones = workerFound.assignedUserPhones ?? [];
+          mergedPayload.assigned_users = workerFound.assigned_users ?? [];
+
+          (mergedItem as unknown as Worker).assignedUserIds = workerFound.assignedUserIds ?? [];
+          (mergedItem as unknown as Worker).assignedUserNames = workerFound.assignedUserNames ?? [];
+          (mergedItem as unknown as Worker).assignedUserPhones = workerFound.assignedUserPhones ?? [];
+          (mergedItem as unknown as Worker).assigned_users = workerFound.assigned_users ?? [];
+        }
+      }
+
       operations.push({
         type: "update",
         id: found.id,
         item,
-        payload: basePayload,
+        payload: mergedPayload,
       });
-      existingMap.set(key, { ...found, ...item });
+      existingMap.set(key, mergedItem);
       updated++;
     } else {
       const newRef = doc(collection(db, collectionName));
