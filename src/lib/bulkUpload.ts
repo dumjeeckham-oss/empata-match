@@ -10,12 +10,12 @@ export function safeStr(val: unknown): string {
   return String(val).trim();
 }
 
-export function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, "");
+export function normalizePhone(phone: unknown): string {
+  return String(phone || "").replace(/\D/g, "");
 }
 
-export function makeUniqueKey(name: string, phone: string): string {
-  return `${name.trim()}::${normalizePhone(phone)}`;
+export function makeUniqueKey(name: unknown, phone: unknown): string {
+  return `${String(name || "").trim()}::${normalizePhone(phone)}`;
 }
 
 export type FieldKey =
@@ -138,12 +138,12 @@ export function parsePasteData(paste: string): ParsedSheet {
 export function buildHeaderMap(headers: string[]): Map<FieldKey, number> {
   const map = new Map<FieldKey, number>();
   headers.forEach((header, idx) => {
-    const trimmed = header.trim();
+    const trimmed = String(header || "").trim();
     const compact = trimmed.toLowerCase().replace(/\s/g, "");
     for (const rule of HEADER_RULES) {
       if (map.has(rule.field)) continue;
       const matched = rule.patterns.some(
-        (p) => p.test(trimmed) || p.test(compact) || p.test(header)
+        (p) => p.test(trimmed) || p.test(compact) || p.test(String(header || ""))
       );
       if (matched) map.set(rule.field, idx);
     }

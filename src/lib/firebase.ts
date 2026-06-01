@@ -1,5 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { initializeFirestore, collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, orderBy, onSnapshot, Timestamp, type DocumentData, type QueryConstraint } from "firebase/firestore";
+import { getFirestore, collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, orderBy, onSnapshot, Timestamp, type DocumentData, type QueryConstraint } from "firebase/firestore";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, type User } from "firebase/auth";
 
 const firebaseConfig = {
@@ -23,11 +23,11 @@ try {
   throw e;
 }
 
-// 핵심 수정: (default)가 아닌 실제 데이터베이스 ID인 'dong100'을 강제 지정
-export const db = initializeFirestore(app, {
-  // 핵심 수정: (default)가 아닌 실제 데이터베이스 ID인 'dong100'을 강제 지정
-  databaseId: "dong100",
-});
+/**
+ * 핵심 수정: (default)가 아닌 실제 데이터베이스 ID인 'dong100'을 강제 지정
+ * Web SDK에서는 getFirestore(app, databaseId) 형태가 가장 확실하게 적용됩니다.
+ */
+export const db = getFirestore(app, "dong100");
 export const auth = getAuth(app);
 
 try {
