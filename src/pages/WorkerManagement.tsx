@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -62,9 +62,64 @@ const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "assignedUserName", label: "담당이용자" },
 ];
 
+const DISPLAY_AS_OF_DATE = new Date(2026, 5, 2);
+
+function parseDisplayDate(value: unknown): Date | null {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const serial = Number(raw);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+    const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const compact = raw.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function calculateDisplayExperience(serviceStartDate: unknown, fallback: string): string {
+  const start = parseDisplayDate(serviceStartDate);
+  if (!start || start > DISPLAY_AS_OF_DATE) return fallback;
+
+  let totalMonths =
+    (DISPLAY_AS_OF_DATE.getFullYear() - start.getFullYear()) * 12 +
+    (DISPLAY_AS_OF_DATE.getMonth() - start.getMonth());
+  if (DISPLAY_AS_OF_DATE.getDate() < start.getDate()) totalMonths -= 1;
+  if (totalMonths < 0) return fallback;
+  if (totalMonths === 0) return "1개월 미만";
+
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  if (years > 0 && months > 0) return `${years}년 ${months}개월`;
+  if (years > 0) return `${years}년`;
+  return `${months}개월`;
+}
+
+function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
+  const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
+  const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
+
+  return {
+    ...worker,
+    contractStatus: hasServiceStartDate && !hasResignationDate ? "근무중" : worker.contractStatus,
+    experience: hasServiceStartDate
+      ? calculateDisplayExperience(worker.serviceStartDate, worker.experience || "경력없음")
+      : worker.experience,
+  };
+}
+
 const WorkerManagement = () => {
   const { data: workers, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const displayWorkers = useMemo(() => workers.map(toDisplayWorker), [workers]);
   const [form, setForm] = useState(emptyWorker);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -218,13 +273,14 @@ const WorkerManagement = () => {
   };
 
   const startEdit = (w: Worker & { id: string }) => {
+    const source = workers.find((worker) => worker.id === w.id) ?? w;
     setForm({
-      ...w,
-      assignedUserIds: w.assignedUserIds ?? [],
-      assignedUserNames: w.assignedUserNames ?? [],
-      assignedUserPhones: w.assignedUserPhones ?? [],
+      ...source,
+      assignedUserIds: source.assignedUserIds ?? [],
+      assignedUserNames: source.assignedUserNames ?? [],
+      assignedUserPhones: source.assignedUserPhones ?? [],
     });
-    setEditingId(w.id);
+    setEditingId(source.id);
     setDialogOpen(true);
   };
 
@@ -259,7 +315,7 @@ const WorkerManagement = () => {
   };
 
   const getFiltered = () => {
-    return workers.filter((w) => {
+    return displayWorkers.filter((w) => {
       const matchSearch = !search || w.name.includes(search) || w.phone.includes(search);
       const matchStatus = statusFilter === "all" || w.contractStatus === statusFilter;
       return matchSearch && matchStatus;
@@ -393,9 +449,9 @@ const WorkerManagement = () => {
         <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full sm:w-auto overflow-x-auto">
           <TabsList className="w-full justify-start">
             <TabsTrigger value="all">전체 ({workers.length})</TabsTrigger>
-            <TabsTrigger value="근무중">근무중 ({workers.filter((w) => w.contractStatus === "근무중").length})</TabsTrigger>
-            <TabsTrigger value="퇴사">퇴사 ({workers.filter((w) => w.contractStatus === "퇴사").length})</TabsTrigger>
-            <TabsTrigger value="대기">대기 ({workers.filter((w) => w.contractStatus === "대기").length})</TabsTrigger>
+            <TabsTrigger value="근무중">근무중 ({displayWorkers.filter((w) => w.contractStatus === "근무중").length})</TabsTrigger>
+            <TabsTrigger value="퇴사">퇴사 ({displayWorkers.filter((w) => w.contractStatus === "퇴사").length})</TabsTrigger>
+            <TabsTrigger value="대기">대기 ({displayWorkers.filter((w) => w.contractStatus === "대기").length})</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

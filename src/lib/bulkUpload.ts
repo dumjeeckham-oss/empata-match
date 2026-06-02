@@ -172,62 +172,6 @@ function parseYesNo(val: unknown): boolean {
   return v === "예" || v === "y" || v === "yes" || v === "true" || v === "1" || v === "o";
 }
 
-function parseDateCell(value: unknown): Date | null {
-  const raw = safeStr(value);
-  if (!raw) return null;
-
-  const serial = Number(raw);
-  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
-    const utcMillis = Math.round((serial - 25569) * 86400 * 1000);
-    const date = new Date(utcMillis);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const compact = raw.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
-  if (compact) {
-    const [, y, m, d] = compact;
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const parsed = new Date(raw);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function normalizeDateCell(value: unknown): string {
-  const date = parseDateCell(value);
-  return date ? formatDate(date) : safeStr(value);
-}
-
-export function calculateExperienceFromStartDate(value: unknown, asOf = new Date()): string {
-  const start = parseDateCell(value);
-  if (!start || start > asOf) return "";
-
-  let totalMonths = (asOf.getFullYear() - start.getFullYear()) * 12 + (asOf.getMonth() - start.getMonth());
-  if (asOf.getDate() < start.getDate()) totalMonths -= 1;
-  if (totalMonths < 0) return "";
-  if (totalMonths === 0) return "1개월 미만";
-
-  const years = Math.floor(totalMonths / 12);
-  const months = totalMonths % 12;
-  if (years > 0 && months > 0) return `${years}년 ${months}개월`;
-  if (years > 0) return `${years}년`;
-  return `${months}개월`;
-}
-
-function resolveWorkerStatus(rawStatus: string, serviceStartDate: string, resignationDate: string): Worker["contractStatus"] {
-  if (serviceStartDate && !resignationDate) return "근무중";
-  if (rawStatus === "근무중" || rawStatus === "퇴사" || rawStatus === "대기") return rawStatus;
-  return "대기";
-}
-
 function resolveWorker(
   workers: (Worker & { id: string })[],
   name: string,
@@ -399,9 +343,6 @@ export function rowToWorker(
   );
 
   const gender = getCell(row, headerMap, "gender") || "여성";
-  const serviceStartDate = normalizeDateCell(getCell(row, headerMap, "serviceStartDate"));
-  const resignationDate = normalizeDateCell(getCell(row, headerMap, "resignationDate"));
-  const calculatedExperience = calculateExperienceFromStartDate(serviceStartDate);
 
   return {
     name: getCell(row, headerMap, "name"),
@@ -412,7 +353,7 @@ export function rowToWorker(
     residenceArea: getCell(row, headerMap, "residenceArea"),
     preferredArea: getCell(row, headerMap, "preferredArea"),
     address: getCell(row, headerMap, "address"),
-    experience: calculatedExperience || getCell(row, headerMap, "experience") || "경력없음",
+    experience: getCell(row, headerMap, "experience") || "경력없음",
     availableDays: getCell(row, headerMap, "availableDays"),
     availableHours: getCell(row, headerMap, "availableHours"),
     rejectionTypes: splitList(getCell(row, headerMap, "rejectionTypes")),
@@ -420,9 +361,9 @@ export function rowToWorker(
     canDrive: parseYesNo(getCell(row, headerMap, "canDrive")),
     animalAllergy: parseYesNo(getCell(row, headerMap, "animalAllergy")),
     certificateNumber: getCell(row, headerMap, "certificateNumber"),
-    contractStatus: resolveWorkerStatus(getCell(row, headerMap, "contractStatus"), serviceStartDate, resignationDate),
-    serviceStartDate,
-    resignationDate,
+    contractStatus: (getCell(row, headerMap, "contractStatus") || "대기") as Worker["contractStatus"],
+    serviceStartDate: getCell(row, headerMap, "serviceStartDate"),
+    resignationDate: getCell(row, headerMap, "resignationDate"),
     notes: getCell(row, headerMap, "notes"),
     assigned_users: [...assigned.ids],
     assignedUserIds: [...assigned.ids],
