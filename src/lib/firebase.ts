@@ -24,10 +24,10 @@ try {
 }
 
 /**
- * 핵심: 이 프로젝트의 실제 Firestore Database ID는 (default)가 아니라 "dong100" 입니다.
- * Web SDK에서는 getFirestore(app, databaseId) 형태로 named database를 지정할 수 있습니다.
+ * 핵심: 현재 운영 데이터는 Firestore 기본 데이터베이스 (default)에 저장됩니다.
+ * 따라서 named databaseId를 강제하지 않고 getFirestore(app)로 기본 DB를 사용합니다.
  */
-export const db = getFirestore(app, "dong100");
+export const db = getFirestore(app);
 export const auth = getAuth(app);
 
 try {
