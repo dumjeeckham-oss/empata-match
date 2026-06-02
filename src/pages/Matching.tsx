@@ -119,8 +119,8 @@ const Matching = () => {
                     <span><strong>바우처:</strong> {selectedUser.voucherTier}구간 ({VOUCHER_HOURS[selectedUser.voucherTier]}시간)</span>
                     <span><strong>필요요일:</strong> {selectedUser.requiredDays}</span>
                     <span><strong>필요시간:</strong> {selectedUser.requiredHours}</span>
-                    <span><strong>가족구성:</strong> {selectedUser.familyType || "정보없음"}</span>
-                    <span><strong>지원유형:</strong> {selectedUser.supportType || "정보없음"}</span>
+                    <span><strong>가족구성:</strong> {selectedUser.familyMembers || "정보없음"}</span>
+                    <span><strong>지원유형:</strong> {selectedUser.supportTypes?.join(", ") || "정보없음"}</span>
                     <span className="col-span-2"><strong>환경:</strong> {selectedUser.environmentTags?.join(", ") || "없음"}</span>
                     <span className="col-span-2"><strong>선호 특성:</strong> {selectedUser.preferredWorkerTraits || "없음"}</span>
                     <span className="col-span-2 md:col-span-3"><strong>주소:</strong> {selectedUser.address}</span>

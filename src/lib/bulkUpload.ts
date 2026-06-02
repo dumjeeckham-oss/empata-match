@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import type { ServiceUser, Worker } from "@/types";
 import { auth, db, collection, doc, writeBatch, Timestamp } from "@/lib/firebase";
+import { setDoc } from "firebase/firestore";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const FIRESTORE_BATCH_LIMIT = 500;
@@ -310,7 +311,13 @@ export function rowToServiceUser(
     address: getCell(row, headerMap, "address"),
     preferredWorkerTraits: getCell(row, headerMap, "preferredWorkerTraits"),
     notes: getCell(row, headerMap, "notes"),
-    contractStatus: (getCell(row, headerMap, "contractStatus") || "서비스중") as ServiceUser["contractStatus"],
+    contractStatus: ((): ServiceUser["contractStatus"] => {
+      const raw = String(getCell(row, headerMap, "contractStatus") || "").trim();
+      if (raw === "계약해지" || raw === "해지" || raw === "종결") return "계약해지";
+      if (raw === "대기") return "대기";
+      // 비어있거나 "서비스중"/기타 알 수 없는 값 → 기본 "서비스중"
+      return "서비스중";
+    })(),
     serviceStartDate: getCell(row, headerMap, "serviceStartDate"),
     guardianName: getCell(row, headerMap, "guardianName"),
     guardianRelation: getCell(row, headerMap, "guardianRelation"),
@@ -529,8 +536,12 @@ async function commitBatchChunks(
       for (const op of chunk) {
         const ref = doc(db, collectionName, op.id);
         const sanitizedPayload = sanitizeBatchPayload(op.payload);
-        if (op.type === "create") batch.set(ref, sanitizedPayload);
-        else batch.update(ref, sanitizedPayload);
+        if (op.type === "create") {
+          batch.set(ref, sanitizedPayload);
+        } else {
+          // merge:true 로 부분 누락 필드는 기존 값 보존, 채워진 필드만 덮어쓰기 (Upsert)
+          batch.set(ref, sanitizedPayload, { merge: true });
+        }
       }
 
       // 최종 커밋 실행
