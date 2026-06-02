@@ -117,6 +117,45 @@ export interface CounselingRecord {
   createdAt?: unknown;
 }
 
+export interface TerminationDocument {
+  id?: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  date: string;
+  reasons: string[];
+  reasonDetail: string;
+  handoverNote?: string;
+  approverDandang?: string;
+  approverCenterJang?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface HandoverDocument {
+  id?: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  userAddress: string;
+  voucherTier: number;
+  disabilityType: string;
+  reason: string;
+  handoverPersonName: string;
+  handoverDate: string;
+  takeoverPersonName: string;
+  takeoverDate: string;
+  prevWorkerId?: string;
+  prevWorkerName?: string;
+  prevWorkerPhone?: string;
+  nextWorkerId?: string;
+  nextWorkerName?: string;
+  nextWorkerPhone?: string;
+  notes?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
 export interface MatchResult {
   worker: Worker;
   score: number;

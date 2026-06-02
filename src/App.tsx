@@ -10,6 +10,8 @@ import UserManagement from "@/pages/UserManagement";
 import WorkerManagement from "@/pages/WorkerManagement";
 import Matching from "@/pages/Matching";
 import Counseling from "@/pages/Counseling";
+import Terminations from "@/pages/Terminations";
+import Handovers from "@/pages/Handovers";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -39,6 +41,8 @@ const AuthenticatedApp = () => {
           <Route path="/workers" element={<WorkerManagement />} />
           <Route path="/matching" element={<Matching />} />
           <Route path="/counseling" element={<Counseling />} />
+          <Route path="/terminations" element={<Terminations />} />
+          <Route path="/handovers" element={<Handovers />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Layout>

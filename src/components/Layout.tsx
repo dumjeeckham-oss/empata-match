@@ -11,6 +11,8 @@ const navItems = [
   { path: "/workers", label: "활동지원사 관리", icon: "🤝" },
   { path: "/matching", label: "매칭", icon: "🔗" },
   { path: "/counseling", label: "상담기록", icon: "📝" },
+  { path: "/terminations", label: "종결확인서", icon: "📄" },
+  { path: "/handovers", label: "인계·인수서", icon: "🔁" },
 ];
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
