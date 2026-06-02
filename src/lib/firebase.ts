@@ -23,8 +23,11 @@ try {
   throw e;
 }
 
-// databaseId 옵션을 지워서 (default) 데이터베이스를 바라보게 만듦
-export const db = getFirestore(app);
+/**
+ * 핵심: 이 프로젝트의 실제 Firestore Database ID는 (default)가 아니라 "dong100" 입니다.
+ * Web SDK에서는 getFirestore(app, databaseId) 형태로 named database를 지정할 수 있습니다.
+ */
+export const db = getFirestore(app, "dong100");
 export const auth = getAuth(app);
 
 try {

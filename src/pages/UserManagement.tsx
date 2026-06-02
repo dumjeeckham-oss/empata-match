@@ -119,7 +119,7 @@ const UserManagement = () => {
     if (!form.lat && form.address) await handleGeocode();
 
     const arrays = buildHelperArraysFromIds(form.assignedHelperIds, workers);
-    const payload = {
+    const payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
       ...form,
       assignedHelperIds: arrays.ids,
       assigned_workers: arrays.ids,
@@ -128,6 +128,11 @@ const UserManagement = () => {
       txtUSex: form.gender,
       txtUMemostop: form.terminationReason,
     };
+    // 중단/해지 사유가 입력되면 상태를 즉시 "계약해지"로 자동 전환(저장까지 반영)
+    if (payload.terminationReason?.trim()) {
+      payload.contractStatus = "계약해지";
+      payload.txtUMemostop = payload.terminationReason;
+    }
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
       : [];

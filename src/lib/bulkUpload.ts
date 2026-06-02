@@ -311,6 +311,8 @@ export function rowToServiceUser(
     preferredWorkerTraits: getCell(row, headerMap, "preferredWorkerTraits"),
     notes: getCell(row, headerMap, "notes"),
     contractStatus: ((): ServiceUser["contractStatus"] => {
+      // 중단사유(종결/해지)가 들어오면 상태는 무조건 계약해지로 처리
+      if (terminationReason.trim()) return "계약해지";
       const raw = String(getCell(row, headerMap, "contractStatus") || "").trim();
       if (raw === "계약해지" || raw === "해지" || raw === "종결") return "계약해지";
       if (raw === "대기") return "대기";

@@ -1,5 +1,33 @@
 import type { ServiceUser, Worker } from "@/types";
 
+function normalizePhone(phone: unknown): string {
+  return String(phone ?? "").replace(/\D/g, "");
+}
+
+function personLabel(name: string, phone?: string): string {
+  const last4 = normalizePhone(phone).slice(-4);
+  return last4 ? `${name}(${last4})` : name;
+}
+
+function calcExperienceFromStartDate(startDateRaw: unknown, now = new Date()): string | null {
+  const startStr = String(startDateRaw ?? "").trim();
+  if (!startStr) return null;
+  const start = new Date(startStr);
+  if (Number.isNaN(start.getTime())) return null;
+
+  let totalMonths =
+    (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  if (now.getDate() < start.getDate()) totalMonths -= 1;
+  if (totalMonths < 0) totalMonths = 0;
+
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  if (years <= 0 && months <= 0) return "1개월 미만";
+  if (years > 0 && months > 0) return `${years}년 ${months}개월`;
+  if (years > 0) return `${years}년`;
+  return `${months}개월`;
+}
+
 /** 레거시 단일 필드 → 배열 마이그레이션 */
 export function normalizeServiceUser(raw: Record<string, unknown>): Partial<ServiceUser> {
   const ids = Array.isArray(raw.assignedHelperIds)
@@ -20,6 +48,15 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
       ? [String(raw.assignedHelperPhone)]
       : [];
 
+  const terminationReason = String(raw.terminationReason ?? raw.txtUMemostop ?? "");
+  const contractStatusRaw = String(raw.contractStatus ?? "").trim();
+  const contractStatus: ServiceUser["contractStatus"] =
+    terminationReason.trim()
+      ? "계약해지"
+      : contractStatusRaw === "서비스중" || contractStatusRaw === "대기" || contractStatusRaw === "계약해지"
+        ? (contractStatusRaw as ServiceUser["contractStatus"])
+        : "대기";
+
   return {
     ...raw,
     assignedHelperIds: ids.filter(Boolean),
@@ -28,8 +65,10 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     assignedHelperPhones: phones,
     gender: String(raw.gender ?? raw.txtUSex ?? ""),
     txtUSex: String(raw.txtUSex ?? raw.gender ?? ""),
-    terminationReason: String(raw.terminationReason ?? raw.txtUMemostop ?? ""),
+    terminationReason,
     txtUMemostop: String(raw.txtUMemostop ?? raw.terminationReason ?? ""),
+    // 중단사유/종결 정보가 들어오면 화면 상태를 자동으로 계약해지로 표시
+    contractStatus,
   } as Partial<ServiceUser>;
 }
 
@@ -52,6 +91,20 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
       ? [String(raw.assignedUserPhone)]
       : [];
 
+  const resignationDate = String(raw.resignationDate ?? "").trim();
+  const serviceStartDate = String(raw.serviceStartDate ?? "").trim();
+
+  // 퇴사일이 없고 최초근무일(입사일)이 있으면 "근무중"으로 표시
+  const derivedStatus: Worker["contractStatus"] =
+    resignationDate
+      ? "퇴사"
+      : serviceStartDate
+        ? "근무중"
+        : (String(raw.contractStatus ?? "").trim() === "퇴사" ? "퇴사" : "대기");
+
+  // 최초근무일을 기준으로 현재까지 경력(년/개월)을 실시간 산정
+  const derivedExperience = calcExperienceFromStartDate(serviceStartDate) ?? String(raw.experience ?? "경력없음");
+
   return {
     ...raw,
     assignedUserIds: ids.filter(Boolean),
@@ -60,17 +113,26 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     assignedUserPhones: phones,
     gender: String(raw.gender ?? raw.txtHSex ?? ""),
     txtHSex: String(raw.txtHSex ?? raw.gender ?? ""),
+    contractStatus: derivedStatus,
+    experience: derivedExperience,
   } as Partial<Worker>;
 }
 
-export function formatHelperList(user: Pick<ServiceUser, "assignedHelperNames" | "assignedHelperIds">): string {
-  if (user.assignedHelperNames?.length) return user.assignedHelperNames.join(", ");
+export function formatHelperList(user: Pick<ServiceUser, "assignedHelperNames" | "assignedHelperIds" | "assignedHelperPhones">): string {
+  if (user.assignedHelperNames?.length) {
+    const labels = user.assignedHelperNames.map((name, idx) => personLabel(name, user.assignedHelperPhones?.[idx]));
+    // 동명이인(이름만 같음)으로 2번 표시되는 문제 방지: 표시 레벨에서 중복 제거
+    return Array.from(new Set(labels.filter(Boolean))).join(", ");
+  }
   if (user.assignedHelperIds?.length) return `${user.assignedHelperIds.length}명 배정`;
   return "";
 }
 
-export function formatUserList(worker: Pick<Worker, "assignedUserNames" | "assignedUserIds">): string {
-  if (worker.assignedUserNames?.length) return worker.assignedUserNames.join(", ");
+export function formatUserList(worker: Pick<Worker, "assignedUserNames" | "assignedUserIds" | "assignedUserPhones">): string {
+  if (worker.assignedUserNames?.length) {
+    const labels = worker.assignedUserNames.map((name, idx) => personLabel(name, worker.assignedUserPhones?.[idx]));
+    return Array.from(new Set(labels.filter(Boolean))).join(", ");
+  }
   if (worker.assignedUserIds?.length) return `${worker.assignedUserIds.length}명 담당`;
   return "";
 }
