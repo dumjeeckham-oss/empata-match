@@ -1,7 +1,6 @@
 import * as XLSX from "xlsx";
 import type { ServiceUser, Worker } from "@/types";
 import { auth, db, collection, doc, writeBatch, Timestamp } from "@/lib/firebase";
-import { setDoc } from "firebase/firestore";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const FIRESTORE_BATCH_LIMIT = 500;
@@ -70,8 +69,8 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "familyMembers", patterns: [/가족/] },
   { field: "address", patterns: [/주소/, /거주지/, /^address$/i] },
   { field: "preferredWorkerTraits", patterns: [/선호/, /선호도/] },
-  { field: "contractStatus", patterns: [/계약상태/, /서비스상태/, /이용상태/, /^상태$/] },
-  { field: "serviceStartDate", patterns: [/최초서비스/, /서비스시작/, /서비스제공/] },
+  { field: "contractStatus", patterns: [/계약상태/, /서비스상태/, /이용상태/, /근무상태/, /^상태$/] },
+  { field: "serviceStartDate", patterns: [/최초서비스/, /최초근무일/, /서비스시작/, /근무시작/, /입사일/, /서비스제공/] },
   { field: "guardianName", patterns: [/보호자이름/, /보호자명/, /보호자\s*이름/] },
   { field: "guardianRelation", patterns: [/보호자관계/, /보호자\s*관계/] },
   { field: "guardianPhone", patterns: [/보호자연락/, /보호자\s*연락/, /보호자전화/] },
@@ -171,6 +170,62 @@ export function splitList(val: string): string[] {
 function parseYesNo(val: unknown): boolean {
   const v = String(val || "").trim().toLowerCase();
   return v === "예" || v === "y" || v === "yes" || v === "true" || v === "1" || v === "o";
+}
+
+function parseDateCell(value: unknown): Date | null {
+  const raw = safeStr(value);
+  if (!raw) return null;
+
+  const serial = Number(raw);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+    const utcMillis = Math.round((serial - 25569) * 86400 * 1000);
+    const date = new Date(utcMillis);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const compact = raw.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normalizeDateCell(value: unknown): string {
+  const date = parseDateCell(value);
+  return date ? formatDate(date) : safeStr(value);
+}
+
+export function calculateExperienceFromStartDate(value: unknown, asOf = new Date()): string {
+  const start = parseDateCell(value);
+  if (!start || start > asOf) return "";
+
+  let totalMonths = (asOf.getFullYear() - start.getFullYear()) * 12 + (asOf.getMonth() - start.getMonth());
+  if (asOf.getDate() < start.getDate()) totalMonths -= 1;
+  if (totalMonths < 0) return "";
+  if (totalMonths === 0) return "1개월 미만";
+
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+  if (years > 0 && months > 0) return `${years}년 ${months}개월`;
+  if (years > 0) return `${years}년`;
+  return `${months}개월`;
+}
+
+function resolveWorkerStatus(rawStatus: string, serviceStartDate: string, resignationDate: string): Worker["contractStatus"] {
+  if (serviceStartDate && !resignationDate) return "근무중";
+  if (rawStatus === "근무중" || rawStatus === "퇴사" || rawStatus === "대기") return rawStatus;
+  return "대기";
 }
 
 function resolveWorker(
@@ -344,6 +399,9 @@ export function rowToWorker(
   );
 
   const gender = getCell(row, headerMap, "gender") || "여성";
+  const serviceStartDate = normalizeDateCell(getCell(row, headerMap, "serviceStartDate"));
+  const resignationDate = normalizeDateCell(getCell(row, headerMap, "resignationDate"));
+  const calculatedExperience = calculateExperienceFromStartDate(serviceStartDate);
 
   return {
     name: getCell(row, headerMap, "name"),
@@ -354,7 +412,7 @@ export function rowToWorker(
     residenceArea: getCell(row, headerMap, "residenceArea"),
     preferredArea: getCell(row, headerMap, "preferredArea"),
     address: getCell(row, headerMap, "address"),
-    experience: getCell(row, headerMap, "experience") || "경력없음",
+    experience: calculatedExperience || getCell(row, headerMap, "experience") || "경력없음",
     availableDays: getCell(row, headerMap, "availableDays"),
     availableHours: getCell(row, headerMap, "availableHours"),
     rejectionTypes: splitList(getCell(row, headerMap, "rejectionTypes")),
@@ -362,9 +420,9 @@ export function rowToWorker(
     canDrive: parseYesNo(getCell(row, headerMap, "canDrive")),
     animalAllergy: parseYesNo(getCell(row, headerMap, "animalAllergy")),
     certificateNumber: getCell(row, headerMap, "certificateNumber"),
-    contractStatus: (getCell(row, headerMap, "contractStatus") || "대기") as Worker["contractStatus"],
-    serviceStartDate: getCell(row, headerMap, "serviceStartDate"),
-    resignationDate: getCell(row, headerMap, "resignationDate"),
+    contractStatus: resolveWorkerStatus(getCell(row, headerMap, "contractStatus"), serviceStartDate, resignationDate),
+    serviceStartDate,
+    resignationDate,
     notes: getCell(row, headerMap, "notes"),
     assigned_users: [...assigned.ids],
     assignedUserIds: [...assigned.ids],
@@ -485,6 +543,28 @@ function deepReplaceUndefined(value: unknown): unknown {
 
 function sanitizeBatchPayload(payload: Record<string, unknown>): Record<string, unknown> {
   return deepReplaceUndefined(payload) as Record<string, unknown>;
+}
+
+function hasUploadValue(value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "number") return value !== 0 || !Number.isFinite(value);
+  if (typeof value === "boolean") return value;
+  return true;
+}
+
+function pruneEmptyUpdatePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const keepEvenWhenEmpty = new Set(["updatedAt"]);
+  const pruned: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(payload)) {
+    if (keepEvenWhenEmpty.has(key) || hasUploadValue(value)) {
+      pruned[key] = value;
+    }
+  }
+
+  return pruned;
 }
 
 function getCacheKey(collectionName: string): string {
@@ -644,12 +724,15 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
     });
 
     if (found?.id) {
-      const mergedPayload = { ...basePayload };
+      const mergedPayload = pruneEmptyUpdatePayload(basePayload);
       const mergedItem = { ...found, ...item };
 
       if (collectionName === USERS_COLLECTION) {
         const userFound = found as unknown as ServiceUser;
         const userItem = item as unknown as ServiceUser;
+        if (userItem.contractStatus === "서비스중") {
+          delete mergedPayload.contractStatus;
+        }
         if (!userItem.assignedHelperIds || userItem.assignedHelperIds.length === 0) {
           mergedPayload.assignedHelperIds = userFound.assignedHelperIds ?? [];
           mergedPayload.assignedHelperNames = userFound.assignedHelperNames ?? [];
@@ -664,6 +747,12 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
       } else if (collectionName === WORKERS_COLLECTION) {
         const workerFound = found as unknown as Worker;
         const workerItem = item as unknown as Worker;
+        if (workerItem.contractStatus === "대기") {
+          delete mergedPayload.contractStatus;
+        }
+        if (workerItem.experience === "경력없음") {
+          delete mergedPayload.experience;
+        }
         if (!workerItem.assignedUserIds || workerItem.assignedUserIds.length === 0) {
           mergedPayload.assignedUserIds = workerFound.assignedUserIds ?? [];
           mergedPayload.assignedUserNames = workerFound.assignedUserNames ?? [];

@@ -103,7 +103,9 @@ export async function syncUserToWorkers(
       phones.push(user.phone);
     }
     if (!prev.has(workerId) || existIdx >= 0) {
-      await updateWorker(workerId, { assignedUserIds: ids, assigned_users: ids, assignedUserNames: names, assignedUserPhones: phones });
+      const updates = { assignedUserIds: ids, assigned_users: ids, assignedUserNames: names, assignedUserPhones: phones };
+      await updateWorker(workerId, updates);
+      Object.assign(worker, updates);
     }
   }
 
@@ -113,12 +115,14 @@ export async function syncUserToWorkers(
     if (!worker) continue;
     const removeIdx = (worker.assignedUserIds ?? []).indexOf(userId);
     if (removeIdx < 0) continue;
-    await updateWorker(workerId, {
+    const updates = {
       assignedUserIds: (worker.assignedUserIds ?? []).filter((id) => id !== userId),
       assigned_users: (worker.assignedUserIds ?? []).filter((id) => id !== userId),
       assignedUserNames: (worker.assignedUserNames ?? []).filter((_, i) => i !== removeIdx),
       assignedUserPhones: (worker.assignedUserPhones ?? []).filter((_, i) => i !== removeIdx),
-    });
+    };
+    await updateWorker(workerId, updates);
+    Object.assign(worker, updates);
   }
 }
 
@@ -150,7 +154,9 @@ export async function syncWorkerToUsers(
       phones.push(worker.phone);
     }
     if (!prev.has(userId) || existIdx >= 0) {
-      await updateUser(userId, { assignedHelperIds: ids, assigned_workers: ids, assignedHelperNames: names, assignedHelperPhones: phones });
+      const updates = { assignedHelperIds: ids, assigned_workers: ids, assignedHelperNames: names, assignedHelperPhones: phones };
+      await updateUser(userId, updates);
+      Object.assign(user, updates);
     }
   }
 
@@ -160,12 +166,14 @@ export async function syncWorkerToUsers(
     if (!user) continue;
     const removeIdx = (user.assignedHelperIds ?? []).indexOf(workerId);
     if (removeIdx < 0) continue;
-    await updateUser(userId, {
+    const updates = {
       assignedHelperIds: (user.assignedHelperIds ?? []).filter((id) => id !== workerId),
       assigned_workers: (user.assignedHelperIds ?? []).filter((id) => id !== workerId),
       assignedHelperNames: (user.assignedHelperNames ?? []).filter((_, i) => i !== removeIdx),
       assignedHelperPhones: (user.assignedHelperPhones ?? []).filter((_, i) => i !== removeIdx),
-    });
+    };
+    await updateUser(userId, updates);
+    Object.assign(user, updates);
   }
 }
 
