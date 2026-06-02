@@ -4,6 +4,48 @@ function normalizePhone(phone: unknown): string {
   return String(phone ?? "").replace(/\D/g, "");
 }
 
+function pad2(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function parseDisplayDate(raw: unknown): Date | null {
+  if (!raw) return null;
+
+  // Firestore Timestamp 형태 지원 (toDate())
+  const maybeTs = raw as { toDate?: () => Date };
+  if (typeof maybeTs?.toDate === "function") {
+    const d = maybeTs.toDate();
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  const str = String(raw).trim();
+  if (!str) return null;
+
+  // Excel serial date (대략 2000년 이후 범위)
+  const serial = Number(str);
+  if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+    const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  // YYYYMMDD / YYYY-MM-DD / YYYY.MM.DD
+  const compact = str.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    const date = new Date(Number(y), Number(m) - 1, Number(d));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const date = new Date(str);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toYmd(raw: unknown): string {
+  const d = parseDisplayDate(raw);
+  if (!d) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
 function personLabel(name: string, phone?: string): string {
   const last4 = normalizePhone(phone).slice(-4);
   return last4 ? `${name}(${last4})` : name;
@@ -49,13 +91,16 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
       : [];
 
   const terminationReason = String(raw.terminationReason ?? raw.txtUMemostop ?? "");
+  const serviceStartDate = toYmd(raw.serviceStartDate);
   const contractStatusRaw = String(raw.contractStatus ?? "").trim();
   const contractStatus: ServiceUser["contractStatus"] =
     terminationReason.trim()
       ? "계약해지"
       : contractStatusRaw === "서비스중" || contractStatusRaw === "대기" || contractStatusRaw === "계약해지"
         ? (contractStatusRaw as ServiceUser["contractStatus"])
-        : "대기";
+        : serviceStartDate
+          ? "서비스중"
+          : "대기";
 
   return {
     ...raw,
@@ -69,6 +114,8 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     txtUMemostop: String(raw.txtUMemostop ?? raw.terminationReason ?? ""),
     // 중단사유/종결 정보가 들어오면 화면 상태를 자동으로 계약해지로 표시
     contractStatus,
+    // 엑셀/Firestore의 날짜 형식을 YYYY-MM-DD로 통일하여 화면 Input(type=date)에 즉시 반영
+    serviceStartDate,
   } as Partial<ServiceUser>;
 }
 
@@ -91,8 +138,8 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
       ? [String(raw.assignedUserPhone)]
       : [];
 
-  const resignationDate = String(raw.resignationDate ?? "").trim();
-  const serviceStartDate = String(raw.serviceStartDate ?? "").trim();
+  const resignationDate = toYmd(raw.resignationDate);
+  const serviceStartDate = toYmd(raw.serviceStartDate);
 
   // 퇴사일이 없고 최초근무일(입사일)이 있으면 "근무중"으로 표시
   const derivedStatus: Worker["contractStatus"] =
@@ -103,7 +150,9 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
         : (String(raw.contractStatus ?? "").trim() === "퇴사" ? "퇴사" : "대기");
 
   // 최초근무일을 기준으로 현재까지 경력(년/개월)을 실시간 산정
-  const derivedExperience = calcExperienceFromStartDate(serviceStartDate) ?? String(raw.experience ?? "경력없음");
+  const derivedExperience =
+    calcExperienceFromStartDate(serviceStartDate) ??
+    String(raw.experience ?? "경력없음");
 
   return {
     ...raw,
@@ -115,6 +164,8 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     txtHSex: String(raw.txtHSex ?? raw.gender ?? ""),
     contractStatus: derivedStatus,
     experience: derivedExperience,
+    serviceStartDate,
+    resignationDate,
   } as Partial<Worker>;
 }
 
