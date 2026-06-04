@@ -148,9 +148,9 @@ const Counseling = () => {
                     <Select value={termForm.userId} onValueChange={handleTerminationSelectUser}>
                       <SelectTrigger><SelectValue placeholder="이용자 선택" /></SelectTrigger>
                       <SelectContent>
-                        {users.map((u) => (
-                          <SelectItem key={u.id} value={u.id}>
-                            {u.name} ({u.gender}, {u.phone}, {u.disabilityType})
+                        {(users ?? []).filter((u) => !!u?.id).map((u) => (
+                          <SelectItem key={u.id} value={u.id!}>
+                            {u?.name || "이름없음"} ({u?.gender || "-"}, {u?.phone || "-"}, {u?.disabilityType || "-"})
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -254,9 +254,9 @@ const Counseling = () => {
                       <Select value={form.targetId} onValueChange={handleSelectTarget}>
                         <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
                         <SelectContent>
-                          {targets.map((t) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {t.name} ({t.gender}, {t.phone})
+                          {(targets ?? []).filter((t) => !!t?.id).map((t) => (
+                            <SelectItem key={t.id} value={t.id!}>
+                              {t?.name || "이름없음"} ({t?.gender || "-"}, {t?.phone || "-"})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -265,26 +265,26 @@ const Counseling = () => {
                   </div>
                 </div>
                 {form.targetId && form.targetType === "이용자" && (() => {
-                  const u = users.find((u) => u.id === form.targetId);
+                  const u = users.find((u) => u?.id === form.targetId);
                   if (!u) return null;
                   return (
                     <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <span>이름: {u.name} ({u.gender})</span><span>연락처: {u.phone}</span>
-                      <span>바우처: {u.voucherTier}구간</span><span>장애유형: {u.disabilityType}</span>
-                      <span className="sm:col-span-2">주소: {u.address}</span>
-                      <span>서비스시작일: {u.serviceStartDate}</span>
-                      <span className="sm:col-span-2">보호자: {u.guardianName} ({u.guardianRelation}) {u.guardianPhone}</span>
+                      <span>이름: {u?.name || "—"} ({u?.gender || "-"})</span><span>연락처: {u?.phone || "—"}</span>
+                      <span>바우처: {u?.voucherTier ?? "—"}구간</span><span>장애유형: {u?.disabilityType || "—"}</span>
+                      <span className="sm:col-span-2">주소: {u?.address || "—"}</span>
+                      <span>서비스시작일: {u?.serviceStartDate || "—"}</span>
+                      <span className="sm:col-span-2">보호자: {u?.guardianName || "—"} ({u?.guardianRelation || "-"}) {u?.guardianPhone || ""}</span>
                     </div>
                   );
                 })()}
                 {form.targetId && form.targetType === "활동지원사" && (() => {
-                  const w = workers.find((w) => w.id === form.targetId);
+                  const w = workers.find((w) => w?.id === form.targetId);
                   if (!w) return null;
                   return (
                     <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <span>이름: {w.name} ({w.gender})</span><span>연락처: {w.phone}</span>
-                      <span>경력: {w.experience}</span><span>희망지역: {w.preferredArea}</span>
-                      <span className="sm:col-span-2">주소: {w.address}</span>
+                      <span>이름: {w?.name || "—"} ({w?.gender || "-"})</span><span>연락처: {w?.phone || "—"}</span>
+                      <span>경력: {w?.experience || "—"}</span><span>희망지역: {w?.preferredArea || "—"}</span>
+                      <span className="sm:col-span-2">주소: {w?.address || "—"}</span>
                     </div>
                   );
                 })()}
