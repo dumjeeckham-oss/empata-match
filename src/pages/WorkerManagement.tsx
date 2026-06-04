@@ -316,7 +316,7 @@ const WorkerManagement = () => {
 
   const getFiltered = () => {
     return displayWorkers.filter((w) => {
-      const matchSearch = !search || w.name.includes(search) || w.phone.includes(search);
+      const matchSearch = !search || String(w.name || "").includes(search) || String(w.phone || "").includes(search);
       const matchStatus = statusFilter === "all" || w.contractStatus === statusFilter;
       return matchSearch && matchStatus;
     });
@@ -479,7 +479,7 @@ const WorkerManagement = () => {
                     <tr key={w.id} className="hover:bg-muted/50">
                       <td className="p-3 font-medium">{w.name}</td>
                       <td className="p-3">{w.gender}</td>
-                      <td className="p-3">{w.phone}</td>
+                      <td className="p-3"><a href={`tel:${w.phone}`} className="text-blue-600 hover:underline">{w.phone}</a></td>
                       <td className="p-3 max-w-[160px] text-xs">{formatUserList(w) || "—"}</td>
                       <td className="p-3">{w.experience}</td>
                       <td className="p-3">
@@ -517,7 +517,7 @@ const WorkerManagement = () => {
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1.5">
-                    <p>📞 {w.phone}</p>
+                    <p>📞 <a href={`tel:${w.phone}`} className="text-blue-600 hover:underline">{w.phone}</a></p>
                     <p>👥 담당: {formatUserList(w) || "없음"}</p>
                     <p>💼 {w.experience} · 이수증: {w.certificateNumber || "없음"}</p>
                     <p>📍 {w.address}</p>

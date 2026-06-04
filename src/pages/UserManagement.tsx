@@ -481,7 +481,7 @@ const UserManagement = () => {
                     <tr key={u.id} className="hover:bg-muted/50">
                       <td className="p-3 font-medium">{u.name}</td>
                       <td className="p-3">{u.gender}</td>
-                      <td className="p-3">{u.phone}</td>
+                      <td className="p-3"><a href={`tel:${u.phone}`} className="text-blue-600 hover:underline">{u.phone}</a></td>
                       <td className="p-3 max-w-[180px]">
                         {formatHelperList(u) ? (
                           <span className="text-primary font-medium text-xs leading-relaxed">{formatHelperList(u)}</span>
@@ -527,7 +527,7 @@ const UserManagement = () => {
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1.5">
-                    <p>📞 {u.phone}</p>
+                    <p>📞 <a href={`tel:${u.phone}`} className="text-blue-600 hover:underline">{u.phone}</a></p>
                     <p>👤 담당: {formatHelperList(u) || "미배정"}</p>
                     <p>♿ {u.disabilityType} · {u.voucherTier}구간</p>
                     <p className="truncate">📍 {u.address}</p>

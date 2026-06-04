@@ -50,6 +50,13 @@ export default function Handovers() {
     [workers, prevWorkerId]
   );
 
+  // Auto-fill handoverPersonName when user is selected
+  useMemo(() => {
+    if (prevWorker && !handoverPersonName) {
+      setHandoverPersonName(prevWorker.name);
+    }
+  }, [prevWorker, handoverPersonName]);
+
   const handleSave = async () => {
     try {
       // 필수 값 검증

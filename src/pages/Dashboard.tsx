@@ -5,8 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { startOfWeek, endOfWeek, parseISO, isWithinInterval } from "date-fns";
 import { matchUserWithWorkers } from "@/lib/matching";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { useNavigate } from "react-router-dom";
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: records } = useCollection<CounselingRecord>("counseling");
@@ -39,25 +41,25 @@ const Dashboard = () => {
     <div>
       <h1 className="page-header">대시보드</h1>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <Card className="stat-card border-l-4 border-l-primary">
+        <Card className="stat-card border-l-4 border-l-primary cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/users")}>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">서비스중 이용자</p>
             <p className="text-3xl font-bold text-foreground">{activeUsers.length}</p>
           </CardContent>
         </Card>
-        <Card className="stat-card border-l-4 border-l-secondary">
+        <Card className="stat-card border-l-4 border-l-secondary cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/workers")}>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">근무중 활동지원사</p>
             <p className="text-3xl font-bold text-foreground">{activeWorkers.length}</p>
           </CardContent>
         </Card>
-        <Card className="stat-card border-l-4 border-l-accent">
+        <Card className="stat-card border-l-4 border-l-accent cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/users")}>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">대기중 이용자</p>
             <p className="text-3xl font-bold text-foreground">{waitingUsers.length}</p>
           </CardContent>
         </Card>
-        <Card className="stat-card border-l-4 border-l-info">
+        <Card className="stat-card border-l-4 border-l-info cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/workers")}>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground">대기중 활동지원사</p>
             <p className="text-3xl font-bold text-foreground">{waitingWorkers.length}</p>
