@@ -316,8 +316,10 @@ const WorkerManagement = () => {
 
   const getFiltered = () => {
     return displayWorkers.filter((w) => {
-      const matchSearch = !search || String(w.name || "").includes(search) || String(w.phone || "").includes(search);
-      const matchStatus = statusFilter === "all" || w.contractStatus === statusFilter;
+      const matchesName = String(w.name || "").includes(search);
+      const matchesPhone = String(w.phone || "").includes(search);
+      const matchSearch = !search || matchesName || matchesPhone;
+      const matchStatus = statusFilter === "all" || String(w.contractStatus || "") === statusFilter;
       return matchSearch && matchStatus;
     });
   };

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type HandoverDocument } from "@/types";
 import { HANDOVERS_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
@@ -51,11 +51,14 @@ export default function Handovers() {
   );
 
   // Auto-fill handoverPersonName when user is selected
-  useMemo(() => {
-    if (prevWorker && !handoverPersonName) {
+  useEffect(() => {
+    console.log("선택된 이용자 데이터:", selectedUser);
+    console.log("전임자(인계자) 정보:", prevWorker);
+    if (prevWorker && prevWorker.name) {
+      console.log("인계자 성명 자동 입력:", prevWorker.name);
       setHandoverPersonName(prevWorker.name);
     }
-  }, [prevWorker, handoverPersonName]);
+  }, [selectedUser, prevWorker]);
 
   const handleSave = async () => {
     try {

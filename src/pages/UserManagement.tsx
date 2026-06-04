@@ -282,8 +282,10 @@ const UserManagement = () => {
 
   const getFilteredUsers = () => {
     return users.filter((u) => {
-      const matchSearch = !search || u.name.includes(search) || u.phone.includes(search);
-      const matchStatus = statusFilter === "all" || u.contractStatus === statusFilter;
+      const matchesName = String(u.name || "").includes(search);
+      const matchesPhone = String(u.phone || "").includes(search);
+      const matchSearch = !search || matchesName || matchesPhone;
+      const matchStatus = statusFilter === "all" || String(u.contractStatus || "") === statusFilter;
       return matchSearch && matchStatus;
     });
   };
