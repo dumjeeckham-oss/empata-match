@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/Layout";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import UserManagement from "@/pages/UserManagement";
@@ -35,16 +36,18 @@ const AuthenticatedApp = () => {
   return (
     <HashRouter>
       <Layout>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/users" element={<UserManagement />} />
-          <Route path="/workers" element={<WorkerManagement />} />
-          <Route path="/matching" element={<Matching />} />
-          <Route path="/counseling" element={<Counseling />} />
-          <Route path="/terminations" element={<Terminations />} />
-          <Route path="/handovers" element={<Handovers />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <ErrorBoundary>
+          <Routes>
+            <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+            <Route path="/users" element={<ErrorBoundary><UserManagement /></ErrorBoundary>} />
+            <Route path="/workers" element={<ErrorBoundary><WorkerManagement /></ErrorBoundary>} />
+            <Route path="/matching" element={<ErrorBoundary><Matching /></ErrorBoundary>} />
+            <Route path="/counseling" element={<ErrorBoundary><Counseling /></ErrorBoundary>} />
+            <Route path="/terminations" element={<ErrorBoundary><Terminations /></ErrorBoundary>} />
+            <Route path="/handovers" element={<ErrorBoundary><Handovers /></ErrorBoundary>} />
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </ErrorBoundary>
       </Layout>
     </HashRouter>
   );

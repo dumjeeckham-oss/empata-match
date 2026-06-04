@@ -29,10 +29,11 @@ function readCachedCollection<T>(collectionName: string): (T & { id: string })[]
           : collectionName === WORKERS_COLLECTION
             ? normalizeWorker(raw)
             : raw;
+      const id = String(raw.id ?? `cached-${index}`);
       return {
-        id: String(raw.id ?? `cached-${index}`),
         ...raw,
         ...normalized,
+        id,
       } as T & { id: string };
     });
   } catch (err) {
@@ -109,7 +110,7 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
                     : collectionName === WORKERS_COLLECTION
                       ? normalizeWorker(raw)
                       : raw;
-                return { id: d.id, ...raw, ...normalized } as T & { id: string };
+                return { ...raw, ...normalized, id: d.id } as T & { id: string };
               });
               setData(items);
               writeCachedCollection(collectionName, items);

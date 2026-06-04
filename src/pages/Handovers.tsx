@@ -167,11 +167,13 @@ export default function Handovers() {
                 <SelectTrigger><SelectValue placeholder="이용자 선택" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">선택 안함</SelectItem>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.id!}>
-                      {u.name} ({u.phone})
-                    </SelectItem>
-                  ))}
+                  {(users ?? [])
+                    .filter((u) => !!u?.id)
+                    .map((u) => (
+                      <SelectItem key={u.id} value={u.id!}>
+                        {u?.name || "이름없음"} ({u?.phone || "-"})
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -182,11 +184,13 @@ export default function Handovers() {
                 <SelectTrigger><SelectValue placeholder="활동지원사 선택" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">선택 안함</SelectItem>
-                  {workers.map((w) => (
-                    <SelectItem key={w.id} value={w.id!}>
-                      {labelWithLast4(w.name, w.phone)} · {w.contractStatus}
-                    </SelectItem>
-                  ))}
+                  {(workers ?? [])
+                    .filter((w) => !!w?.id)
+                    .map((w) => (
+                      <SelectItem key={w.id} value={w.id!}>
+                        {labelWithLast4(w?.name || "이름없음", w?.phone || "")} · {w?.contractStatus || "-"}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
@@ -195,13 +199,13 @@ export default function Handovers() {
           {selectedUser && (
             <div className="border rounded-md p-3 bg-muted/30 text-sm space-y-1">
               <div className="font-semibold">수급자 인적사항(자동 불러오기)</div>
-              <div>성명: {selectedUser.name}</div>
-              <div>연락처: {selectedUser.phone}</div>
-              <div className="truncate">주소: {selectedUser.address || "—"}</div>
-              <div>바우처구간: {selectedUser.voucherTier}구간</div>
-              <div>장애유형: {selectedUser.disabilityType || "—"}</div>
+              <div>성명: {selectedUser?.name || "—"}</div>
+              <div>연락처: {selectedUser?.phone || "—"}</div>
+              <div className="truncate">주소: {selectedUser?.address || "—"}</div>
+              <div>바우처구간: {selectedUser?.voucherTier ?? "—"}구간</div>
+              <div>장애유형: {selectedUser?.disabilityType || "—"}</div>
               <div className="pt-1 text-xs text-muted-foreground">
-                현재 담당(전임): {prevWorker ? `${labelWithLast4(prevWorker.name, prevWorker.phone)}` : "미배정"}
+                현재 담당(전임): {prevWorker ? labelWithLast4(prevWorker?.name || "이름없음", prevWorker?.phone || "") : "미배정"}
               </div>
             </div>
           )}
@@ -253,11 +257,11 @@ export default function Handovers() {
               {sortedDocs.map((d) => (
                 <div key={d.id} className="p-3 text-sm flex flex-col gap-1">
                   <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1">
-                    <div className="font-medium">{d.userName} ({d.userPhone})</div>
-                    <div className="text-muted-foreground">{d.handoverDate} · {d.reason}</div>
+                    <div className="font-medium">{d?.userName || "이름없음"} ({d?.userPhone || "-"})</div>
+                    <div className="text-muted-foreground">{d?.handoverDate || "-"} · {d?.reason || "-"}</div>
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    담당 변경: {d.prevWorkerName ? labelWithLast4(d.prevWorkerName, d.prevWorkerPhone || "") : "미배정"} → {d.nextWorkerName ? labelWithLast4(d.nextWorkerName, d.nextWorkerPhone || "") : "—"}
+                    담당 변경: {d?.prevWorkerName ? labelWithLast4(d.prevWorkerName, d?.prevWorkerPhone || "") : "미배정"} → {d?.nextWorkerName ? labelWithLast4(d.nextWorkerName, d?.nextWorkerPhone || "") : "—"}
                   </div>
                 </div>
               ))}
