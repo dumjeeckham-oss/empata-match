@@ -14,12 +14,7 @@ const Dashboard = () => {
   const { data: records } = useCollection<CounselingRecord>("counseling");
 
   const activeUsers = users.filter((u) => u.contractStatus === "서비스중");
-  const waitingUsers = users.filter(
-    (u) =>
-      u.contractStatus === "대기" &&
-      u.contractStatus !== "타기관 계약" &&
-      u.contractStatus !== "보류"
-  );
+  const waitingUsers = users.filter((u) => u.contractStatus === "대기");
   const activeWorkers = workers.filter((w) => w.contractStatus === "근무중");
   const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
 
