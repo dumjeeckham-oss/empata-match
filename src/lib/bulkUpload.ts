@@ -167,6 +167,51 @@ export function splitList(val: string): string[] {
   return val.split(/[,\uFF0C\u3001/]/).map((s) => String(s || "").trim()).filter(Boolean);
 }
 
+/**
+ * 엑셀 셀의 날짜값(시리얼 숫자/다양한 문자열 포맷)을 YYYY-MM-DD 문자열로 정규화.
+ * 비어있거나 파싱 실패 시 원본 문자열(혹은 "")을 반환해 데이터 손실을 막는다.
+ */
+export function normalizeDateCell(val: unknown): string {
+  const raw = String(val ?? "").trim();
+  if (!raw) return "";
+
+  const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (iso) {
+    const [, y, m, d] = iso;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  // Excel serial number (1900 date system)
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const serial = Number(raw);
+    if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {
+      const date = new Date(Math.round((serial - 25569) * 86400 * 1000));
+      if (!Number.isNaN(date.getTime())) {
+        const y = date.getUTCFullYear();
+        const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const d = String(date.getUTCDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      }
+    }
+  }
+
+  const compact = raw.match(/^(\d{4})[./\s](\d{1,2})[./\s](\d{1,2})$/);
+  if (compact) {
+    const [, y, m, d] = compact;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
+  const date = new Date(raw);
+  if (!Number.isNaN(date.getTime())) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  return raw;
+}
+
 function parseYesNo(val: unknown): boolean {
   const v = String(val || "").trim().toLowerCase();
   return v === "예" || v === "y" || v === "yes" || v === "true" || v === "1" || v === "o";
