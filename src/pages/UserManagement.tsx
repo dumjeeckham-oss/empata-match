@@ -424,6 +424,8 @@ const UserManagement = () => {
                       <SelectItem value="서비스중">서비스중</SelectItem>
                       <SelectItem value="계약해지">계약해지</SelectItem>
                       <SelectItem value="대기">대기</SelectItem>
+                      <SelectItem value="타기관 계약">타기관 계약</SelectItem>
+                      <SelectItem value="보류">보류</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -456,6 +458,8 @@ const UserManagement = () => {
             <TabsTrigger value="서비스중">서비스중 ({users.filter((u) => u.contractStatus === "서비스중").length})</TabsTrigger>
             <TabsTrigger value="계약해지">계약해지 ({users.filter((u) => u.contractStatus === "계약해지").length})</TabsTrigger>
             <TabsTrigger value="대기">대기 ({users.filter((u) => u.contractStatus === "대기").length})</TabsTrigger>
+            <TabsTrigger value="타기관 계약">타기관 계약 ({users.filter((u) => u.contractStatus === "타기관 계약").length})</TabsTrigger>
+            <TabsTrigger value="보류">보류 ({users.filter((u) => u.contractStatus === "보류").length})</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

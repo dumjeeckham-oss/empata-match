@@ -17,7 +17,12 @@ const Matching = () => {
   const [nameSearch, setNameSearch] = useState<string>("");
   const [results, setResults] = useState<MatchResult[]>([]);
 
-  const availableUsers = users.filter((u) => u.contractStatus !== "계약해지");
+  const availableUsers = users.filter(
+    (u) =>
+      u.contractStatus !== "계약해지" &&
+      u.contractStatus !== "타기관 계약" &&
+      u.contractStatus !== "보류"
+  );
   const availableWorkers = workers.filter((w) => w.contractStatus !== "퇴사");
   const selectedUser = users.find((u) => u.id === selectedUserId);
 
