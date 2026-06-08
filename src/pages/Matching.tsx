@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, VOUCHER_HOURS } from "@/types";
 import { matchUserWithWorkers } from "@/lib/matching";
+import { calculateAge } from "@/lib/ageCalculator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -89,7 +90,7 @@ const Matching = () => {
                     </Badge>
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {u.gender} · {u.age}세 · {u.disabilityType}
+                    {u.gender} · {calculateAge(u.age)}세 · {u.disabilityType}
                   </span>
                   <span className="text-[11px] text-muted-foreground truncate w-full">
                     📍 {u.address}
@@ -119,7 +120,7 @@ const Matching = () => {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm border-t pt-3">
-                    <span><strong>성별/나이:</strong> {selectedUser.gender} / {selectedUser.age}세</span>
+                    <span><strong>성별/나이:</strong> {selectedUser.gender} / {calculateAge(selectedUser.age)}세</span>
                     <span><strong>장애유형:</strong> {selectedUser.disabilityType}</span>
                     <span><strong>바우처:</strong> {selectedUser.voucherTier}구간 ({VOUCHER_HOURS[selectedUser.voucherTier]}시간)</span>
                     <span><strong>필요요일:</strong> {selectedUser.requiredDays}</span>

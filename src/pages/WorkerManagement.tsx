@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
+import { calculateAge } from "@/lib/ageCalculator";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
+import { DayPicker } from "@/components/DayPicker";
+import { TimePicker } from "@/components/TimePicker";
 import {
   rowsToEntities,
   rowToWorker,
@@ -386,8 +389,8 @@ const WorkerManagement = () => {
                   </Select>
                 </div>
                 <div><Label>이수증번호</Label><Input value={form.certificateNumber} onChange={(e) => setForm((f) => ({ ...f, certificateNumber: e.target.value }))} /></div>
-                <div><Label>근무가능 요일</Label><Input value={form.availableDays} onChange={(e) => setForm((f) => ({ ...f, availableDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
-                <div><Label>근무가능 시간</Label><Input value={form.availableHours} onChange={(e) => setForm((f) => ({ ...f, availableHours: e.target.value }))} placeholder="09:00-18:00" /></div>
+                <DayPicker value={form.availableDays} onChange={(val) => setForm((f) => ({ ...f, availableDays: val }))} label="근무가능 요일" />
+                <TimePicker value={form.availableHours} onChange={(val) => setForm((f) => ({ ...f, availableHours: val }))} label="근무가능 시간" />
                 <div className="col-span-2">
                   <Label>거부/기피 성향</Label>
                   <div className="flex gap-4 mt-1 flex-wrap">
@@ -513,7 +516,7 @@ const WorkerManagement = () => {
               filtered.map((w) => (
                 <div key={w.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
                   <div className="flex justify-between items-center">
-                    <span className="font-bold text-base">{w.name} ({w.gender}, {w.age}세)</span>
+                    <span className="font-bold text-base">{w.name} ({w.gender}, {calculateAge(w.age)}세)</span>
                     <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
                       {w.contractStatus}
                     </Badge>

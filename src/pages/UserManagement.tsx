@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { calculateAge } from "@/lib/ageCalculator";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
+import { DayPicker } from "@/components/DayPicker";
+import { TimePicker } from "@/components/TimePicker";
 import {
   rowsToEntities,
   rowToServiceUser,
@@ -382,8 +385,8 @@ const UserManagement = () => {
                     엑셀 업로드 시 &quot;홍길동, 김철수&quot; 또는 &quot;홍길동/김철수&quot; 형식으로 여러 명 입력 가능
                   </p>
                 </div>
-                <div><Label>필요 요일</Label><Input value={form.requiredDays} onChange={(e) => setForm((f) => ({ ...f, requiredDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
-                <div><Label>필요 시간</Label><Input value={form.requiredHours} onChange={(e) => setForm((f) => ({ ...f, requiredHours: e.target.value }))} placeholder="09:00-18:00" /></div>
+                <DayPicker value={form.requiredDays} onChange={(val) => setForm((f) => ({ ...f, requiredDays: val }))} label="필요 요일" />
+                <TimePicker value={form.requiredHours} onChange={(val) => setForm((f) => ({ ...f, requiredHours: val }))} label="필요 시간" />
                 <div className="col-span-2">
                   <Label>주소</Label>
                   <div className="flex gap-2">
@@ -527,7 +530,7 @@ const UserManagement = () => {
               filtered.map((u) => (
                 <div key={u.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
                   <div className="flex justify-between items-center">
-                    <span className="font-bold text-base">{u.name} ({u.gender}, {u.age}세)</span>
+                    <span className="font-bold text-base">{u.name} ({u.gender}, {calculateAge(u.age)}세)</span>
                     <Badge variant={u.contractStatus === "서비스중" ? "default" : u.contractStatus === "계약해지" ? "destructive" : "secondary"}>
                       {u.contractStatus}
                     </Badge>
