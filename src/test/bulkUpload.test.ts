@@ -15,12 +15,12 @@ describe("worker bulk upload mapping", () => {
     expect(worker.experience).toBe("1년");
   });
 
-  it("stores Excel serial dates as uploaded raw values", () => {
+  it("normalizes Excel serial dates into YYYY-MM-DD strings", () => {
     const headers = ["이름", "연락처", "최초근무일"];
     const headerMap = buildHeaderMap(headers);
     const worker = rowToWorker(["박지원", "010-3333-4444", "44424"], headerMap, []);
 
-    expect(worker.serviceStartDate).toBe("44424");
+    expect(worker.serviceStartDate).toBe("2021-08-16");
     expect(worker.contractStatus).toBe("대기");
   });
 });
