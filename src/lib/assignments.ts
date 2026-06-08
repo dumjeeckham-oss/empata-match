@@ -90,8 +90,17 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
       ? [String(raw.assignedHelperPhone)]
       : [];
 
-  const terminationReason = String(raw.terminationReason ?? raw.txtUMemostop ?? "");
-  const serviceStartDate = toYmd(raw.serviceStartDate);
+  const terminationReason = String(raw.terminationReason ?? raw.txtUMemostop ?? raw["중단사유"] ?? raw["종결사유"] ?? "");
+  const serviceStartDate = toYmd(
+    raw.serviceStartDate ??
+      raw.firstServiceDate ??
+      raw["최초서비스제공일"] ??
+      raw["최초서비스제공날짜"] ??
+      raw["계약일"] ??
+      raw.startDate ??
+      raw.contractDate
+  );
+
   const contractStatusRaw = String(raw.contractStatus ?? "").trim();
   const contractStatus: ServiceUser["contractStatus"] =
     terminationReason.trim()
