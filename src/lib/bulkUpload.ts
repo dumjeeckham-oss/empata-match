@@ -364,7 +364,7 @@ export function rowToServiceUser(
       // 비어있거나 "서비스중"/기타 알 수 없는 값 → 기본 "서비스중"
       return "서비스중";
     })(),
-    serviceStartDate: getCell(row, headerMap, "serviceStartDate"),
+    serviceStartDate: normalizeDateCell(getCell(row, headerMap, "serviceStartDate")),
     guardianName: getCell(row, headerMap, "guardianName"),
     guardianRelation: getCell(row, headerMap, "guardianRelation"),
     guardianPhone: getCell(row, headerMap, "guardianPhone"),
