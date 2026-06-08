@@ -424,6 +424,8 @@ const UserManagement = () => {
                       <SelectItem value="서비스중">서비스중</SelectItem>
                       <SelectItem value="계약해지">계약해지</SelectItem>
                       <SelectItem value="대기">대기</SelectItem>
+                      <SelectItem value="타기관 계약">타기관 계약</SelectItem>
+                      <SelectItem value="보류">보류</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
