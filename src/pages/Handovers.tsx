@@ -44,19 +44,35 @@ export default function Handovers() {
   const selectedUser = useMemo(() => users.find((u) => u.id === userId), [users, userId]);
   const nextWorker = useMemo(() => workers.find((w) => w.id === nextWorkerId), [workers, nextWorkerId]);
 
-  const prevWorkerId = selectedUser?.assignedHelperIds?.[0] || "";
-  const prevWorker = useMemo(
-    () => (prevWorkerId ? workers.find((w) => w.id === prevWorkerId) : undefined),
-    [workers, prevWorkerId]
-  );
+  const prevWorkerId = selectedUser?.assignedHelperIds?.[0] || selectedUser?.assigned_workers?.[0] || "";
+  const prevWorker = useMemo(() => {
+    if (!selectedUser) return undefined;
+    // 1) ID 매칭 우선
+    if (prevWorkerId) {
+      const byId = workers.find((w) => w.id === prevWorkerId);
+      if (byId) return byId;
+    }
+    // 2) 이름 + 연락처(끝 4자리) 조합으로 폴백 매칭 (동명이인 방지)
+    const name = (selectedUser.assignedHelperNames?.[0] || "").trim();
+    const phone = normalizePhone(selectedUser.assignedHelperPhones?.[0] || "");
+    if (!name && !phone) return undefined;
+    return workers.find((w) => {
+      const wName = String(w?.name || "").trim();
+      const wPhone = normalizePhone(w?.phone || "");
+      if (name && phone) return wName === name && wPhone === phone;
+      if (phone) return wPhone === phone;
+      return wName === name;
+    });
+  }, [selectedUser, workers, prevWorkerId]);
 
   // Auto-fill handoverPersonName when user is selected
   useEffect(() => {
-    console.log("선택된 이용자 데이터:", selectedUser);
-    console.log("전임자(인계자) 정보:", prevWorker);
-    if (prevWorker && prevWorker.name) {
-      console.log("인계자 성명 자동 입력:", prevWorker.name);
+    if (prevWorker?.name) {
       setHandoverPersonName(prevWorker.name);
+    } else {
+      // 자동매칭 실패 시 이용자에 저장된 담당지원사 이름이라도 채워줌
+      const fallbackName = (selectedUser?.assignedHelperNames?.[0] || "").trim();
+      if (fallbackName) setHandoverPersonName(fallbackName);
     }
   }, [selectedUser, prevWorker]);
 
