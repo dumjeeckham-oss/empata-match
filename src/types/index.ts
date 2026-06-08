@@ -47,7 +47,7 @@ export interface ServiceUser {
   lng?: number;
   preferredWorkerTraits: string;
   notes: string;
-  contractStatus: "서비스중" | "계약해지" | "대기";
+  contractStatus: "서비스중" | "계약해지" | "대기" | "타기관 계약" | "보류";
   serviceStartDate: string;
   guardianName: string;
   guardianRelation: string;
