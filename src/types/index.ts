@@ -49,6 +49,8 @@ export interface ServiceUser {
   notes: string;
   contractStatus: "서비스중" | "계약해지" | "대기" | "타기관 계약" | "보류";
   serviceStartDate: string;
+  /** 계약해지 날짜 (resignationDate) */
+  resignationDate: string;
   guardianName: string;
   guardianRelation: string;
   guardianPhone: string;

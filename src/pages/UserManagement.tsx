@@ -41,12 +41,14 @@ import {
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
 import { Trash2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { useEffect } from "react";
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
-  contractStatus: "대기", serviceStartDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
+  contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
   terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [],
 };
 
@@ -64,6 +66,7 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 ];
 
 const UserManagement = () => {
+  const [searchParams] = useSearchParams();
   const { data: users, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workers, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const [form, setForm] = useState(emptyUser);
@@ -74,6 +77,13 @@ const UserManagement = () => {
   const [geocoding, setGeocoding] = useState(false);
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+
+  useEffect(() => {
+    const filter = searchParams.get("status");
+    if (filter) {
+      setStatusFilter(filter);
+    }
+  }, [searchParams]);
 
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
@@ -255,7 +265,7 @@ const UserManagement = () => {
       지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
       가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
       담당활동지원사: u.assignedHelperNames?.join(", "), 담당지원사연락처: u.assignedHelperPhones?.join(", "),
-      계약상태: u.contractStatus, 중단사유: u.terminationReason,
+      계약상태: u.contractStatus, 중단사유: u.terminationReason, 계약해지날짜: u.resignationDate,
       최초서비스제공일: u.serviceStartDate,
       보호자이름: u.guardianName, 보호자관계: u.guardianRelation, 보호자연락처: u.guardianPhone,
       비고: u.notes,
@@ -271,7 +281,7 @@ const UserManagement = () => {
       이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1,
       필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "",
       가족구성원: "", 주소: "", 선호도: "", 담당활동지원사: "홍길동, 김철수", 담당지원사연락처: "",
-      계약상태: "서비스중", 중단사유: "", 최초서비스제공일: "2025-01-01",
+      계약상태: "서비스중", 중단사유: "", 계약해지날짜: "", 최초서비스제공일: "2025-01-01",
       보호자이름: "", 보호자관계: "", 보호자연락처: "", 비고: "",
     }];
     const ws = XLSX.utils.json_to_sheet(template);
@@ -335,235 +345,102 @@ const UserManagement = () => {
                   </Select>
                 </div>
                 <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
-                <div><Label>장애유형</Label>
-                  <Select value={form.disabilityType} onValueChange={(v) => setForm((f) => ({ ...f, disabilityType: v }))}>
-                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                    <SelectContent>{DISABILITY_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div><Label>바우처 구간</Label>
-                  <div className="flex gap-2">
-                    <Select value={isCustomVoucher ? "기타" : String(form.voucherTier)} onValueChange={(v) => {
-                      if (v === "기타") setIsCustomVoucher(true);
-                      else { setIsCustomVoucher(false); setForm((f) => ({ ...f, voucherTier: Number(v) })); }
-                    }}>
-                      <SelectTrigger className={isCustomVoucher ? "w-[120px]" : "w-full"}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {Array.from({ length: 15 }, (_, i) => i + 1).map((n) => <SelectItem key={n} value={String(n)}>{n}구간 ({VOUCHER_HOURS[n] || 0}시간)</SelectItem>)}
-                        <SelectItem value="기타">기타 (직접입력)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {isCustomVoucher && (
-                      <Input type="number" className="flex-1" placeholder="숫자 입력" value={form.voucherTier || ""}
-                        onChange={(e) => setForm((f) => ({ ...f, voucherTier: Number(e.target.value) }))} />
-                    )}
-                  </div>
-                </div>
-                <div className="col-span-2 border rounded-lg p-3 bg-muted/30">
-                  <MultiEntitySelect
-                    label="담당 활동지원사 (복수 선택 가능)"
-                    placeholder="활동지원사 추가..."
-                    emptyHint="담당 활동지원사 미배정"
-                    selectedIds={form.assignedHelperIds}
-                    onChange={(ids) => {
-                      const arrays = buildHelperArraysFromIds(ids, workers);
-                      setForm((f) => ({
-                        ...f,
-                        assignedHelperIds: arrays.ids,
-                        assignedHelperNames: arrays.names,
-                        assignedHelperPhones: arrays.phones,
-                      }));
-                    }}
-                    options={workers
-                      .filter((w) => w.contractStatus === "근무중")
-                      .map((w) => ({ id: w.id, label: w.name, sublabel: w.phone }))}
-                  />
-                  <p className="text-xs text-muted-foreground mt-2">
-                    엑셀 업로드 시 &quot;홍길동, 김철수&quot; 또는 &quot;홍길동/김철수&quot; 형식으로 여러 명 입력 가능
-                  </p>
-                </div>
-                <div><Label>필요 요일</Label><Input value={form.requiredDays} onChange={(e) => setForm((f) => ({ ...f, requiredDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
-                <div><Label>필요 시간</Label><Input value={form.requiredHours} onChange={(e) => setForm((f) => ({ ...f, requiredHours: e.target.value }))} placeholder="09:00-18:00" /></div>
                 <div className="col-span-2">
                   <Label>주소</Label>
                   <div className="flex gap-2">
-                    <Input className="flex-1" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value, lat: undefined, lng: undefined }))} onBlur={(e) => handleAutoGeocode(e.target.value)} placeholder="부천시 소사구..." />
-                    <Button type="button" variant="outline" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "📍 좌표변환"}</Button>
-                  </div>
-                  {form.lat && <p className="text-xs text-muted-foreground mt-1">위도: {form.lat.toFixed(4)}, 경도: {form.lng?.toFixed(4)}</p>}
-                </div>
-                <div className="col-span-2">
-                  <Label>지원 유형</Label>
-                  <div className="flex gap-4 mt-1">
-                    {SUPPORT_TYPES.map((t) => (
-                      <label key={t} className="flex items-center gap-2 text-sm">
-                        <Checkbox checked={form.supportTypes.includes(t)} onCheckedChange={() => toggleArrayField("supportTypes", t)} />{t}
-                      </label>
-                    ))}
+                    <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} onBlur={(e) => handleAutoGeocode(e.target.value)} />
+                    <Button variant="outline" size="sm" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "좌표변환"}</Button>
                   </div>
                 </div>
-                <div className="col-span-2">
-                  <Label>환경 태그</Label>
-                  <div className="flex gap-4 mt-1 flex-wrap">
-                    {ENVIRONMENT_TAGS.map((t) => (
-                      <label key={t} className="flex items-center gap-2 text-sm">
-                        <Checkbox checked={form.environmentTags.includes(t)} onCheckedChange={() => toggleArrayField("environmentTags", t)} />{t}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                <div><Label>가족구성원</Label><Input value={form.familyMembers} onChange={(e) => setForm((f) => ({ ...f, familyMembers: e.target.value }))} /></div>
-                <div><Label>최초 서비스제공일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
-                <div><Label>보호자 이름</Label><Input value={form.guardianName} onChange={(e) => setForm((f) => ({ ...f, guardianName: e.target.value }))} /></div>
-                <div><Label>보호자 관계</Label><Input value={form.guardianRelation} onChange={(e) => setForm((f) => ({ ...f, guardianRelation: e.target.value }))} /></div>
-                <div><Label>보호자 연락처</Label><Input value={form.guardianPhone} onChange={(e) => setForm((f) => ({ ...f, guardianPhone: e.target.value }))} /></div>
-                <div><Label>계약상태</Label>
-                  <Select value={form.contractStatus} onValueChange={(v: ServiceUser["contractStatus"]) => setForm((f) => ({ ...f, contractStatus: v }))}>
+                <div>
+                  <Label>계약상태</Label>
+                  <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="서비스중">서비스중</SelectItem>
-                      <SelectItem value="계약해지">계약해지</SelectItem>
                       <SelectItem value="대기">대기</SelectItem>
+                      <SelectItem value="계약해지">계약해지</SelectItem>
                       <SelectItem value="타기관 계약">타기관 계약</SelectItem>
                       <SelectItem value="보류">보류</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>중단/해지 사유</Label>
-                  <Select value={form.terminationReason || "none"} onValueChange={(v) => setForm((f) => ({ ...f, terminationReason: v === "none" ? "" : v }))}>
-                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">없음</SelectItem>
-                      {TERMINATION_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                <div><Label>서비스 시작일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                <div><Label>계약해지 날짜</Label><Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} /></div>
+                <div className="col-span-2">
+                  <Label>중단/해지 사유</Label>
+                  <Input value={form.terminationReason} onChange={(e) => setForm((f) => ({ ...f, terminationReason: e.target.value }))} placeholder="사유를 입력하면 자동으로 '계약해지' 상태로 전환됩니다." />
                 </div>
-                <div className="col-span-2"><Label>활동지원사 선호도</Label><Textarea value={form.preferredWorkerTraits} onChange={(e) => setForm((f) => ({ ...f, preferredWorkerTraits: e.target.value }))} placeholder="예: 여성 활동지원사 선호, 운전 가능자 선호..." /></div>
-                <div className="col-span-2"><Label>비고</Label><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
+                <div className="col-span-2">
+                  <Label>담당 활동지원사 (N:M)</Label>
+                  <MultiEntitySelect
+                    entities={workers}
+                    selectedIds={form.assignedHelperIds}
+                    onChange={(ids) => setForm((f) => ({ ...f, assignedHelperIds: ids }))}
+                    placeholder="지원사 선택..."
+                  />
+                </div>
               </div>
-              <div className="flex justify-end gap-2 mt-4">
+              <div className="mt-6 flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
-                <Button onClick={handleSave}>{editingId ? "수정" : "등록"}</Button>
+                <Button onClick={handleSave}>저장</Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <Input className="w-full sm:max-w-xs" placeholder="이름 또는 연락처 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full sm:w-auto overflow-x-auto">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="all">전체 ({users.length})</TabsTrigger>
-            <TabsTrigger value="서비스중">서비스중 ({users.filter((u) => u.contractStatus === "서비스중").length})</TabsTrigger>
-            <TabsTrigger value="계약해지">계약해지 ({users.filter((u) => u.contractStatus === "계약해지").length})</TabsTrigger>
-            <TabsTrigger value="대기">대기 ({users.filter((u) => u.contractStatus === "대기").length})</TabsTrigger>
-            <TabsTrigger value="타기관 계약">타기관 계약 ({users.filter((u) => u.contractStatus === "타기관 계약").length})</TabsTrigger>
-            <TabsTrigger value="보류">보류 ({users.filter((u) => u.contractStatus === "보류").length})</TabsTrigger>
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex-1">
+          <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
+          <TabsList>
+            <TabsTrigger value="all">전체</TabsTrigger>
+            <TabsTrigger value="서비스중">서비스중</TabsTrigger>
+            <TabsTrigger value="대기">대기</TabsTrigger>
+            <TabsTrigger value="계약해지">계약해지</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted">
-                <tr>
-                  {["이름", "성별", "연락처", "담당지원사", "장애유형", "바우처", "주소", "상태", ""].map((h) => (
-                    <th key={h} className="text-left p-3 font-medium text-muted-foreground">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {usersError ? (
-                  <tr><td colSpan={9} className="p-8 text-center text-destructive font-medium">{usersError}</td></tr>
-                ) : loading ? (
-                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={9} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
-                ) : (
-                  filtered.map((u) => (
-                    <tr key={u.id} className="hover:bg-muted/50">
-                      <td className="p-3 font-medium">{u.name}</td>
-                      <td className="p-3">{u.gender}</td>
-                      <td className="p-3"><a href={`tel:${u.phone}`} className="text-blue-600 hover:underline">{u.phone}</a></td>
-                      <td className="p-3 max-w-[180px]">
-                        {formatHelperList(u) ? (
-                          <span className="text-primary font-medium text-xs leading-relaxed">{formatHelperList(u)}</span>
-                        ) : (
-                          <span className="text-muted-foreground">미배정</span>
-                        )}
-                      </td>
-                      <td className="p-3">{u.disabilityType}</td>
-                      <td className="p-3">{u.voucherTier}구간</td>
-                      <td className="p-3 max-w-[150px] truncate">{u.address}</td>
-                      <td className="p-3">
-                        <Badge variant={u.contractStatus === "서비스중" ? "default" : u.contractStatus === "계약해지" ? "destructive" : "secondary"}>
-                          {u.contractStatus}
-                        </Badge>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <Button variant="ghost" size="sm" onClick={() => startEdit(u)}>수정</Button>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(u)} title="삭제">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="block md:hidden divide-y">
-            {usersError ? (
-              <p className="p-8 text-center text-destructive font-medium">{usersError}</p>
-            ) : loading ? (
-              <p className="p-8 text-center text-muted-foreground">로딩중...</p>
-            ) : filtered.length === 0 ? (
-              <p className="p-8 text-center text-muted-foreground">데이터가 없습니다.</p>
-            ) : (
-              filtered.map((u) => (
-                <div key={u.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-base">{u.name} ({u.gender}, {u.age}세)</span>
-                    <Badge variant={u.contractStatus === "서비스중" ? "default" : u.contractStatus === "계약해지" ? "destructive" : "secondary"}>
-                      {u.contractStatus}
-                    </Badge>
-                  </div>
-                  <div className="text-sm text-muted-foreground space-y-1.5">
-                    <p>📞 <a href={`tel:${u.phone}`} className="text-blue-600 hover:underline">{u.phone}</a></p>
-                    <p>👤 담당: {formatHelperList(u) || "미배정"}</p>
-                    <p>♿ {u.disabilityType} · {u.voucherTier}구간</p>
-                    <p className="truncate">📍 {u.address}</p>
-                  </div>
-                  <div className="flex justify-end gap-2 mt-1">
-                    <Button variant="outline" size="sm" onClick={() => startEdit(u)}>수정</Button>
-                    <Button variant="outline" size="sm" className="text-destructive" onClick={() => setDeleteTarget(u)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filtered.map((user) => (
+          <Card key={user.id} className="stat-card cursor-pointer" onClick={() => startEdit(user as any)}>
+            <CardContent className="p-4">
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <span className="font-bold text-lg">{user.name}</span>
+                  <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
                 </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                <Badge variant={user.contractStatus === "서비스중" ? "default" : user.contractStatus === "대기" ? "secondary" : "destructive"}>
+                  {user.contractStatus}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                <p><span className="text-muted-foreground">연락처:</span> {user.phone}</p>
+                <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
+                <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user.assignedHelperNames)}</p>
+                {user.contractStatus === "계약해지" && user.resignationDate && (
+                  <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>삭제 확인</AlertDialogTitle>
+            <AlertDialogTitle>정말 삭제하시겠습니까?</AlertDialogTitle>
             <AlertDialogDescription>
-              정말로 <strong>{deleteTarget?.name}</strong> 님의 정보를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+              {deleteTarget?.name} 님의 모든 정보가 영구적으로 삭제됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              삭제
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">삭제</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

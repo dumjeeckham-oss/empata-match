@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -40,6 +40,7 @@ import {
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
 import { Trash2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -117,6 +118,7 @@ function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string
 }
 
 const WorkerManagement = () => {
+  const [searchParams] = useSearchParams();
   const { data: workers, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const displayWorkers = useMemo(() => workers.map(toDisplayWorker), [workers]);
@@ -127,6 +129,13 @@ const WorkerManagement = () => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+
+  useEffect(() => {
+    const filter = searchParams.get("status");
+    if (filter) {
+      setStatusFilter(filter);
+    }
+  }, [searchParams]);
 
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
@@ -369,187 +378,96 @@ const WorkerManagement = () => {
                   </Select>
                 </div>
                 <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
-                <div><Label>거주지역</Label><Input value={form.residenceArea} onChange={(e) => setForm((f) => ({ ...f, residenceArea: e.target.value }))} /></div>
-                <div><Label>희망지역</Label><Input value={form.preferredArea} onChange={(e) => setForm((f) => ({ ...f, preferredArea: e.target.value }))} /></div>
                 <div className="col-span-2">
                   <Label>주소</Label>
                   <div className="flex gap-2">
-                    <Input className="flex-1" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value, lat: undefined, lng: undefined }))} onBlur={(e) => handleAutoGeocode(e.target.value)} placeholder="부천시 원미구..." />
-                    <Button type="button" variant="outline" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "📍 좌표변환"}</Button>
-                  </div>
-                  {form.lat && <p className="text-xs text-muted-foreground mt-1">위도: {form.lat.toFixed(4)}, 경도: {form.lng?.toFixed(4)}</p>}
-                </div>
-                <div><Label>경력</Label>
-                  <Select value={form.experience} onValueChange={(v) => setForm((f) => ({ ...f, experience: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{EXPERIENCE_OPTIONS.map((e) => <SelectItem key={e} value={e}>{e}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div><Label>이수증번호</Label><Input value={form.certificateNumber} onChange={(e) => setForm((f) => ({ ...f, certificateNumber: e.target.value }))} /></div>
-                <div><Label>근무가능 요일</Label><Input value={form.availableDays} onChange={(e) => setForm((f) => ({ ...f, availableDays: e.target.value }))} placeholder="월,화,수,목,금" /></div>
-                <div><Label>근무가능 시간</Label><Input value={form.availableHours} onChange={(e) => setForm((f) => ({ ...f, availableHours: e.target.value }))} placeholder="09:00-18:00" /></div>
-                <div className="col-span-2">
-                  <Label>거부/기피 성향</Label>
-                  <div className="flex gap-4 mt-1 flex-wrap">
-                    {WORKER_REJECTION_TYPES.map((t) => (
-                      <label key={t} className="flex items-center gap-2 text-sm">
-                        <Checkbox checked={form.rejectionTypes.includes(t)} onCheckedChange={() => toggleRejection(t)} />{t}
-                      </label>
-                    ))}
+                    <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} onBlur={(e) => handleAutoGeocode(e.target.value)} />
+                    <Button variant="outline" size="sm" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "좌표변환"}</Button>
                   </div>
                 </div>
-                <div className="col-span-2"><Label>거부업무 상세</Label><Textarea value={form.rejectedTasks} onChange={(e) => setForm((f) => ({ ...f, rejectedTasks: e.target.value }))} placeholder="거부하는 업무 상세 내용..." /></div>
-                <div className="flex items-center gap-4">
-                  <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.canDrive} onCheckedChange={(c) => setForm((f) => ({ ...f, canDrive: !!c }))} />운전가능</label>
-                  <label className="flex items-center gap-2 text-sm"><Checkbox checked={form.animalAllergy} onCheckedChange={(c) => setForm((f) => ({ ...f, animalAllergy: !!c }))} />동물 알러지</label>
-                </div>
-                <div><Label>근무상태</Label>
-                  <Select value={form.contractStatus} onValueChange={(v: Worker["contractStatus"]) => setForm((f) => ({ ...f, contractStatus: v }))}>
+                <div>
+                  <Label>근무상태</Label>
+                  <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="근무중">근무중</SelectItem>
+                      <SelectItem value="대기">대기</SelectItem>
                       <SelectItem value="퇴사">퇴사</SelectItem>
-                      <SelectItem value="대기">대기 (문의/등록)</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>최초근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
                 <div><Label>퇴사일</Label><Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} /></div>
-                <div className="col-span-2 border rounded-lg p-3 bg-muted/30">
+                <div className="col-span-2">
+                  <Label>담당 이용자 (N:M)</Label>
                   <MultiEntitySelect
-                    label="담당 이용자 (복수 선택 가능)"
-                    placeholder="이용자 추가..."
-                    emptyHint="담당 이용자 없음"
+                    entities={users}
                     selectedIds={form.assignedUserIds}
-                    onChange={(ids) => {
-                      const arrays = buildUserArraysFromIds(ids, users);
-                      setForm((f) => ({
-                        ...f,
-                        assignedUserIds: arrays.ids,
-                        assignedUserNames: arrays.names,
-                        assignedUserPhones: arrays.phones,
-                      }));
-                    }}
-                    options={users
-                      .filter((u) => u.contractStatus !== "계약해지")
-                      .map((u) => ({ id: u.id, label: u.name, sublabel: u.phone }))}
+                    onChange={(ids) => setForm((f) => ({ ...f, assignedUserIds: ids }))}
+                    placeholder="이용자 선택..."
                   />
                 </div>
-                <div className="col-span-2"><Label>비고</Label><Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} /></div>
               </div>
-              <div className="flex justify-end gap-2 mt-4">
+              <div className="mt-6 flex justify-end gap-2">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
-                <Button onClick={handleSave}>{editingId ? "수정" : "등록"}</Button>
+                <Button onClick={handleSave}>저장</Button>
               </div>
             </DialogContent>
           </Dialog>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
-        <Input className="w-full sm:max-w-xs" placeholder="이름 또는 연락처 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full sm:w-auto overflow-x-auto">
-          <TabsList className="w-full justify-start">
-            <TabsTrigger value="all">전체 ({workers.length})</TabsTrigger>
-            <TabsTrigger value="근무중">근무중 ({displayWorkers.filter((w) => w.contractStatus === "근무중").length})</TabsTrigger>
-            <TabsTrigger value="퇴사">퇴사 ({displayWorkers.filter((w) => w.contractStatus === "퇴사").length})</TabsTrigger>
-            <TabsTrigger value="대기">대기 ({displayWorkers.filter((w) => w.contractStatus === "대기").length})</TabsTrigger>
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex-1">
+          <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
+          <TabsList>
+            <TabsTrigger value="all">전체</TabsTrigger>
+            <TabsTrigger value="근무중">근무중</TabsTrigger>
+            <TabsTrigger value="대기">대기</TabsTrigger>
+            <TabsTrigger value="퇴사">퇴사</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted">
-                <tr>
-                  {["이름", "성별", "연락처", "담당이용자", "경력", "상태", ""].map((h) => (
-                    <th key={h} className="text-left p-3 font-medium text-muted-foreground">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {workersError ? (
-                  <tr><td colSpan={7} className="p-8 text-center text-destructive font-medium">{workersError}</td></tr>
-                ) : loading ? (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">로딩중...</td></tr>
-                ) : filtered.length === 0 ? (
-                  <tr><td colSpan={7} className="p-8 text-center text-muted-foreground">데이터가 없습니다.</td></tr>
-                ) : (
-                  filtered.map((w) => (
-                    <tr key={w.id} className="hover:bg-muted/50">
-                      <td className="p-3 font-medium">{w.name}</td>
-                      <td className="p-3">{w.gender}</td>
-                      <td className="p-3"><a href={`tel:${w.phone}`} className="text-blue-600 hover:underline">{w.phone}</a></td>
-                      <td className="p-3 max-w-[160px] text-xs">{formatUserList(w) || "—"}</td>
-                      <td className="p-3">{w.experience}</td>
-                      <td className="p-3">
-                        <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
-                          {w.contractStatus}
-                        </Badge>
-                      </td>
-                      <td className="p-3 whitespace-nowrap">
-                        <Button variant="ghost" size="sm" onClick={() => startEdit(w)}>수정</Button>
-                        <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => setDeleteTarget(w)} title="삭제">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="block md:hidden divide-y">
-            {workersError ? (
-              <p className="p-8 text-center text-destructive font-medium">{workersError}</p>
-            ) : loading ? (
-              <p className="p-8 text-center text-muted-foreground">로딩중...</p>
-            ) : filtered.length === 0 ? (
-              <p className="p-8 text-center text-muted-foreground">데이터가 없습니다.</p>
-            ) : (
-              filtered.map((w) => (
-                <div key={w.id} className="p-4 flex flex-col gap-2 hover:bg-muted/30">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-base">{w.name} ({w.gender}, {w.age}세)</span>
-                    <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "퇴사" ? "destructive" : "secondary"}>
-                      {w.contractStatus}
-                    </Badge>
-                  </div>
-                  <div className="text-sm text-muted-foreground space-y-1.5">
-                    <p>📞 <a href={`tel:${w.phone}`} className="text-blue-600 hover:underline">{w.phone}</a></p>
-                    <p>👥 담당: {formatUserList(w) || "없음"}</p>
-                    <p>💼 {w.experience} · 이수증: {w.certificateNumber || "없음"}</p>
-                    <p>📍 {w.address}</p>
-                  </div>
-                  <div className="flex justify-end gap-2 mt-1">
-                    <Button variant="outline" size="sm" onClick={() => startEdit(w)}>수정</Button>
-                    <Button variant="outline" size="sm" className="text-destructive" onClick={() => setDeleteTarget(w)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filtered.map((w) => (
+          <Card key={w.id} className="stat-card cursor-pointer" onClick={() => startEdit(w as any)}>
+            <CardContent className="p-4">
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <span className="font-bold text-lg">{w.name}</span>
+                  <span className="text-sm text-muted-foreground ml-2">{w.gender} · {w.age}세</span>
                 </div>
-              ))
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "대기" ? "secondary" : "destructive"}>
+                  {w.contractStatus}
+                </Badge>
+              </div>
+              <div className="space-y-1 text-sm">
+                <p><span className="text-muted-foreground">연락처:</span> {w.phone}</p>
+                <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
+                <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w.assignedUserNames)}</p>
+                {w.contractStatus === "퇴사" && w.resignationDate && (
+                  <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
 
-      <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>삭제 확인</AlertDialogTitle>
+            <AlertDialogTitle>정말 삭제하시겠습니까?</AlertDialogTitle>
             <AlertDialogDescription>
-              정말로 <strong>{deleteTarget?.name}</strong> 님의 정보를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
+              {deleteTarget?.name} 님의 모든 정보가 영구적으로 삭제됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-              삭제
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">삭제</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

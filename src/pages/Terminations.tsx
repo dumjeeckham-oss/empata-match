@@ -102,7 +102,7 @@ export default function Terminations() {
         };
         await updateDoc(editingId, payload);
         
-        // 이용자 정보 동기화
+        // 이용자 정보 동기화 (상태, 사유, 해지날짜)
         await updateUser(form.userId, {
           contractStatus: "계약해지",
           terminationReason: terminationReasonText,
@@ -120,7 +120,7 @@ export default function Terminations() {
         };
         await addDoc(payload as any);
 
-        // 이용자 상태 및 데이터 동기화
+        // 이용자 상태 및 데이터 동기화 (상태, 사유, 해지날짜)
         await updateUser(form.userId, {
           contractStatus: "계약해지",
           terminationReason: terminationReasonText,
