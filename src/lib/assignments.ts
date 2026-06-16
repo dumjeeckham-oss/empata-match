@@ -90,8 +90,17 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
       ? [String(raw.assignedHelperPhone)]
       : [];
 
-  const terminationReason = String(raw.terminationReason ?? raw.txtUMemostop ?? "");
-  const serviceStartDate = toYmd(raw.serviceStartDate);
+  const terminationReason = String(raw.terminationReason ?? raw.txtUMemostop ?? raw["중단사유"] ?? raw["종결사유"] ?? "");
+  const serviceStartDate = toYmd(
+    raw.serviceStartDate ??
+      raw.firstServiceDate ??
+      raw["최초서비스제공일"] ??
+      raw["최초서비스제공날짜"] ??
+      raw["계약일"] ??
+      raw.startDate ??
+      raw.contractDate
+  );
+
   const contractStatusRaw = String(raw.contractStatus ?? "").trim();
   const contractStatus: ServiceUser["contractStatus"] =
     terminationReason.trim()
@@ -138,8 +147,19 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
       ? [String(raw.assignedUserPhone)]
       : [];
 
-  const resignationDate = toYmd(raw.resignationDate);
-  const serviceStartDate = toYmd(raw.serviceStartDate);
+  const resignationDate = toYmd(
+    raw.resignationDate ?? raw["퇴사일"] ?? raw.endDate ?? raw["종결일"]
+  );
+  const serviceStartDate = toYmd(
+    raw.serviceStartDate ??
+      raw["최초근무일"] ??
+      raw["입사일"] ??
+      raw["계약일"] ??
+      raw.startDate ??
+      raw.joinDate ??
+      raw.hireDate
+  );
+
 
   // 퇴사일이 없고 최초근무일(입사일)이 있으면 "근무중"으로 표시
   const derivedStatus: Worker["contractStatus"] =
