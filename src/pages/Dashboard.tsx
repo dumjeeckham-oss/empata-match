@@ -18,9 +18,17 @@ const Dashboard = () => {
   const { data: handovers } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
 
   const activeUsers = users.filter((u) => u.contractStatus === "서비스중");
-  const waitingUsers = users.filter((u) => u.contractStatus === "대기");
+  const waitingUsers = users.filter(
+    (u) =>
+      u.contractStatus === "대기" &&
+      (!u.assignedHelperIds || u.assignedHelperIds.length === 0)
+  );
   const activeWorkers = workers.filter((w) => w.contractStatus === "근무중");
-  const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
+  const waitingWorkers = workers.filter(
+    (w) =>
+      w.contractStatus === "대기" &&
+      (!w.assignedUserIds || w.assignedUserIds.length === 0)
+  );
 
   const now = new Date();
   const weekStart = startOfWeek(now, { weekStartsOn: 1 });
@@ -47,16 +55,29 @@ const Dashboard = () => {
     end: now
   });
 
+  // 월별 통계: 종결 및 인계인수 데이터 집계
   const monthlyStats = last6Months.map(month => {
     const monthStr = format(month, 'yyyy-MM');
+    // 종결 인원: date 기준
     const termCount = terminations.filter(d => d.date?.startsWith(monthStr)).length;
+    // 인계인수 인원: handoverDate 기준
     const handCount = handovers.filter(d => d.handoverDate?.startsWith(monthStr)).length;
     return {
       name: format(month, 'M월'),
+      month: monthStr,
       종결: termCount,
-      인계: handCount
+      인계: handCount,
+      합계: termCount + handCount
     };
   });
+
+  // 월별 통계 요약 (테이블용)
+  const monthlyStatsTable = monthlyStats.map(stat => ({
+    month: stat.name,
+    terminated: stat.종결,
+    handover: stat.인계,
+    total: stat.합계
+  }));
 
   return (
     <div className="space-y-8">
@@ -77,25 +98,23 @@ const Dashboard = () => {
         </Card>
         <Card className="stat-card border-l-4 border-l-accent cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/users?status=대기")}>
           <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">대기중 이용자</p>
+            <p className="text-sm text-muted-foreground">대기중 이용자 (미배정)</p>
             <p className="text-3xl font-bold text-foreground">{waitingUsers.length}</p>
           </CardContent>
         </Card>
         <Card className="stat-card border-l-4 border-l-info cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/workers?status=대기")}>
           <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">대기중 활동지원사</p>
+            <p className="text-sm text-muted-foreground">대기중 활동지원사 (미배정)</p>
             <p className="text-3xl font-bold text-foreground">{waitingWorkers.length}</p>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* 월별 행정 현황 차트 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg flex items-center gap-2">📊 월별 행정 현황 (종결/인계)</CardTitle>
-          </CardHeader>
-          <CardContent className="h-[300px]">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">📊 월별 행정 현황 (종결/인계)</CardTitle>
+        </CardHeader>
+        <CardContent className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthlyStats}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -111,8 +130,40 @@ const Dashboard = () => {
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
-        </Card>
+      </Card>
 
+      {/* 월별 통계 테이블 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">📋 월별 종결/인계인수 현황</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 px-3 font-semibold">월</th>
+                  <th className="text-center py-2 px-3 font-semibold">종결 인원</th>
+                  <th className="text-center py-2 px-3 font-semibold">인계인수 건수</th>
+                  <th className="text-center py-2 px-3 font-semibold">합계</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monthlyStatsTable.map((stat, idx) => (
+                  <tr key={idx} className="border-b hover:bg-muted/50">
+                    <td className="py-2 px-3 font-medium">{stat.month}</td>
+                    <td className="text-center py-2 px-3">{stat.terminated}</td>
+                    <td className="text-center py-2 px-3">{stat.handover}</td>
+                    <td className="text-center py-2 px-3 font-semibold">{stat.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* 이번주 신규 서비스 */}
         <Card>
           <CardHeader>

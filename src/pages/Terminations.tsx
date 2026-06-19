@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type TerminationDocument, TERMINATION_REASONS } from "@/types";
 import { USERS_COLLECTION, TERMINATIONS_COLLECTION } from "@/lib/collectionNames";
+import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -107,10 +108,10 @@ export default function Terminations() {
           contractStatus: "계약해지",
           terminationReason: terminationReasonText,
           txtUMemostop: terminationReasonText,
-          resignationDate: form.date, // 해지날짜 동기화
+          resignationDate: form.date, // 계약해지 날짜 동기화
         } as any);
 
-        toast({ title: "종결확인서 수정 완료" });
+        toast({ title: "종결확인서 수정 완료", description: "이용자 프로필의 계약해지 날짜와 종결 사유가 동기화되었습니다." });
       } else {
         // 신규 저장 모드
         const payload: Omit<TerminationDocument, "id"> = {
@@ -120,15 +121,15 @@ export default function Terminations() {
         };
         await addDoc(payload as any);
 
-        // 이용자 상태 및 데이터 동기화 (상태, 사유, 해지날짜)
+        // 이용자 상태 및 데이터 동기화 (상태, 사유, 계약해지 날짜)
         await updateUser(form.userId, {
           contractStatus: "계약해지",
           terminationReason: terminationReasonText,
           txtUMemostop: terminationReasonText,
-          resignationDate: form.date, // 해지날짜 동기화
+          resignationDate: form.date, // 계약해지 날짜 동기화
         } as any);
 
-        toast({ title: "종결확인서 저장 완료", description: "이용자 상태가 '계약해지'로 자동 전환되었습니다." });
+        toast({ title: "종결확인서 저장 완료", description: "이용자 상태가 '계약해지'로 자동 전환되고, 계약해지 날짜가 저장되었습니다." });
       }
 
       resetForm();
@@ -192,88 +193,336 @@ export default function Terminations() {
 
   return (
     <div className="space-y-6">
-      {/* 인쇄용 영역 (화면에서는 숨김) */}
+      {/* 인쇄용 영역 (화면에서는 숨김) — A4 단일 페이지 엄격 제약 */}
       {printDoc && (
-        <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-10 overflow-auto">
-          <div className="max-w-[210mm] mx-auto border-2 border-black p-8 min-h-[280mm] flex flex-col">
-            <h1 className="text-3xl font-bold text-center mb-10 underline decoration-double underline-offset-8">종 결 확 인 서</h1>
-            
-            <table className="w-full border-collapse border border-black mb-8">
-              <tbody>
-                <tr>
-                  <th className="border border-black bg-gray-100 p-3 w-1/4 text-center">수급자 성명</th>
-                  <td className="border border-black p-3 w-1/4 text-center font-bold text-lg">{printDoc.userName}</td>
-                  <th className="border border-black bg-gray-100 p-3 w-1/4 text-center">종결 일자</th>
-                  <td className="border border-black p-3 w-1/4 text-center">{printDoc.date}</td>
-                </tr>
-                <tr>
-                  <th className="border border-black bg-gray-100 p-3 text-center">장애 유형</th>
-                  <td className="border border-black p-3 text-center">
-                    {users.find(u => u.id === printDoc.userId)?.disabilityType || "—"}
-                  </td>
-                  <th className="border border-black bg-gray-100 p-3 text-center">바우처 구간</th>
-                  <td className="border border-black p-3 text-center">
-                    {users.find(u => u.id === printDoc.userId)?.voucherTier || "—"}구간
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+        <div className="hidden print:block fixed inset-0 bg-white z-[9999]">
+          {/* 인쇄 전용 스타일 */}
+          <style>{`
+            @page {
+              size: A4;
+              margin: 15mm;
+            }
+            @media print {
+              html, body {
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                height: 100% !important;
+              }
+              .print-root {
+                margin: 0;
+                padding: 0;
+                width: 100%;
+                min-height: 100vh;
+                box-sizing: border-box;
+              }
+              .print-sheet {
+                width: 100%;
+                max-width: 100%;
+                margin: 0 auto;
+                padding: 0;
+                box-sizing: border-box;
+                font-size: 10.5px;
+                line-height: 1.25;
+                color: #000;
+              }
+              /* 모든 내부 블록은 페이지 나눔 방지 */
+              .print-sheet > * {
+                page-break-inside: avoid;
+              }
+              .print-sheet .signature-row,
+              .print-sheet .info-table,
+              .print-sheet .reason-block,
+              .print-sheet .handover-block,
+              .print-sheet .footer-block {
+                page-break-inside: avoid;
+              }
+              /* 표 셀 간격 최소화 */
+              .print-sheet table {
+                border-collapse: collapse;
+                margin: 0;
+              }
+              .print-sheet table th,
+              .print-sheet table td {
+                padding: 1.2mm 2mm !important;
+                vertical-align: middle;
+              }
+              /* 불필요 요소 숨김 */
+              .no-print, .print-close-btn {
+                display: none !important;
+              }
+            }
+          `}</style>
 
-            <div className="mb-8 flex-grow">
-              <h2 className="text-xl font-bold mb-3">1. 종결 사유</h2>
-              <div className="border border-black p-5 min-h-[100px] mb-4">
-                <div className="flex flex-wrap gap-4 mb-4">
-                  {TERMINATION_REASONS.map(r => (
-                    <div key={r} className="flex items-center gap-1">
-                      <div className={cn("w-4 h-4 border border-black flex items-center justify-center", printDoc.reasons.includes(r) && "bg-black")}>
-                        {printDoc.reasons.includes(r) && <div className="w-2 h-2 bg-white rounded-full" />}
-                      </div>
-                      <span>{r}</span>
+          <div className="print-root">
+            <div className="print-sheet">
+              {/* ── 헤더: 제목 + 결재란 (우측 상단, 가로로 붙여 배치) ── */}
+              <div className="signature-row" style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                marginBottom: "6mm",
+              }}>
+                {/* 왼쪽: 문서 제목 */}
+                <h1 style={{
+                  fontSize: "19px",
+                  fontWeight: 700,
+                  textDecoration: "underline",
+                  textDecorationStyle: "double",
+                  textUnderlineOffset: "4px",
+                  margin: 0,
+                  letterSpacing: "4px",
+                  lineHeight: 1.1,
+                }}>
+                  종 결 확 인 서
+                </h1>
+
+                {/* 오른쪽: 결재란 (담당 + 센터장, 간격 없이 붙여서) */}
+                <div style={{
+                  display: "flex",
+                  gap: 0,
+                  alignItems: "flex-start",
+                }}>
+                  {/* 담당 */}
+                  <div style={{ textAlign: "center", borderRight: "0.5px solid #000", paddingRight: "5mm" }}>
+                    <p style={{ fontSize: "9px", fontWeight: 600, margin: "0 0 1mm 0", lineHeight: 1.1 }}>담&nbsp;&nbsp;당</p>
+                    <div style={{
+                      width: "20mm",
+                      height: "15mm",
+                      border: "1px solid #000",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      position: "relative",
+                    }}>
+                      <span style={{ fontWeight: 700, fontSize: "9px" }}>
+                        {printDoc.approverDandang || ""}
+                      </span>
+                      <span style={{
+                        position: "absolute",
+                        right: "1mm",
+                        bottom: "1mm",
+                        fontSize: "6px",
+                      }}>(인)</span>
                     </div>
-                  ))}
-                </div>
-                {printDoc.reasonDetail && (
-                  <div className="pt-3 border-t border-dotted border-gray-400">
-                    <p className="whitespace-pre-wrap">{printDoc.reasonDetail}</p>
                   </div>
-                )}
+
+                  {/* 센터장 */}
+                  <div style={{ textAlign: "center", paddingLeft: "5mm" }}>
+                    <p style={{ fontSize: "9px", fontWeight: 600, margin: "0 0 1mm 0", lineHeight: 1.1 }}>센터장</p>
+                    <div style={{
+                      width: "20mm",
+                      height: "15mm",
+                      border: "1px solid #000",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      position: "relative",
+                    }}>
+                      <span style={{ fontWeight: 700, fontSize: "9px" }}>
+                        {printDoc.approverCenterJang || ""}
+                      </span>
+                      <span style={{
+                        position: "absolute",
+                        right: "1mm",
+                        bottom: "1mm",
+                        fontSize: "6px",
+                      }}>(인)</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <h2 className="text-xl font-bold mb-3">2. 인계 및 기타 특이사항</h2>
-              <div className="border border-black p-5 min-h-[150px]">
-                <p className="whitespace-pre-wrap">{printDoc.handoverNote || "특이사항 없음"}</p>
-              </div>
-            </div>
+              {/* ── 기본 정보 테이블 ── */}
+              <table className="info-table" style={{
+                width: "100%",
+                border: "1px solid #000",
+                marginBottom: "4mm",
+                fontSize: "10px",
+              }}>
+                <tbody>
+                  <tr>
+                    <th style={{
+                      border: "1px solid #000",
+                      backgroundColor: "#f5f5f5",
+                      textAlign: "center",
+                      width: "25%",
+                    }}>수급자 성명</th>
+                    <td style={{
+                      border: "1px solid #000",
+                      textAlign: "center",
+                      fontWeight: 700,
+                      width: "25%",
+                    }}>{printDoc.userName}</td>
+                    <th style={{
+                      border: "1px solid #000",
+                      backgroundColor: "#f5f5f5",
+                      textAlign: "center",
+                      width: "25%",
+                    }}>종결 일자</th>
+                    <td style={{
+                      border: "1px solid #000",
+                      textAlign: "center",
+                      width: "25%",
+                    }}>{printDoc.date}</td>
+                  </tr>
+                  <tr>
+                    <th style={{
+                      border: "1px solid #000",
+                      backgroundColor: "#f5f5f5",
+                      textAlign: "center",
+                    }}>장애 유형</th>
+                    <td style={{
+                      border: "1px solid #000",
+                      textAlign: "center",
+                    }}>
+                      {users.find(u => u.id === printDoc.userId)?.disabilityType || "—"}
+                    </td>
+                    <th style={{
+                      border: "1px solid #000",
+                      backgroundColor: "#f5f5f5",
+                      textAlign: "center",
+                    }}>바우처 구간</th>
+                    <td style={{
+                      border: "1px solid #000",
+                      textAlign: "center",
+                    }}>
+                      {users.find(u => u.id === printDoc.userId)?.voucherTier || "—"}구간
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
 
-            <div className="mt-auto">
-              <p className="text-center text-lg mb-10">위와 같이 서비스 종결을 확인합니다.</p>
-              <p className="text-center text-xl mb-12">{new Date().getFullYear()}년 {new Date().getMonth() + 1}월 {new Date().getDate()}일</p>
-              
-              <div className="flex justify-around items-end mt-10">
-                <div className="text-center">
-                  <p className="mb-2">담당자</p>
-                  <div className="w-32 h-16 border border-black flex items-center justify-center relative">
-                    <span className="font-bold">{printDoc.approverDandang}</span>
-                    <span className="absolute right-2 bottom-1 text-xs">(인)</span>
+              {/* ── 1. 종결 사유 ── */}
+              <div className="reason-block" style={{ marginBottom: "3mm" }}>
+                <h2 style={{
+                  fontSize: "10.5px",
+                  fontWeight: 700,
+                  margin: "0 0 1.5mm 0",
+                  lineHeight: 1.2,
+                }}>1. 종결 사유</h2>
+                <div style={{
+                  border: "1px solid #000",
+                  padding: "2mm 3mm",
+                  minHeight: "18mm",
+                  lineHeight: 1.4,
+                }}>
+                  {/* 체크박스 사유 목록 */}
+                  <div style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "2mm 6mm",
+                    marginBottom: "2mm",
+                  }}>
+                    {TERMINATION_REASONS.map(r => (
+                      <div key={r} style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "1.5mm",
+                        fontSize: "9px",
+                        whiteSpace: "nowrap",
+                      }}>
+                        <span style={{
+                          display: "inline-block",
+                          width: "3.5mm",
+                          height: "3.5mm",
+                          border: "1px solid #000",
+                          textAlign: "center",
+                          lineHeight: "3.5mm",
+                          fontSize: "7px",
+                          fontWeight: 700,
+                        }}>
+                          {printDoc.reasons.includes(r) ? "✓" : ""}
+                        </span>
+                        <span>{r}</span>
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <div className="text-center">
-                  <p className="mb-2">센터장</p>
-                  <div className="w-32 h-16 border border-black flex items-center justify-center relative">
-                    <span className="font-bold">{printDoc.approverCenterJang}</span>
-                    <span className="absolute right-2 bottom-1 text-xs">(인)</span>
-                  </div>
+                  {/* 상세 사유 */}
+                  {printDoc.reasonDetail && (
+                    <div style={{
+                      paddingTop: "1.5mm",
+                      borderTop: "1px dotted #999",
+                      fontSize: "9px",
+                      lineHeight: 1.35,
+                      wordBreak: "keep-all",
+                    }}>
+                      {printDoc.reasonDetail}
+                    </div>
+                  )}
                 </div>
               </div>
-              
-              <p className="mt-16 text-center font-bold text-2xl">동백 장애인활동지원센터</p>
+
+              {/* ── 2. 인계 및 기타 특이사항 ── */}
+              <div className="handover-block" style={{ marginBottom: "3mm" }}>
+                <h2 style={{
+                  fontSize: "10.5px",
+                  fontWeight: 700,
+                  margin: "0 0 1.5mm 0",
+                  lineHeight: 1.2,
+                }}>2. 인계 및 기타 특이사항</h2>
+                <div style={{
+                  border: "1px solid #000",
+                  padding: "2mm 3mm",
+                  minHeight: "18mm",
+                  fontSize: "9px",
+                  lineHeight: 1.4,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "keep-all",
+                }}>
+                  {printDoc.handoverNote || "특이사항 없음"}
+                </div>
+              </div>
+
+              {/* ── 하단: 확정 문구 + 센터명 + 로고 ── */}
+              <div className="footer-block" style={{
+                textAlign: "center",
+                marginTop: "auto",
+              }}>
+                <p style={{
+                  fontSize: "10px",
+                  margin: "0 0 2mm 0",
+                  lineHeight: 1.3,
+                }}>
+                  위와 같이 서비스 종결을 확인합니다.
+                </p>
+                <p style={{
+                  fontSize: "9px",
+                  margin: "0 0 3mm 0",
+                  lineHeight: 1.2,
+                }}>
+                  {new Date().getFullYear()}년 {new Date().getMonth() + 1}월 {new Date().getDate()}일
+                </p>
+                <p style={{
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  margin: "0 0 4mm 0",
+                  lineHeight: 1.2,
+                }}>
+                  동백 장애인활동지원센터
+                </p>
+                {/* 동백 로고 */}
+                <img
+                  src={dongbaekLogo}
+                  alt="동백 로고"
+                  style={{
+                    display: "block",
+                    margin: "0 auto",
+                    maxWidth: "35mm",
+                    maxHeight: "12mm",
+                    objectFit: "contain",
+                  }}
+                />
+              </div>
             </div>
           </div>
-          <button 
-            onClick={() => setPrintDoc(null)} 
-            className="print:hidden fixed top-4 right-4 bg-primary text-white p-2 rounded-full shadow-lg"
+
+          {/* 화면용 닫기 버튼 (인쇄 시 숨김) */}
+          <button
+            onClick={() => setPrintDoc(null)}
+            className="print:hidden no-print print-close-btn fixed top-4 right-4 bg-primary text-white p-2 rounded-full shadow-lg z-50 hover:bg-primary/90"
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </div>
       )}
