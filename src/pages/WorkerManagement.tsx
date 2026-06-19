@@ -425,8 +425,9 @@ const WorkerManagement = () => {
                 <div className="col-span-2">
                   <Label>담당 이용자 (N:M)</Label>
                   <MultiEntitySelect
-                    entities={users}
-                    selectedIds={form.assignedUserIds}
+                    label="담당 이용자"
+                    options={users.map((u) => ({ id: u.id || "", label: u.name, sublabel: String(u.phone || "") }))}
+                    selectedIds={form.assignedUserIds || []}
                     onChange={(ids) => setForm((f) => ({ ...f, assignedUserIds: ids }))}
                     placeholder="이용자 선택..."
                   />
