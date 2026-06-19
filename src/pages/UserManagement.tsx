@@ -67,8 +67,13 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 
 const UserManagement = () => {
   const [searchParams] = useSearchParams();
-  const { data: users, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workers, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: usersRaw, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
+
+  // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
+  const users = usersRaw || [];
+  const workers = workersRaw || [];
+
   const [form, setForm] = useState(emptyUser);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -295,12 +300,31 @@ const UserManagement = () => {
       const matchesName = String(u.name || "").includes(search);
       const matchesPhone = String(u.phone || "").includes(search);
       const matchSearch = !search || matchesName || matchesPhone;
+      
+      // 대기중 필터: 미배정 사용자만 표시
+      if (statusFilter === "대기") {
+        const isUnmatched = !u.assignedHelperIds || u.assignedHelperIds.length === 0;
+        return matchSearch && u.contractStatus === "대기" && isUnmatched;
+      }
+      
       const matchStatus = statusFilter === "all" || String(u.contractStatus || "") === statusFilter;
       return matchSearch && matchStatus;
     });
   };
 
   const filtered = getFilteredUsers();
+
+  // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">이용자 데이터를 안전하게 불러오는 중입니다...</p>
+        </div>
+      </div>
+    );
+  }
 
   const toggleArrayField = (field: "supportTypes" | "environmentTags", value: string) => {
     setForm((f) => ({

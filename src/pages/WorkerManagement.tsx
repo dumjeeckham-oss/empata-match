@@ -119,8 +119,13 @@ function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string
 
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
-  const { data: workers, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+
+  // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
+  const workers = workersRaw || [];
+  const users = usersRaw || [];
+
   const displayWorkers = useMemo(() => workers.map(toDisplayWorker), [workers]);
   const [form, setForm] = useState(emptyWorker);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -324,16 +329,35 @@ const WorkerManagement = () => {
   };
 
   const getFiltered = () => {
-    return displayWorkers.filter((w) => {
+    return (displayWorkers || []).filter((w) => {
       const matchesName = String(w.name || "").includes(search);
       const matchesPhone = String(w.phone || "").includes(search);
       const matchSearch = !search || matchesName || matchesPhone;
+      
+      // 대기중 필터: 미배정 활동지원사만 표시
+      if (statusFilter === "대기") {
+        const isUnmatched = !w.assignedUserIds || w.assignedUserIds.length === 0;
+        return matchSearch && w.contractStatus === "대기" && isUnmatched;
+      }
+      
       const matchStatus = statusFilter === "all" || String(w.contractStatus || "") === statusFilter;
       return matchSearch && matchStatus;
     });
   };
 
   const filtered = getFiltered();
+
+  // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">활동지원사 데이터를 안전하게 불러오는 중입니다...</p>
+        </div>
+      </div>
+    );
+  }
 
   const toggleRejection = (value: string) => {
     setForm((f) => ({
