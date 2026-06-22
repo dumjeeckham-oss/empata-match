@@ -275,7 +275,7 @@ export default function Terminations() {
                     width: "16%",
                     lineHeight: 1.3,
                   }}>
-                    현달장
+                    센터장
                     <br />
                     <span style={{ fontSize: "10px", fontWeight: 700 }}>
                       {printDoc.approverCenterJang || ""}
@@ -294,7 +294,7 @@ export default function Terminations() {
               marginBottom: "3mm",
               wordBreak: "keep-all",
             }}>
-              동백 장애인활동지원센터(이하 &apos;본 센터&apos;라 함) 종결에 따른 종결 사실을 대외적으로 증명하기 위하여 아래와 같은 사유로 종결하고자 합니다. 검토 후 재가 바랍니다.
+              부천의료복지사회적협동조합 동백장애인활동지원센터에서 복지서비스를 제공 받았던 수해자를 아래와 같은 사유로 종결하고자 합니다. 검토 후 재가 바랍니다.
             </div>
 
             {/* ── 정보 테이블 ── */}
@@ -367,62 +367,36 @@ export default function Terminations() {
               </tbody>
             </table>
 
-            {/* ── 하단: 결재일 + 로고 + 기관명 ── */}
-            <table style={{ fontSize: "9.5px" }}>
-              <tbody>
-                <tr>
-                  <td style={{
-                    width: "25%",
-                    textAlign: "center",
-                    fontWeight: 600,
-                    fontSize: "9px",
-                  }}>
-                    결 재 일
-                  </td>
-                  <td style={{
-                    width: "25%",
-                    textAlign: "center",
-                    fontSize: "10px",
-                  }}>
-                    {printDoc.approvalDate || printDoc.date}
-                  </td>
-                  <td rowSpan={3} style={{
-                    width: "50%",
-                    textAlign: "center",
-                    verticalAlign: "middle",
-                    padding: "2mm",
-                  }}>
-                    <img
-                      src={dongbaekLogo}
-                      alt="동백"
-                      style={{
-                        display: "block",
-                        margin: "0 auto 1.5mm auto",
-                        maxWidth: "22mm",
-                        maxHeight: "10mm",
-                        objectFit: "contain",
-                      }}
-                    />
-                    <p style={{
-                      fontWeight: 700,
-                      fontSize: "10px",
-                      margin: 0,
-                      lineHeight: 1.3,
-                    }}>
-                      동백 장애인활동지원센터
-                    </p>
-                  </td>
-                </tr>
-                <tr style={{ height: "8mm" }}>
-                  <td style={{ width: "25%", textAlign: "center" }}></td>
-                  <td style={{ width: "25%", textAlign: "center" }}></td>
-                </tr>
-                <tr style={{ height: "4mm" }}>
-                  <td style={{ width: "25%", textAlign: "center" }}></td>
-                  <td style={{ width: "25%", textAlign: "center" }}></td>
-                </tr>
-              </tbody>
-            </table>
+            {/* ── 하단: 결재일 + 로고 + 기관명 (중앙 정렬, 표 없이) ── */}
+            <div style={{ textAlign: "center", marginTop: "3mm" }}>
+              <p style={{
+                fontSize: "10px",
+                fontWeight: 600,
+                margin: "0 0 1.5mm 0",
+                lineHeight: 1.3,
+              }}>
+                결 재 일 : {printDoc.approvalDate || printDoc.date}
+              </p>
+              <img
+                src={dongbaekLogo}
+                alt="동백"
+                style={{
+                  display: "block",
+                  margin: "2mm auto 1.5mm auto",
+                  maxWidth: "22mm",
+                  maxHeight: "10mm",
+                  objectFit: "contain",
+                }}
+              />
+              <p style={{
+                fontWeight: 700,
+                fontSize: "10px",
+                margin: 0,
+                lineHeight: 1.3,
+              }}>
+                동백 장애인활동지원센터
+              </p>
+            </div>
           </div>
 
           <button
@@ -544,11 +518,24 @@ export default function Terminations() {
             </div>
             <div>
               <Label>종결 사유</Label>
+              {form.reasons.includes("개인사정") || form.reasons.includes("기타") ? (
+                <p className="text-xs text-amber-600 font-medium mt-1 mb-1">
+                  ⚠ {form.reasons.filter(r => r === "개인사정" || r === "기타").join(", ")} 사유이므로 상세 내용을 반드시 작성해주세요.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground mt-1 mb-1">
+                  선택한 종결 종류: {form.reasons.length > 0 ? form.reasons.join(", ") : "없음"}
+                </p>
+              )}
               <Textarea
-                className="min-h-[200px] mt-2"
+                className="min-h-[200px]"
                 value={form.reasonDetail}
                 onChange={(e) => setForm((f) => ({ ...f, reasonDetail: e.target.value }))}
-                placeholder={`안녕하세요. 본 이용자는 아래와 같은 사유로 종결하고자 합니다.\n검토 후 재가 바랍니다.`}
+                placeholder={form.reasons.includes("개인사정") 
+                  ? "개인사정에 해당하는 구체적인 사유를 작성해주세요."
+                  : form.reasons.includes("기타")
+                  ? "기타에 해당하는 구체적인 사유를 작성해주세요."
+                  : "종결 사유에 대한 상세 내용을 작성해주세요."}
               />
             </div>
           </div>
@@ -563,7 +550,7 @@ export default function Terminations() {
               <Input value={form.approverDandang || ""} onChange={(e) => setForm((f) => ({ ...f, approverDandang: e.target.value }))} />
             </div>
             <div>
-              <Label>현달장 결재자</Label>
+              <Label>센터장 결재자</Label>
               <Input value={form.approverCenterJang || ""} onChange={(e) => setForm((f) => ({ ...f, approverCenterJang: e.target.value }))} />
             </div>
           </div>
