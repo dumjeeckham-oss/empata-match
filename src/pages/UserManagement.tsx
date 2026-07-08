@@ -80,6 +80,7 @@ const UserManagement = () => {
   const workers = workersRaw || [];
 
   const [form, setForm] = useState(emptyUser);
+  const [ageInput, setAgeInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -87,6 +88,58 @@ const UserManagement = () => {
   const [geocoding, setGeocoding] = useState(false);
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+
+  const parseAgeInput = (val: string): number => {
+    const clean = val.trim();
+    if (!clean) return 0;
+    
+    const num = Number(clean);
+    if (!Number.isNaN(num) && num > 0) {
+      if (num >= 1900) {
+        const currentYear = new Date().getFullYear();
+        return Math.max(0, currentYear - num);
+      }
+      return num;
+    }
+
+    const digits = clean.replace(/\D/g, "");
+    if (!digits) return 0;
+
+    const currentYear = new Date().getFullYear();
+
+    if (digits.length === 4) {
+      const y = Number(digits);
+      if (y >= 1900 && y <= currentYear) {
+        return currentYear - y;
+      }
+    }
+
+    if (digits.length === 6) {
+      const yy = Number(digits.slice(0, 2));
+      const y = yy < 30 ? 2000 + yy : 1900 + yy;
+      return Math.max(0, currentYear - y);
+    }
+
+    if (digits.length === 8) {
+      const y = Number(digits.slice(0, 4));
+      if (y >= 1900 && y <= currentYear) {
+        return currentYear - y;
+      }
+    }
+
+    if (digits.length <= 2) {
+      return Number(digits);
+    }
+
+    const parsedNum = Number(digits);
+    if (!Number.isNaN(parsedNum) && parsedNum > 0) {
+      if (parsedNum >= 1900) {
+        return Math.max(0, currentYear - parsedNum);
+      }
+      return parsedNum;
+    }
+    return 0;
+  };
 
   useEffect(() => {
     const filter = searchParams.get("status");
@@ -178,6 +231,7 @@ const UserManagement = () => {
       await syncUserToWorkers(savedId, payload, workers, prevHelperIds, updateWorker);
     }
     setForm(emptyUser);
+    setAgeInput("");
     setEditingId(null);
     setDialogOpen(false);
   };
@@ -261,6 +315,7 @@ const UserManagement = () => {
       assignedHelperNames: user.assignedHelperNames ?? [],
       assignedHelperPhones: user.assignedHelperPhones ?? [],
     });
+    setAgeInput(user.age ? String(user.age) : "");
     setEditingId(user.id);
     setDialogOpen(true);
   };
@@ -354,7 +409,7 @@ const UserManagement = () => {
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => { setForm(emptyUser); setEditingId(null); }}>+ 신규등록</Button>
+              <Button onClick={() => { setForm(emptyUser); setAgeInput(""); setEditingId(null); }}>+ 신규등록</Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
@@ -364,6 +419,67 @@ const UserManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
                   <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
+                  <div>
+                    <Label>나이 (생년 또는 생년월일 입력 시 자동변환)</Label>
+                    <Input 
+                      placeholder="예: 25, 1995, 950504" 
+                      value={ageInput} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAgeInput(val);
+                        const clean = val.trim();
+                        if (!clean) {
+                          setForm((f) => ({ ...f, age: 0 }));
+                          return;
+                        }
+                        const digits = clean.replace(/\D/g, "");
+                        const currentYear = new Date().getFullYear();
+                        let calculatedAge = 0;
+                        let valid = false;
+
+                        if (digits.length <= 2 && Number(digits) > 0) {
+                          calculatedAge = Number(digits);
+                          valid = true;
+                        } else if (digits.length === 4) {
+                          const y = Number(digits);
+                          if (y >= 1900 && y <= currentYear) {
+                            calculatedAge = currentYear - y;
+                            valid = true;
+                          }
+                        } else if (digits.length === 6) {
+                          const yy = Number(digits.slice(0, 2));
+                          const y = yy < 30 ? 2000 + yy : 1900 + yy;
+                          calculatedAge = currentYear - y;
+                          valid = true;
+                        } else if (digits.length === 8) {
+                          const y = Number(digits.slice(0, 4));
+                          if (y >= 1900 && y <= currentYear) {
+                            calculatedAge = currentYear - y;
+                            valid = true;
+                          }
+                        }
+
+                        if (valid) {
+                          setForm((f) => ({ ...f, age: calculatedAge }));
+                        }
+                      }}
+                      onBlur={() => {
+                        const calculatedAge = parseAgeInput(ageInput);
+                        setForm((f) => ({ ...f, age: calculatedAge }));
+                        setAgeInput(calculatedAge > 0 ? String(calculatedAge) : "");
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <Label>성별</Label>
+                    <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
+                      <SelectTrigger><SelectValue placeholder="선택..." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="남성">남성</SelectItem>
+                        <SelectItem value="여성">여성</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div><Label>장애유형</Label>
                     <Select value={form.disabilityType} onValueChange={(v) => setForm((f) => ({ ...f, disabilityType: v }))}>
                       <SelectTrigger><SelectValue placeholder="선택..." /></SelectTrigger>
