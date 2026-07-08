@@ -27,6 +27,11 @@ export const TERMINATION_REASONS = [
   "개인사정", "기타",
 ] as const;
 
+export interface WeeklySchedule {
+  day: "월" | "화" | "수" | "목" | "금" | "토" | "일";
+  slots: number[]; // 0-47 (30분 단위, 00:00 = 0)
+}
+
 export interface ServiceUser {
   id?: string;
   name: string;
@@ -39,13 +44,21 @@ export interface ServiceUser {
   voucherTier: number;
   requiredDays: string;
   requiredHours: string;
+  weeklySchedule?: WeeklySchedule[];
   supportTypes: string[];
   environmentTags: string[];
   familyMembers: string;
   address: string;
   lat?: number;
   lng?: number;
-  preferredWorkerTraits: string;
+  hasPet: boolean;
+  petNote?: string;
+  livingWith: string; // 거주자
+  movementNote?: string; // 이동시 유의점
+  houseworkNote?: string; // 가사지원시 유의점
+  needsVehicle: boolean; // 차량필요 여부
+  usesDiaper: boolean; // 기저귀 여부
+  preferredWorkerTraits: string; // 희망 활동지원사 선호도
   notes: string;
   contractStatus: "서비스중" | "계약해지" | "대기" | "타기관 계약" | "보류";
   serviceStartDate: string;
@@ -86,10 +99,13 @@ export interface Worker {
   experience: string;
   availableDays: string;
   availableHours: string;
+  weeklySchedule?: WeeklySchedule[];
+  supportTypes: string[]; // 지원 가능 종류
   rejectionTypes: string[];
   rejectedTasks: string;
   canDrive: boolean;
   animalAllergy: boolean;
+  certificates: string[]; // 보유 자격증
   certificateNumber: string;
   contractStatus: "근무중" | "퇴사" | "대기";
   serviceStartDate: string;

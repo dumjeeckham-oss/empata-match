@@ -388,49 +388,127 @@ const WorkerManagement = () => {
               <DialogHeader>
                 <DialogTitle>{editingId ? "활동지원사 수정" : "활동지원사 신규등록"}</DialogTitle>
               </DialogHeader>
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
-                <div><Label>나이 (출생연도 입력가능)</Label><Input type="number" value={form.age || ""} onChange={(e) => {
-                  let val = Number(e.target.value);
-                  if (val > 1900) val = new Date().getFullYear() - val;
-                  setForm((f) => ({ ...f, age: val }));
-                }} /></div>
-                <div><Label>성별</Label>
-                  <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="남성">남성</SelectItem><SelectItem value="여성">여성</SelectItem></SelectContent>
-                  </Select>
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
+                  <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
+                  <div><Label>성별</Label>
+                    <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="남성">남성</SelectItem><SelectItem value="여성">여성</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>나이 (출생연도 입력가능)</Label><Input type="number" value={form.age || ""} onChange={(e) => {
+                    let val = Number(e.target.value);
+                    if (val > 1900) val = new Date().getFullYear() - val;
+                    setForm((f) => ({ ...f, age: val }));
+                  }} /></div>
                 </div>
-                <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
-                <div className="col-span-2">
-                  <Label>주소</Label>
-                  <div className="flex gap-2">
-                    <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} onBlur={(e) => handleAutoGeocode(e.target.value)} />
-                    <Button variant="outline" size="sm" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "좌표변환"}</Button>
+
+                <div className="space-y-2">
+                  <Label>지원 가능 종류</Label>
+                  <div className="flex flex-wrap gap-4">
+                    {SUPPORT_TYPES.map(t => (
+                      <div key={t} className="flex items-center space-x-2">
+                        <Checkbox 
+                          id={`support-${t}`} 
+                          checked={form.supportTypes?.includes(t)} 
+                          onCheckedChange={(checked) => {
+                            setForm(f => ({
+                              ...f,
+                              supportTypes: checked 
+                                ? [...(f.supportTypes || []), t]
+                                : (f.supportTypes || []).filter(v => v !== t)
+                            }));
+                          }} 
+                        />
+                        <label htmlFor={`support-${t}`} className="text-sm">{t}</label>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div>
-                  <Label>근무상태</Label>
-                  <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="근무중">근무중</SelectItem>
-                      <SelectItem value="대기">대기</SelectItem>
-                      <SelectItem value="퇴사">퇴사</SelectItem>
-                    </SelectContent>
-                  </Select>
+
+                <div className="space-y-2">
+                  <Label>희망 활동 시간 및 요일 (드래그하여 선택)</Label>
+                  <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm(f => ({ ...f, weeklySchedule: s }))} />
                 </div>
-                <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
-                <div><Label>퇴사일</Label><Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} /></div>
-                <div className="col-span-2">
-                  <Label>담당 이용자 (N:M)</Label>
-                  <MultiEntitySelect
-                    label="담당 이용자"
-                    options={users.map((u) => ({ id: u.id || "", label: u.name, sublabel: String(u.phone || "") }))}
-                    selectedIds={form.assignedUserIds || []}
-                    onChange={(ids) => setForm((f) => ({ ...f, assignedUserIds: ids }))}
-                    placeholder="이용자 선택..."
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <Label>주소</Label>
+                    <div className="flex gap-2">
+                      <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} onBlur={(e) => handleAutoGeocode(e.target.value)} />
+                      <Button variant="outline" size="sm" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "좌표변환"}</Button>
+                    </div>
+                  </div>
+                  <div><Label>거주지역</Label><Input value={form.residenceArea} onChange={(e) => setForm((f) => ({ ...f, residenceArea: e.target.value }))} placeholder="예: 구로구" /></div>
+                  <div><Label>희망지역</Label><Input value={form.preferredArea} onChange={(e) => setForm((f) => ({ ...f, preferredArea: e.target.value }))} placeholder="예: 구로구, 금천구" /></div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>거부하는 지원 업무</Label>
+                  <div className="flex flex-wrap gap-4">
+                    {WORKER_REJECTION_TYPES.map((type) => (
+                      <div key={type} className="flex items-center space-x-2">
+                        <Checkbox id={type} checked={form.rejectionTypes.includes(type)} onCheckedChange={() => toggleRejection(type)} />
+                        <Label htmlFor={type} className="text-sm font-normal">{type}</Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="flex items-center space-x-4 h-full pt-6">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox id="canDrive" checked={form.canDrive} onCheckedChange={(checked) => setForm((f) => ({ ...f, canDrive: !!checked }))} />
+                      <Label htmlFor="canDrive">운전가능</Label>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox id="animalAllergy" checked={form.animalAllergy} onCheckedChange={(checked) => setForm((f) => ({ ...f, animalAllergy: !!checked }))} />
+                      <Label htmlFor="animalAllergy">동물알러지</Label>
+                    </div>
+                  </div>
+                  <div><Label>경력</Label>
+                    <Select value={form.experience} onValueChange={(v) => setForm((f) => ({ ...f, experience: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{EXPERIENCE_OPTIONS.map((opt) => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>보유 자격증 (콤마로 구분)</Label>
+                  <Input 
+                    value={form.certificates?.join(", ") || ""} 
+                    onChange={(e) => setForm(f => ({ ...f, certificates: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }))} 
+                    placeholder="요양보호사, 사회복지사 등"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>특이사항</Label>
+                  <Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
+                </div>
+
+                <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>근무상태</Label>
+                    <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  <div className="col-span-2">
+                    <Label>담당 이용자 (N:M)</Label>
+                    <MultiEntitySelect
+                      label="담당 이용자"
+                      options={users.map((u) => ({ id: u.id || "", label: u.name, sublabel: String(u.phone || "") }))}
+                      selectedIds={form.assignedUserIds || []}
+                      onChange={(ids) => setForm((f) => ({ ...f, assignedUserIds: ids }))}
+                      placeholder="이용자 선택..."
+                    />
+                  </div>
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-2">
@@ -470,7 +548,17 @@ const WorkerManagement = () => {
                 </Badge>
               </div>
               <div className="space-y-1 text-sm">
-                <p><span className="text-muted-foreground">연락처:</span> {w.phone}</p>
+                <p>
+                  <span className="text-muted-foreground">연락처:</span>{" "}
+                  <a 
+                    href={`tel:${w.phone}`} 
+                    className="text-primary hover:underline inline-flex items-center gap-1"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <PhoneCall className="w-3 h-3" />
+                    {w.phone}
+                  </a>
+                </p>
                 <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
                 <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w.assignedUserNames)}</p>
                 {w.contractStatus === "퇴사" && w.resignationDate && (
