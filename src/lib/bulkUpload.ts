@@ -374,6 +374,11 @@ export function rowToServiceUser(
     assignedHelperIds: [...helpers.ids],
     assignedHelperNames: [...helpers.names],
     assignedHelperPhones: [...helpers.phones],
+    hasPet: false,
+    livingWith: "",
+    needsVehicle: false,
+    usesDiaper: false,
+    resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
   };
 }
 
@@ -416,6 +421,8 @@ export function rowToWorker(
     assignedUserIds: [...assigned.ids],
     assignedUserNames: [...assigned.names],
     assignedUserPhones: [...assigned.phones],
+    supportTypes: splitList(getCell(row, headerMap, "supportTypes")),
+    certificates: [],
   };
 }
 

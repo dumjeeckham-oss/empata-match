@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS } from "@/types";
+import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
@@ -39,8 +39,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
-import { Trash2 } from "lucide-react";
+import { Trash2, PhoneCall } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
+import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -48,6 +49,8 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   certificateNumber: "", contractStatus: "대기", serviceStartDate: "", resignationDate: "", notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
+  supportTypes: [],
+  certificates: [],
 };
 
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -560,7 +563,7 @@ const WorkerManagement = () => {
                   </a>
                 </p>
                 <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
-                <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w.assignedUserNames)}</p>
+                <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
                 {w.contractStatus === "퇴사" && w.resignationDate && (
                   <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
                 )}

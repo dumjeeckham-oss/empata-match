@@ -51,6 +51,10 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
   terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [],
+  hasPet: false,
+  livingWith: "",
+  needsVehicle: false,
+  usesDiaper: false,
 };
 
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -513,7 +517,7 @@ const UserManagement = () => {
                   </a>
                 </p>
                 <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
-                <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user.assignedHelperNames)}</p>
+                <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user)}</p>
                 {user.contractStatus === "계약해지" && user.resignationDate && (
                   <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
                 )}
