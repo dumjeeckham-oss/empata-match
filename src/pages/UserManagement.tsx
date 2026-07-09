@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
@@ -12,7 +12,7 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
-import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import {
   buildHelperArraysFromIds,
   formatHelperList,
@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
-import { Trash2, PhoneCall } from "lucide-react";
+import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { useSearchParams } from "react-router-dom";
 import { useEffect } from "react";
@@ -55,6 +55,11 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   livingWith: "",
   needsVehicle: false,
   usesDiaper: false,
+  needsAftercare: false,
+  wantsWeekendSupport: false,
+  femaleOnly: false,
+  maleOnly: false,
+  receiptDate: "",
 };
 
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -74,15 +79,22 @@ const UserManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
+  const { data: matchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
 
   // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
   const users = usersRaw || [];
   const workers = workersRaw || [];
+  const counselingLogs = counselingRecords || [];
+  const matchingLogs = matchingHistory || [];
 
   const [form, setForm] = useState(emptyUser);
   const [ageInput, setAgeInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
+  const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
@@ -191,7 +203,8 @@ const UserManagement = () => {
     }
     if (!form.lat && form.address) await handleGeocode();
 
-    const arrays = buildHelperArraysFromIds(form.assignedHelperIds, workers);
+    const uniqueHelperIds = Array.from(new Set(form.assignedHelperIds || []));
+    const arrays = buildHelperArraysFromIds(uniqueHelperIds, workers);
     const payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
       ...form,
       assignedHelperIds: arrays.ids,
@@ -200,6 +213,7 @@ const UserManagement = () => {
       assignedHelperPhones: arrays.phones,
       txtUSex: form.gender,
       txtUMemostop: form.terminationReason,
+      receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
     };
     // 중단/해지 사유가 입력되면 상태를 즉시 "계약해지"로 자동 전환(저장까지 반영)
     if (payload.terminationReason?.trim()) {
@@ -211,6 +225,17 @@ const UserManagement = () => {
       : [];
 
     let savedId = editingId;
+    const duplicateName = users.find((u) =>
+      u.name === form.name && u.id !== editingId && u.phone !== form.phone
+    );
+    if (duplicateName) {
+      toast({
+        title: "동명이인 주의",
+        description: `${form.name} 이름이 이미 등록된 이용자가 있습니다. 연락처를 확인하세요.`,
+        variant: "warning",
+      });
+    }
+
     if (editingId) {
       await update(editingId, payload);
       toast({ title: "수정 완료" });
@@ -307,6 +332,12 @@ const UserManagement = () => {
     return String(map[key] ?? "");
   };
 
+  const openDetail = (user: ServiceUser & { id: string }) => {
+    setDetailTarget(user);
+    setExpandedCounselId(null);
+    setExpandedMatchId(null);
+  };
+
   const startEdit = (user: ServiceUser & { id: string }) => {
     setForm({
       ...user,
@@ -354,6 +385,20 @@ const UserManagement = () => {
     XLSX.utils.book_append_sheet(wb, ws, "업로드양식");
     XLSX.writeFile(wb, "이용자_업로드양식.xlsx");
   };
+
+  const selectedCounselingLogs = useMemo(() => {
+    if (!detailTarget) return [];
+    return counselingLogs
+      .filter((record) => record.targetType === "이용자" && record.targetId === detailTarget.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [counselingLogs, detailTarget]);
+
+  const selectedMatchingLogs = useMemo(() => {
+    if (!detailTarget) return [];
+    return matchingLogs
+      .filter((record) => record.userId === detailTarget.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [matchingLogs, detailTarget]);
 
   const getFilteredUsers = () => {
     return users.filter((u) => {
@@ -511,6 +556,16 @@ const UserManagement = () => {
                 </div>
 
                 <div className="space-y-2">
+                  <Label>추가 요청 사항</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex items-center space-x-2"><Checkbox id="needsAftercare" checked={form.needsAftercare} onCheckedChange={(checked) => setForm((f) => ({ ...f, needsAftercare: !!checked }))} /><label htmlFor="needsAftercare" className="text-sm">배변뒤처리 필요</label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="wantsWeekendSupport" checked={form.wantsWeekendSupport} onCheckedChange={(checked) => setForm((f) => ({ ...f, wantsWeekendSupport: !!checked }))} /><label htmlFor="wantsWeekendSupport" className="text-sm">주말지원 희망</label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="femaleOnly" checked={form.femaleOnly} onCheckedChange={(checked) => setForm((f) => ({ ...f, femaleOnly: !!checked }))} /><label htmlFor="femaleOnly" className="text-sm">여성만 원함</label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="maleOnly" checked={form.maleOnly} onCheckedChange={(checked) => setForm((f) => ({ ...f, maleOnly: !!checked }))} /><label htmlFor="maleOnly" className="text-sm">남성만 원함</label></div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label>필요 요일 및 시간 (드래그하여 선택)</Label>
                   <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm(f => ({ ...f, weeklySchedule: s }))} />
                 </div>
@@ -609,16 +664,34 @@ const UserManagement = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map((user) => (
-          <Card key={user.id} className="stat-card cursor-pointer" onClick={() => startEdit(user as any)}>
-            <CardContent className="p-4">
+          <Card key={user.id} className="stat-card group">
+            <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(user as any)}>
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <span className="font-bold text-lg">{user.name}</span>
                   <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
                 </div>
-                <Badge variant={user.contractStatus === "서비스중" ? "default" : user.contractStatus === "대기" ? "secondary" : "destructive"}>
-                  {user.contractStatus}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={user.contractStatus === "서비스중" ? "default" : user.contractStatus === "대기" ? "secondary" : "destructive"}>
+                    {user.contractStatus}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}
+                    className="text-primary hover:text-primary/90"
+                    aria-label="수정"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(user as any); }}
+                    className="text-destructive hover:text-destructive/90"
+                    aria-label="삭제"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="space-y-1 text-sm">
                 <p>
@@ -633,6 +706,7 @@ const UserManagement = () => {
                   </a>
                 </p>
                 <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
+                <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
                 <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user)}</p>
                 {user.contractStatus === "계약해지" && user.resignationDate && (
                   <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
@@ -657,6 +731,95 @@ const UserManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "이용자 상세"}</DialogTitle>
+          </DialogHeader>
+          {detailTarget && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">이름</p>
+                  <p className="font-medium">{detailTarget.name}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">최초 접수일</p>
+                  <p className="font-medium">{detailTarget.receiptDate || "미등록"}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">계약상태</p>
+                  <p className="font-medium">{detailTarget.contractStatus}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">담당 활동지원사</p>
+                  <p className="font-medium">{formatHelperList(detailTarget) || "없음"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">📝 상담 이력 ({selectedCounselingLogs.length}건)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {selectedCounselingLogs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">기록된 상담 이력이 없습니다.</p>
+                    ) : (
+                      selectedCounselingLogs.map((record) => (
+                        <div key={record.id || `${record.date}-${record.counselorName}`} className="border rounded-lg p-3 hover:bg-muted cursor-pointer" onClick={() => setExpandedCounselId(expandedCounselId === record.id ? null : record.id)}>
+                          <div className="flex justify-between items-start gap-3">
+                            <div>
+                              <p className="font-semibold">{record.date} · {record.category}</p>
+                              <p className="text-sm text-muted-foreground">{record.counselorName || "상담사 미등록"}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{expandedCounselId === record.id ? "접기" : "펼치기"}</span>
+                          </div>
+                          {expandedCounselId === record.id && (
+                            <div className="mt-3 text-sm whitespace-pre-wrap">{record.content}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">🔗 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {selectedMatchingLogs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">기록된 매칭 이력이 없습니다.</p>
+                    ) : (
+                      selectedMatchingLogs.map((match) => (
+                        <div key={match.id || `${match.date}-${match.workerId}`} className="border rounded-lg p-3 hover:bg-muted cursor-pointer" onClick={() => setExpandedMatchId(expandedMatchId === match.id ? null : match.id)}>
+                          <div className="flex justify-between items-start gap-3">
+                            <div>
+                              <p className="font-semibold">{match.date} · {match.type}</p>
+                              <p className="text-sm text-muted-foreground">{match.workerName} · {match.workerPhone}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{expandedMatchId === match.id ? "접기" : "펼치기"}</span>
+                          </div>
+                          {expandedMatchId === match.id && (
+                            <div className="mt-3 text-sm whitespace-pre-wrap">{match.notes || "상세 없음"}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
+                <Button onClick={() => setDetailTarget(null)}>닫기</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

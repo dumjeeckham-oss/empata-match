@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type Worker, type ServiceUser, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
+import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
@@ -11,7 +11,7 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
-import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import {
   buildUserArraysFromIds,
   formatUserList,
@@ -21,7 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
-import { Trash2, PhoneCall } from "lucide-react";
+import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 
@@ -47,10 +47,12 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
+  isForeigner: false, hasF4: false, hasF5: false,
   certificateNumber: "", contractStatus: "대기", serviceStartDate: "", resignationDate: "", notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
   supportTypes: [],
   certificates: [],
+  receiptDate: "",
 };
 
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -124,15 +126,22 @@ const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
+  const { data: matchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
 
   // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
   const workers = workersRaw || [];
   const users = usersRaw || [];
+  const counselingLogs = counselingRecords || [];
+  const matchingLogs = matchingHistory || [];
 
   const displayWorkers = useMemo(() => workers.map(toDisplayWorker), [workers]);
   const [form, setForm] = useState(emptyWorker);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
+  const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
@@ -188,7 +197,8 @@ const WorkerManagement = () => {
     }
     if (!form.lat && form.address) await handleGeocode();
 
-    const arrays = buildUserArraysFromIds(form.assignedUserIds, users);
+    const uniqueUserIds = Array.from(new Set(form.assignedUserIds || []));
+    const arrays = buildUserArraysFromIds(uniqueUserIds, users);
     const payload = {
       ...form,
       assignedUserIds: arrays.ids,
@@ -196,12 +206,24 @@ const WorkerManagement = () => {
       assignedUserNames: arrays.names,
       assignedUserPhones: arrays.phones,
       txtHSex: form.gender,
+      receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
     };
     const prevUserIds = editingId
       ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []
       : [];
 
     let savedId = editingId;
+    const duplicateName = workers.find((w) =>
+      w.name === form.name && w.id !== editingId && w.phone !== form.phone
+    );
+    if (duplicateName) {
+      toast({
+        title: "동명이인 주의",
+        description: `${form.name} 이름이 이미 등록된 활동지원사가 있습니다. 연락처를 확인하세요.`,
+        variant: "warning",
+      });
+    }
+
     if (editingId) {
       await update(editingId, payload);
       toast({ title: "수정 완료" });
@@ -289,6 +311,12 @@ const WorkerManagement = () => {
     return String(map[key] ?? "");
   };
 
+  const openDetail = (worker: Worker & { id: string }) => {
+    setDetailTarget(worker);
+    setExpandedCounselId(null);
+    setExpandedMatchId(null);
+  };
+
   const startEdit = (w: Worker & { id: string }) => {
     const source = workers.find((worker) => worker.id === w.id) ?? w;
     setForm({
@@ -309,7 +337,7 @@ const WorkerManagement = () => {
       거부업무: w.rejectionTypes?.join(","), 거부업무상세: w.rejectedTasks,
       운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
       이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
-      담당이용자: w.assignedUserNames?.join(", "),
+      담당이용자: w.assignedUserNames?.join(", "), 최초접수일: w.receiptDate,
       최초근무일: w.serviceStartDate, 퇴사일: w.resignationDate, 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
@@ -330,6 +358,20 @@ const WorkerManagement = () => {
     XLSX.utils.book_append_sheet(wb, ws, "업로드양식");
     XLSX.writeFile(wb, "활동지원사_업로드양식.xlsx");
   };
+
+  const selectedCounselingLogs = useMemo(() => {
+    if (!detailTarget) return [];
+    return counselingLogs
+      .filter((record) => record.targetType === "활동지원사" && record.targetId === detailTarget.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [counselingLogs, detailTarget]);
+
+  const selectedMatchingLogs = useMemo(() => {
+    if (!detailTarget) return [];
+    return matchingLogs
+      .filter((record) => record.workerId === detailTarget.id)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [matchingLogs, detailTarget]);
 
   const getFiltered = () => {
     return (displayWorkers || []).filter((w) => {
@@ -370,7 +412,7 @@ const WorkerManagement = () => {
   };
 
   return (
-    <div>
+    <div className="space-y-6">
       <div className="flex items-center justify-between mb-6">
         <h1 className="page-header mb-0">활동지원사 관리</h1>
         <div className="flex flex-wrap gap-2">
@@ -395,35 +437,43 @@ const WorkerManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
                   <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
-                  <div><Label>성별</Label>
+                  <div>
+                    <Label>성별</Label>
                     <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="남성">남성</SelectItem><SelectItem value="여성">여성</SelectItem></SelectContent>
                     </Select>
                   </div>
-                  <div><Label>나이 (출생연도 입력가능)</Label><Input type="number" value={form.age || ""} onChange={(e) => {
-                    let val = Number(e.target.value);
-                    if (val > 1900) val = new Date().getFullYear() - val;
-                    setForm((f) => ({ ...f, age: val }));
-                  }} /></div>
+                  <div>
+                    <Label>나이 (출생연도 입력가능)</Label>
+                    <Input
+                      type="number"
+                      value={form.age || ""}
+                      onChange={(e) => {
+                        let val = Number(e.target.value);
+                        if (val > 1900) val = new Date().getFullYear() - val;
+                        setForm((f) => ({ ...f, age: val }));
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
                   <Label>지원 가능 종류</Label>
                   <div className="flex flex-wrap gap-4">
-                    {SUPPORT_TYPES.map(t => (
+                    {SUPPORT_TYPES.map((t) => (
                       <div key={t} className="flex items-center space-x-2">
-                        <Checkbox 
-                          id={`support-${t}`} 
-                          checked={form.supportTypes?.includes(t)} 
+                        <Checkbox
+                          id={`support-${t}`}
+                          checked={form.supportTypes?.includes(t)}
                           onCheckedChange={(checked) => {
-                            setForm(f => ({
+                            setForm((f) => ({
                               ...f,
-                              supportTypes: checked 
+                              supportTypes: checked
                                 ? [...(f.supportTypes || []), t]
-                                : (f.supportTypes || []).filter(v => v !== t)
+                                : (f.supportTypes || []).filter((v) => v !== t),
                             }));
-                          }} 
+                          }}
                         />
                         <label htmlFor={`support-${t}`} className="text-sm">{t}</label>
                       </div>
@@ -433,7 +483,7 @@ const WorkerManagement = () => {
 
                 <div className="space-y-2">
                   <Label>희망 활동 시간 및 요일 (드래그하여 선택)</Label>
-                  <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm(f => ({ ...f, weeklySchedule: s }))} />
+                  <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm((f) => ({ ...f, weeklySchedule: s }))} />
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -460,30 +510,30 @@ const WorkerManagement = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex items-center space-x-4 h-full pt-6">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox id="canDrive" checked={form.canDrive} onCheckedChange={(checked) => setForm((f) => ({ ...f, canDrive: !!checked }))} />
-                      <Label htmlFor="canDrive">운전가능</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Checkbox id="animalAllergy" checked={form.animalAllergy} onCheckedChange={(checked) => setForm((f) => ({ ...f, animalAllergy: !!checked }))} />
-                      <Label htmlFor="animalAllergy">동물알러지</Label>
-                    </div>
-                  </div>
-                  <div><Label>경력</Label>
-                    <Select value={form.experience} onValueChange={(v) => setForm((f) => ({ ...f, experience: v }))}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>{EXPERIENCE_OPTIONS.map((opt) => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}</SelectContent>
-                    </Select>
+                <div className="space-y-2">
+                  <Label>추가 정보</Label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center space-x-2"><Checkbox id="isForeigner" checked={form.isForeigner} onCheckedChange={(checked) => setForm((f) => ({ ...f, isForeigner: !!checked }))} /><Label htmlFor="isForeigner">외국인</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="hasF4" checked={form.hasF4} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF4: !!checked }))} /><Label htmlFor="hasF4">F4 여부</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="hasF5" checked={form.hasF5} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF5: !!checked }))} /><Label htmlFor="hasF5">F5 여부</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="canDrive" checked={form.canDrive} onCheckedChange={(checked) => setForm((f) => ({ ...f, canDrive: !!checked }))} /><Label htmlFor="canDrive">운전가능</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="animalAllergy" checked={form.animalAllergy} onCheckedChange={(checked) => setForm((f) => ({ ...f, animalAllergy: !!checked }))} /><Label htmlFor="animalAllergy">동물알러지</Label></div>
                   </div>
                 </div>
 
                 <div className="space-y-2">
+                  <Label>경력</Label>
+                  <Select value={form.experience} onValueChange={(v) => setForm((f) => ({ ...f, experience: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{EXPERIENCE_OPTIONS.map((opt) => <SelectItem key={opt} value={opt}>{opt}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
                   <Label>보유 자격증 (콤마로 구분)</Label>
-                  <Input 
-                    value={form.certificates?.join(", ") || ""} 
-                    onChange={(e) => setForm(f => ({ ...f, certificates: e.target.value.split(",").map(s => s.trim()).filter(Boolean) }))} 
+                  <Input
+                    value={form.certificates?.join(", ") || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, certificates: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
                     placeholder="요양보호사, 사회복지사 등"
                   />
                 </div>
@@ -494,6 +544,7 @@ const WorkerManagement = () => {
                 </div>
 
                 <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                  <div><Label>최초 접수일</Label><Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} /></div>
                   <div>
                     <Label>근무상태</Label>
                     <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
@@ -539,22 +590,45 @@ const WorkerManagement = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filtered.map((w) => (
-          <Card key={w.id} className="stat-card cursor-pointer" onClick={() => startEdit(w as any)}>
-            <CardContent className="p-4">
+          <Card key={w.id} className="stat-card group">
+            <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(w as any)}>
               <div className="flex justify-between items-start mb-2">
                 <div>
                   <span className="font-bold text-lg">{w.name}</span>
-                  <span className="text-sm text-muted-foreground ml-2">{w.gender} · {w.age}세</span>
+                  <div className="flex flex-wrap gap-2 text-sm text-muted-foreground mt-1">
+                    <span>{w.gender} · {w.age}세</span>
+                    {w.isForeigner && <Badge variant="secondary">외국인</Badge>}
+                    {w.hasF4 && <Badge variant="outline">F4</Badge>}
+                    {w.hasF5 && <Badge variant="outline">F5</Badge>}
+                  </div>
                 </div>
-                <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "대기" ? "secondary" : "destructive"}>
-                  {w.contractStatus}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "대기" ? "secondary" : "destructive"}>
+                    {w.contractStatus}
+                  </Badge>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
+                    className="text-primary hover:text-primary/90"
+                    aria-label="수정"
+                  >
+                    <Edit3 className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(w as any); }}
+                    className="text-destructive hover:text-destructive/90"
+                    aria-label="삭제"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="space-y-1 text-sm">
                 <p>
                   <span className="text-muted-foreground">연락처:</span>{" "}
-                  <a 
-                    href={`tel:${w.phone}`} 
+                  <a
+                    href={`tel:${w.phone}`}
                     className="text-primary hover:underline inline-flex items-center gap-1"
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -563,6 +637,7 @@ const WorkerManagement = () => {
                   </a>
                 </p>
                 <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
+                <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
                 <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
                 {w.contractStatus === "퇴사" && w.resignationDate && (
                   <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
@@ -587,6 +662,95 @@ const WorkerManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "활동지원사 상세"}</DialogTitle>
+          </DialogHeader>
+          {detailTarget && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">이름</p>
+                  <p className="font-medium">{detailTarget.name}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">최초 접수일</p>
+                  <p className="font-medium">{detailTarget.receiptDate || "미등록"}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">근무상태</p>
+                  <p className="font-medium">{detailTarget.contractStatus}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">담당 이용자</p>
+                  <p className="font-medium">{formatUserList(detailTarget) || "없음"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">📝 상담 이력 ({selectedCounselingLogs.length}건)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {selectedCounselingLogs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">기록된 상담 이력이 없습니다.</p>
+                    ) : (
+                      selectedCounselingLogs.map((record) => (
+                        <div key={record.id || `${record.date}-${record.counselorName}`} className="border rounded-lg p-3 hover:bg-muted cursor-pointer" onClick={() => setExpandedCounselId(expandedCounselId === record.id ? null : record.id)}>
+                          <div className="flex justify-between items-start gap-3">
+                            <div>
+                              <p className="font-semibold">{record.date} · {record.category}</p>
+                              <p className="text-sm text-muted-foreground">{record.counselorName || "상담사 미등록"}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{expandedCounselId === record.id ? "접기" : "펼치기"}</span>
+                          </div>
+                          {expandedCounselId === record.id && (
+                            <div className="mt-3 text-sm whitespace-pre-wrap">{record.content}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm font-semibold">🔗 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {selectedMatchingLogs.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">기록된 매칭 이력이 없습니다.</p>
+                    ) : (
+                      selectedMatchingLogs.map((match) => (
+                        <div key={match.id || `${match.date}-${match.userId}`} className="border rounded-lg p-3 hover:bg-muted cursor-pointer" onClick={() => setExpandedMatchId(expandedMatchId === match.id ? null : match.id)}>
+                          <div className="flex justify-between items-start gap-3">
+                            <div>
+                              <p className="font-semibold">{match.date} · {match.type}</p>
+                              <p className="text-sm text-muted-foreground">{match.userName} · {match.userPhone}</p>
+                            </div>
+                            <span className="text-xs text-muted-foreground">{expandedMatchId === match.id ? "접기" : "펼치기"}</span>
+                          </div>
+                          {expandedMatchId === match.id && (
+                            <div className="mt-3 text-sm whitespace-pre-wrap">{match.notes || "상세 없음"}</div>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
+                <Button onClick={() => setDetailTarget(null)}>닫기</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

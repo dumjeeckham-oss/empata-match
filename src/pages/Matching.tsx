@@ -1,38 +1,51 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, VOUCHER_HOURS } from "@/types";
+import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, SUPPORT_TYPES, VOUCHER_HOURS } from "@/types";
 import { matchUserWithWorkers } from "@/lib/matching";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const Matching = () => {
   const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
-  const [selectedUserId, setSelectedUserId] = useState<string>("" );
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [nameSearch, setNameSearch] = useState<string>("");
+  const [filterForeigners, setFilterForeigners] = useState(false);
+  const [filterWeekend, setFilterWeekend] = useState(false);
+  const [supportFilter, setSupportFilter] = useState<string>("all");
   const [results, setResults] = useState<MatchResult[]>([]);
 
-  const availableUsers = users.filter(
-    (u) =>
-      u.contractStatus !== "계약해지" &&
-      u.contractStatus !== "타기관 계약" &&
-      u.contractStatus !== "보류"
-  );
-  const availableWorkers = workers.filter((w) => w.contractStatus !== "퇴사");
+  const waitingUsers = users.filter((u) => u.contractStatus === "대기");
+  const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
   const selectedUser = users.find((u) => u.id === selectedUserId);
 
-  const filteredUsers = availableUsers.filter((u) => 
+  const filteredUsers = waitingUsers.filter((u) => 
     u.name.toLowerCase().includes(nameSearch.toLowerCase())
   );
 
+  const filteredWorkers = useMemo(() => {
+    return waitingWorkers.filter((w) => {
+      if (filterForeigners && !w.isForeigner) return false;
+      if (filterWeekend) {
+        const hasWeekend = String(w.availableDays || "").includes("토") || String(w.availableDays || "").includes("일") ||
+          (w.weeklySchedule?.some((d) => d.day === "토" || d.day === "일"));
+        if (!hasWeekend) return false;
+      }
+      if (supportFilter !== "all" && !w.supportTypes?.includes(supportFilter)) return false;
+      return true;
+    });
+  }, [waitingWorkers, filterForeigners, filterWeekend, supportFilter]);
+
   const runMatching = () => {
     if (!selectedUser) return;
-    const res = matchUserWithWorkers(selectedUser, availableWorkers);
+    const res = matchUserWithWorkers(selectedUser, filteredWorkers);
     setResults(res);
   };
 
@@ -63,6 +76,26 @@ const Matching = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column: User List Selection */}
         <div className="space-y-4">
+          <Card className="p-4 bg-muted border rounded-lg">
+            <div className="flex flex-wrap gap-3 items-center">
+              <div className="flex items-center gap-2"><Checkbox id="filterForeigners" checked={filterForeigners} onCheckedChange={setFilterForeigners} /><label htmlFor="filterForeigners" className="text-sm">외국인만</label></div>
+              <div className="flex items-center gap-2"><Checkbox id="filterWeekend" checked={filterWeekend} onCheckedChange={setFilterWeekend} /><label htmlFor="filterWeekend" className="text-sm">주말가능</label></div>
+              <div className="w-full md:w-auto">
+                <Select value={supportFilter} onValueChange={(v) => setSupportFilter(v)}>
+                  <SelectTrigger className="min-w-[180px] h-9"><SelectValue placeholder="지원 종류" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">전체 지원 종류</SelectItem>
+                    {SUPPORT_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>{type}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground mt-2">
+              {filteredWorkers.length}명 필터된 활동지원사
+            </div>
+          </Card>
           <h2 className="text-base font-semibold">이용자 선택 ({filteredUsers.length}명)</h2>
           <Input 
             placeholder="이름 검색..." 
@@ -202,8 +235,8 @@ const Matching = () => {
                               <p className="font-semibold">{r.details.preferenceScore.toFixed(1)} / 20</p>
                             </div>
                             <div className="bg-muted rounded p-1.5">
-                              <p className="text-muted-foreground">연락처</p>
-                              <p className="font-semibold">{r.worker.phone}</p>
+                              <p className="text-muted-foreground">거부패널티</p>
+                              <p className="font-semibold">{r.details.rejectionPenalty.toFixed(0)}</p>
                             </div>
                           </div>
                         </CardContent>

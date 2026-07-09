@@ -14,7 +14,7 @@ export const ENVIRONMENT_TAGS = ["기저귀", "반려동물", "흡연", "와상"
 
 export const WORKER_REJECTION_TYPES = [
   "성인거부", "남성거부", "여성거부", "흡연자거부", "반려동물거부",
-  "와상거부", "기저귀거부",
+  "와상거부", "기저귀거부", "요리거부",
 ] as const;
 
 export const EXPERIENCE_OPTIONS = [
@@ -60,6 +60,10 @@ export interface ServiceUser {
   usesDiaper: boolean; // 기저귀 여부
   preferredWorkerTraits: string; // 희망 활동지원사 선호도
   notes: string;
+  needsAftercare?: boolean; // 배변뒤처리 필요
+  wantsWeekendSupport?: boolean; // 주말지원 희망
+  femaleOnly?: boolean; // 여성만 원함
+  maleOnly?: boolean; // 남성만 원함
   contractStatus: "서비스중" | "계약해지" | "대기" | "타기관 계약" | "보류";
   serviceStartDate: string;
   /** 계약해지 날짜 (resignationDate) */
@@ -79,6 +83,7 @@ export interface ServiceUser {
   assignedHelperNames: string[];
   /** 담당 활동지원사 연락처 목록 */
   assignedHelperPhones: string[];
+  receiptDate: string; // 최초 접수일
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -105,6 +110,9 @@ export interface Worker {
   rejectedTasks: string;
   canDrive: boolean;
   animalAllergy: boolean;
+  isForeigner?: boolean;
+  hasF4?: boolean;
+  hasF5?: boolean;
   certificates: string[]; // 보유 자격증
   certificateNumber: string;
   contractStatus: "근무중" | "퇴사" | "대기";
@@ -119,6 +127,7 @@ export interface Worker {
   assignedUserNames: string[];
   /** 담당 이용자 연락처 목록 */
   assignedUserPhones: string[];
+  receiptDate: string; // 최초 접수일
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -192,4 +201,18 @@ export interface MatchResult {
     rejectionPenalty: number;
     distanceKm: number | null;
   };
+}
+
+export interface MatchingHistoryRecord {
+  id?: string;
+  type: "배정" | "해제" | "시도";
+  userId: string;
+  userName: string;
+  userPhone: string;
+  workerId: string;
+  workerName: string;
+  workerPhone: string;
+  date: string; // YYYY-MM-DD
+  notes?: string;
+  createdAt?: unknown;
 }

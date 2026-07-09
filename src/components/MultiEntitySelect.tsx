@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { X } from "lucide-react";
@@ -29,8 +30,12 @@ export function MultiEntitySelect({
   emptyHint = "미배정",
 }: MultiEntitySelectProps) {
   const [pickId, setPickId] = useState("");
+  const [search, setSearch] = useState("");
 
   const available = options.filter((o) => !selectedIds.includes(o.id));
+  const filteredAvailable = available.filter((o) =>
+    `${o.label} ${o.sublabel || ""}`.toLowerCase().includes(search.toLowerCase())
+  );
   const selected = selectedIds
     .map((id) => options.find((o) => o.id === id))
     .filter(Boolean) as EntityOption[];
@@ -69,20 +74,31 @@ export function MultiEntitySelect({
         )}
       </div>
       {available.length > 0 && (
-        <div className="flex gap-2">
-          <Select value={pickId || "none"} onValueChange={(v) => { if (v !== "none") add(v); }}>
-            <SelectTrigger className="flex-1 h-9">
-              <SelectValue placeholder={placeholder} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none" disabled>{placeholder}</SelectItem>
-              {available.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.label}{o.sublabel ? ` (${o.sublabel})` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="space-y-2">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="검색..."
+            className="h-9"
+          />
+          <div className="flex gap-2">
+            <Select value={pickId || "none"} onValueChange={(v) => { if (v !== "none") add(v); }}>
+              <SelectTrigger className="flex-1 h-9">
+                <SelectValue placeholder={placeholder} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none" disabled>{placeholder}</SelectItem>
+                {filteredAvailable.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>
+                    {o.label}{o.sublabel ? ` (${o.sublabel})` : ""}
+                  </SelectItem>
+                ))}
+                {filteredAvailable.length === 0 && (
+                  <SelectItem value="none" disabled>검색 결과가 없습니다.</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
       {selected.length > 0 && (

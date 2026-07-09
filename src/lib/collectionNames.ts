@@ -6,9 +6,11 @@ export const USERS_COLLECTION = "users" as const;
 export const WORKERS_COLLECTION = "workers" as const;
 export const TERMINATIONS_COLLECTION = "terminations" as const;
 export const HANDOVERS_COLLECTION = "handovers" as const;
+export const MATCHING_HISTORY_COLLECTION = "matchingHistory" as const;
 
 export type CoreCollectionName =
   | typeof USERS_COLLECTION
   | typeof WORKERS_COLLECTION
   | typeof TERMINATIONS_COLLECTION
-  | typeof HANDOVERS_COLLECTION;
+  | typeof HANDOVERS_COLLECTION
+  | typeof MATCHING_HISTORY_COLLECTION;
