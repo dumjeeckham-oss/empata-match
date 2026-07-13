@@ -145,6 +145,7 @@ const WorkerManagement = () => {
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
 
@@ -387,7 +388,8 @@ const WorkerManagement = () => {
       }
       
       const matchStatus = statusFilter === "all" || String(w.contractStatus || "") === statusFilter;
-      return matchSearch && matchStatus;
+      const matchSupport = supportFilter === "all" || (w.supportTypes || []).includes(supportFilter);
+      return matchSearch && matchStatus && matchSupport;
     });
   };
 
@@ -500,12 +502,33 @@ const WorkerManagement = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label>거부하는 지원 업무</Label>
-                  <div className="flex flex-wrap gap-4">
+                  <Label>업무별 가능/거부 여부</Label>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 p-3 bg-muted/30 rounded-lg">
                     {WORKER_REJECTION_TYPES.map((type) => (
-                      <div key={type} className="flex items-center space-x-2">
-                        <Checkbox id={type} checked={form.rejectionTypes.includes(type)} onCheckedChange={() => toggleRejection(type)} />
-                        <Label htmlFor={type} className="text-sm font-normal">{type}</Label>
+                      <div key={type} className="flex flex-col space-y-1">
+                        <span className="text-xs font-medium text-muted-foreground">{type.replace("거부", "")}</span>
+                        <div className="flex items-center space-x-4">
+                          <div className="flex items-center space-x-1">
+                            <Checkbox 
+                              id={`${type}-ok`} 
+                              checked={!form.rejectionTypes.includes(type)} 
+                              onCheckedChange={(checked) => {
+                                if (checked) setForm(f => ({ ...f, rejectionTypes: f.rejectionTypes.filter(v => v !== type) }));
+                              }}
+                            />
+                            <Label htmlFor={`${type}-ok`} className="text-xs font-normal cursor-pointer">가능</Label>
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <Checkbox 
+                              id={`${type}-no`} 
+                              checked={form.rejectionTypes.includes(type)} 
+                              onCheckedChange={(checked) => {
+                                if (checked && !form.rejectionTypes.includes(type)) setForm(f => ({ ...f, rejectionTypes: [...f.rejectionTypes, type] }));
+                              }}
+                            />
+                            <Label htmlFor={`${type}-no`} className="text-xs font-normal text-destructive cursor-pointer">거부</Label>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -581,14 +604,30 @@ const WorkerManagement = () => {
             <div className="flex-1">
               <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
-              <TabsList>
-                <TabsTrigger value="all">전체</TabsTrigger>
-                <TabsTrigger value="근무중">근무중</TabsTrigger>
-                <TabsTrigger value="대기">대기</TabsTrigger>
-                <TabsTrigger value="퇴사">퇴사</TabsTrigger>
-              </TabsList>
-            </Tabs>
+            <div className="flex flex-wrap gap-4 w-full md:w-auto">
+              <div className="flex flex-col gap-1.5 min-w-[120px]">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">상태 필터</Label>
+                <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
+                  <TabsList className="grid grid-cols-4 h-9">
+                    <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                    <TabsTrigger value="근무중" className="text-xs">근무중</TabsTrigger>
+                    <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
+                    <TabsTrigger value="퇴사" className="text-xs">퇴사</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              <div className="flex flex-col gap-1.5 min-w-[200px]">
+                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">지원 가능 종류 필터</Label>
+                <Tabs value={supportFilter} onValueChange={setSupportFilter} className="w-full">
+                  <TabsList className="grid grid-cols-4 h-9">
+                    <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                    {SUPPORT_TYPES.map(t => (
+                      <TabsTrigger key={t} value={t} className="text-xs">{t}</TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -642,6 +681,14 @@ const WorkerManagement = () => {
                   </a>
                 </p>
                 <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
+                {w.supportTypes && w.supportTypes.length > 0 && (
+                  <div className="flex flex-wrap gap-1 py-0.5">
+                    <span className="text-muted-foreground">지원가능:</span>
+                    {w.supportTypes.map(t => (
+                      <Badge key={t} variant="outline" className="text-[10px] px-1 h-4 bg-blue-50/30">{t}</Badge>
+                    ))}
+                  </div>
+                )}
                 <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
                 <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
                 {w.contractStatus === "퇴사" && w.resignationDate && (
@@ -675,6 +722,22 @@ const WorkerManagement = () => {
           </DialogHeader>
           {detailTarget && (
             <div className="space-y-6">
+              <div className="bg-muted/30 rounded-lg p-4 space-y-3">
+                <span className="text-sm font-bold text-primary block border-b pb-1 mb-2">업무별 가능/거부 현황</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                  {WORKER_REJECTION_TYPES.map((type) => {
+                    const isRejected = detailTarget.rejectionTypes?.includes(type);
+                    return (
+                      <div key={type} className={`flex items-center justify-between px-2 py-1.5 rounded border ${isRejected ? 'bg-red-50/50 border-red-100' : 'bg-green-50/50 border-green-100'}`}>
+                        <span className="text-[11px] font-medium">{type.replace("거부", "")}</span>
+                        <Badge variant={isRejected ? "destructive" : "default"} className={`text-[9px] h-4 px-1 ${!isRejected && 'bg-green-600'}`}>
+                          {isRejected ? "거부" : "가능"}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">이름</p>

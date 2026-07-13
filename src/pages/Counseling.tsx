@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
+import { Printer } from "lucide-react";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 
 const Counseling = () => {
@@ -114,6 +115,57 @@ const Counseling = () => {
         printWindow.document.close();
         printWindow.print();
       }
+    }
+  };
+
+  const handlePrintRecord = (r: CounselingRecord) => {
+    const printWindow = window.open("", "_blank");
+    if (printWindow) {
+      const target = r.targetType === "이용자" ? users.find(u => u.id === r.targetId) : workers.find(w => w.id === r.targetId);
+      const partnerInfo = r.targetType === "이용자" 
+        ? (target as ServiceUser)?.assignedHelperNames?.map((name, i) => `${name}(${(target as ServiceUser).assignedHelperPhones?.[i] || "-"})`).join(", ")
+        : (target as Worker)?.assignedUserNames?.map((name, i) => `${name}(${(target as Worker).assignedUserPhones?.[i] || "-"})`).join(", ");
+
+      printWindow.document.write(`
+        <html><head><title>상담일지 - ${r.targetName}</title>
+        <style>
+          body { font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #333; }
+          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 30px; }
+          .title { font-size: 24px; font-bold; }
+          .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .info-table th, .info-table td { border: 1px solid #333; padding: 10px; text-align: left; }
+          .info-table th { background-color: #f5f5f5; width: 20%; }
+          .content-box { border: 1px solid #333; padding: 20px; min-height: 400px; white-space: pre-wrap; }
+          .footer { margin-top: 50px; text-align: right; }
+          @media print { body { padding: 20px; } .no-print { display: none; } }
+        </style></head><body>
+          <div class="header">
+            <div class="title">상담일지</div>
+            <img src="${dongbaekLogo}" style="height: 40px;" />
+          </div>
+          <table class="info-table">
+            <tr>
+              <th>상담대상</th><td>${r.targetName} (${r.targetType})</td>
+              <th>상담일자</th><td>${r.date}</td>
+            </tr>
+            <tr>
+              <th>상담자</th><td>${r.counselorName || "-"}</td>
+              <th>상담분류</th><td>${r.category}</td>
+            </tr>
+            <tr>
+              <th>매칭관계</th><td colspan="3">${partnerInfo || "배정된 인원 없음"}</td>
+            </tr>
+          </table>
+          <div style="font-weight: bold; margin-bottom: 10px;">상담 내용</div>
+          <div class="content-box">${r.content}</div>
+          <div class="footer">
+            부천의료복지사회적협동조합 동백장애인활동지원센터
+          </div>
+        </body></html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => { printWindow.print(); }, 500);
     }
   };
 
@@ -267,24 +319,52 @@ const Counseling = () => {
                 {form.targetId && form.targetType === "이용자" && (() => {
                   const u = users.find((u) => u?.id === form.targetId);
                   if (!u) return null;
+                  const matchedWorkers = (u.assignedHelperNames || []).map((name, i) => ({ name, phone: u.assignedHelperPhones?.[i] }));
                   return (
-                    <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <span>이름: {u?.name || "—"} ({u?.gender || "-"})</span><span>연락처: {u?.phone || "—"}</span>
-                      <span>바우처: {u?.voucherTier ?? "—"}구간</span><span>장애유형: {u?.disabilityType || "—"}</span>
-                      <span className="sm:col-span-2">주소: {u?.address || "—"}</span>
-                      <span>서비스시작일: {u?.serviceStartDate || "—"}</span>
-                      <span className="sm:col-span-2">보호자: {u?.guardianName || "—"} ({u?.guardianRelation || "-"}) {u?.guardianPhone || ""}</span>
+                    <div className="space-y-2">
+                      <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <span className="font-bold sm:col-span-2 text-primary border-b pb-1 mb-1">이용자 정보</span>
+                        <span>이름: {u?.name || "—"} ({u?.gender || "-"})</span><span>연락처: {u?.phone || "—"}</span>
+                        <span>바우처: {u?.voucherTier ?? "—"}구간</span><span>장애유형: {u?.disabilityType || "—"}</span>
+                        <span className="sm:col-span-2">주소: {u?.address || "—"}</span>
+                        <span>서비스시작일: {u?.serviceStartDate || "—"}</span>
+                        <span className="sm:col-span-2">보호자: {u?.guardianName || "—"} ({u?.guardianRelation || "-"}) {u?.guardianPhone || ""}</span>
+                      </div>
+                      {matchedWorkers.length > 0 && (
+                        <div className="bg-blue-50/50 border border-blue-100 rounded p-3 text-xs">
+                          <span className="font-bold text-blue-700 block mb-1">🔗 배정된 활동지원사</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {matchedWorkers.map((mw, i) => (
+                              <span key={i}>{mw.name} ({mw.phone || "연락처 없음"})</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
                 {form.targetId && form.targetType === "활동지원사" && (() => {
                   const w = workers.find((w) => w?.id === form.targetId);
                   if (!w) return null;
+                  const matchedUsers = (w.assignedUserNames || []).map((name, i) => ({ name, phone: w.assignedUserPhones?.[i] }));
                   return (
-                    <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                      <span>이름: {w?.name || "—"} ({w?.gender || "-"})</span><span>연락처: {w?.phone || "—"}</span>
-                      <span>경력: {w?.experience || "—"}</span><span>희망지역: {w?.preferredArea || "—"}</span>
-                      <span className="sm:col-span-2">주소: {w?.address || "—"}</span>
+                    <div className="space-y-2">
+                      <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <span className="font-bold sm:col-span-2 text-primary border-b pb-1 mb-1">활동지원사 정보</span>
+                        <span>이름: {w?.name || "—"} ({w?.gender || "-"})</span><span>연락처: {w?.phone || "—"}</span>
+                        <span>경력: {w?.experience || "—"}</span><span>희망지역: {w?.preferredArea || "—"}</span>
+                        <span className="sm:col-span-2">주소: {w?.address || "—"}</span>
+                      </div>
+                      {matchedUsers.length > 0 && (
+                        <div className="bg-blue-50/50 border border-blue-100 rounded p-3 text-xs">
+                          <span className="font-bold text-blue-700 block mb-1">🔗 담당 이용자</span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                            {matchedUsers.map((mu, i) => (
+                              <span key={i}>{mu.name} ({mu.phone || "연락처 없음"})</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -376,6 +456,14 @@ const Counseling = () => {
                         <Badge variant={r.targetType === "이용자" ? "default" : "secondary"} className="text-[10px]">{r.targetType}</Badge>
                         <span className="font-semibold text-sm">{r.targetName}</span>
                         <Badge variant="outline" className="text-[10px]">{r.category}</Badge>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6 text-muted-foreground hover:text-primary"
+                          onClick={() => handlePrintRecord(r)}
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                       <span className="text-xs text-muted-foreground">{r.date} · {r.counselorName || "미입력"}</span>
                     </div>

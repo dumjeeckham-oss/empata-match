@@ -1,3 +1,37 @@
+# AGENTS.md - 동백 상담 업무 프로그램 개발 가이드
+
+이 문서는 프로젝트의 데이터 무결성을 유지하고 코드가 꼬이지 않도록 하기 위한 핵심 규칙을 정의합니다.
+
+## 🚨 데이터 무결성 및 파이어베이스 연동 규칙
+
+### 1. 필드 명명 및 호환성 유지
+- **양방향 호환성**: 파이어베이스 데이터는 레거시 필드와 신규 필드가 공존합니다. 아래 필드들은 반드시 쌍으로 업데이트해야 합니다.
+  - 이용자 성별: `gender` (신규) & `txtUSex` (레거시)
+  - 지원사 성별: `gender` (신규) & `txtHSex` (레거시)
+  - 중단 사유: `terminationReason` (신규) & `txtUMemostop` (레거시)
+- **배정(Assignment) 필드**: N:M 관계 유지를 위해 `assignedHelperIds` (또는 `assignedUserIds`)와 `assigned_workers` (또는 `assigned_users`)를 동시에 동기화해야 합니다.
+
+### 2. 동기화 로직 (Synchronization)
+- 이용자 정보를 수정할 때 해당 이용자에게 배정된 모든 활동지원사의 정보도 함께 업데이트해야 합니다.
+- 활동지원사 정보를 수정할 때 해당 지원사에게 배정된 모든 이용자의 정보도 함께 업데이트해야 합니다.
+- 이 로직은 `src/lib/assignments.ts`에 정의된 `syncUserToWorkers` 및 `syncWorkerToUsers` 함수를 반드시 사용하세요.
+
+### 3. 컬렉션 이름 상수화
+- 컬렉션 이름을 직접 문자열로 쓰지 말고 `src/lib/collectionNames.ts`에 정의된 상수를 사용하세요. (예: `USERS_COLLECTION`, `WORKERS_COLLECTION`)
+
+---
+
+## 🛠️ 주요 기능 구현 규칙
+
+### 1. 매칭 로직 (Matching)
+- 매칭 점수 계산은 `src/lib/matching.ts`에서 중앙 집중식으로 관리합니다.
+- 새로운 매칭 기준 추가 시 기존 점수 체계와의 균형을 고려하세요.
+
+### 2. 출력 및 프린트 (Printing)
+- 공식 문서(상담일지, 종결승인서 등) 출력 시 `no-print` 클래스를 사용하여 UI 요소를 제외하고, `print:block` 등을 활용해 A4 규격에 맞게 렌더링하세요.
+
+---
+
 # AGENTS.md - Your Workspace
 
 This folder is home. Treat it that way.

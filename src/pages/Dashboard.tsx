@@ -40,12 +40,12 @@ const Dashboard = () => {
     } catch { return false; }
   });
 
-  const availableWorkers = workers.filter((w) => w.contractStatus !== "퇴사");
+  const availableWaitingWorkers = waitingWorkers;
   
   const topMatches = waitingUsers.map(u => {
-    const results = matchUserWithWorkers(u, availableWorkers);
+    const results = matchUserWithWorkers(u, availableWaitingWorkers);
     return { user: u, bestMatch: results.length > 0 ? results[0] : null };
-  }).filter(m => m.bestMatch && m.bestMatch.score >= 70)
+  }).filter(m => m.bestMatch && m.bestMatch.score >= 50) // 대기자 매칭이므로 기준을 조금 낮춤
     .sort((a, b) => b.bestMatch!.score - a.bestMatch!.score)
     .slice(0, 5);
 
@@ -189,33 +189,50 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      {topMatches.length > 0 && (
-        <Card className="border-primary/50 border-2">
-          <CardHeader><CardTitle className="text-lg">✨ 대기 이용자 추천 매칭 (Top 5)</CardTitle></CardHeader>
-          <CardContent>
+      <Card className="border-primary/30 border-2">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center justify-between">
+            <span>✨ 대기 이용자 추천 매칭 (1순위)</span>
+            <Badge variant="outline" className="font-normal">배정 대기자 간 자동 추천</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {topMatches.length === 0 ? (
+            <div className="py-8 text-center bg-muted/30 rounded-lg border border-dashed">
+              <p className="text-muted-foreground">추천하는 매칭 이용자가 없음</p>
+            </div>
+          ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {topMatches.map(({ user: u, bestMatch }) => (
-                <div key={u.id} className="p-4 rounded-lg bg-muted/50 border flex flex-col gap-2 hover:border-primary/50 transition-colors">
+                <div key={u.id} className="p-4 rounded-lg bg-card border shadow-sm flex flex-col gap-3 hover:border-primary/50 transition-all cursor-pointer group" onClick={() => navigate(`/matching?userId=${u.id}`)}>
                   <div className="flex justify-between items-start">
                     <div>
-                      <span className="font-bold text-lg">{u.name}</span>
-                      <span className="text-sm text-muted-foreground ml-2">이용자 ({u.address?.split(' ').slice(0, 2).join(' ')})</span>
+                      <span className="font-bold text-lg group-hover:text-primary transition-colors">{u.name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">이용자 ({u.address?.split(' ').slice(0, 2).join(' ') || "주소미정"})</span>
                     </div>
-                    <Badge variant="default">{bestMatch!.score.toFixed(0)}점</Badge>
+                    <div className="flex flex-col items-end gap-1">
+                      <Badge variant="default" className="bg-primary/90">{bestMatch!.score.toFixed(0)}점</Badge>
+                      <span className="text-[10px] text-muted-foreground">매칭 적합도</span>
+                    </div>
                   </div>
-                  <div className="text-sm">
-                    <p>추천: <span className="font-medium text-primary">{bestMatch!.worker.name}</span> 활동지원사</p>
-                    <p className="text-muted-foreground mt-1 text-xs">
-                      거리: {bestMatch!.details.distanceKm !== null ? `${bestMatch!.details.distanceKm.toFixed(1)}km` : '알수없음'} 
-                      &nbsp;|&nbsp; 시간점수: {bestMatch!.details.timeScore.toFixed(0)}점
-                    </p>
+                  <div className="bg-muted/50 p-3 rounded-md space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-1 h-1 rounded-full bg-primary" />
+                      <p className="text-sm">추천 지원사: <span className="font-bold text-foreground">{bestMatch!.worker.name}</span></p>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                      <span>📍 거리: {bestMatch!.details.distanceKm !== null ? `${bestMatch!.details.distanceKm.toFixed(1)}km` : '알수없음'}</span>
+                      <span>⏰ 시간: {bestMatch!.details.timeScore.toFixed(0)}점</span>
+                      <span>⭐ 선호: {bestMatch!.details.preferenceScore.toFixed(0)}점</span>
+                    </div>
                   </div>
+                  <p className="text-[10px] text-right text-muted-foreground group-hover:text-primary">클릭하여 상세 매칭 순위 보기 →</p>
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle className="text-lg">📋 최근 상담기록</CardTitle></CardHeader>

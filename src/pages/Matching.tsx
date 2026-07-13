@@ -54,6 +54,16 @@ const Matching = () => {
     setResults([]);
   };
 
+  useEffect(() => {
+    if (selectedUserId && filteredWorkers.length > 0) {
+      const u = users.find(u => u.id === selectedUserId);
+      if (u) {
+        const res = matchUserWithWorkers(u, filteredWorkers);
+        setResults(res);
+      }
+    }
+  }, [selectedUserId, filteredWorkers, users]);
+
   // Get selected user's counseling history
   const selectedUserRecords = counselingRecords
     .filter((r) => r.targetId === selectedUserId)
