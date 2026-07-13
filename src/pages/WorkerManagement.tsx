@@ -42,6 +42,7 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
+import { getComparableDateValue } from "@/lib/utils";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -363,14 +364,14 @@ const WorkerManagement = () => {
     if (!detailTarget) return [];
     return counselingLogs
       .filter((record) => record.targetType === "활동지원사" && record.targetId === detailTarget.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
   }, [counselingLogs, detailTarget]);
 
   const selectedMatchingLogs = useMemo(() => {
     if (!detailTarget) return [];
     return matchingLogs
       .filter((record) => record.workerId === detailTarget.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
   }, [matchingLogs, detailTarget]);
 
   const getFiltered = () => {
@@ -574,18 +575,22 @@ const WorkerManagement = () => {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
+              <TabsList>
+                <TabsTrigger value="all">전체</TabsTrigger>
+                <TabsTrigger value="근무중">근무중</TabsTrigger>
+                <TabsTrigger value="대기">대기</TabsTrigger>
+                <TabsTrigger value="퇴사">퇴사</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
-        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
-          <TabsList>
-            <TabsTrigger value="all">전체</TabsTrigger>
-            <TabsTrigger value="근무중">근무중</TabsTrigger>
-            <TabsTrigger value="대기">대기</TabsTrigger>
-            <TabsTrigger value="퇴사">퇴사</TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

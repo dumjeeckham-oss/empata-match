@@ -44,6 +44,7 @@ import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { useSearchParams } from "react-router-dom";
 import { useEffect } from "react";
+import { getComparableDateValue } from "@/lib/utils";
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
@@ -100,6 +101,23 @@ const UserManagement = () => {
   const [geocoding, setGeocoding] = useState(false);
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [pendingOverwrite, setPendingOverwrite] = useState<{
+    existingId: string;
+    payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">;
+  } | null>(null);
+  const [bulkConflicts, setBulkConflicts] = useState<string[] | null>(null);
+  const [pendingBulkItems, setPendingBulkItems] = useState<
+    Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[] | null
+  >(null);
+  const [bulkConflictPreview, setBulkConflictPreview] = useState<
+    Array<{
+      id: string;
+      itemKey: string;
+      label: string;
+      existingName?: string;
+      action: "overwrite" | "skip";
+    }>
+  >([]);
 
   const parseAgeInput = (val: string): number => {
     const clean = val.trim();
@@ -196,6 +214,12 @@ const UserManagement = () => {
     return copy;
   };
 
+  const getIdentityFallbackContext = (item: { name?: string; phone?: string; age?: number; receiptDate?: string }) => {
+    return [item.age ? String(item.age) : "", item.receiptDate ? String(item.receiptDate) : ""]
+      .filter(Boolean)
+      .join("::");
+  };
+
   const handleSave = async () => {
     if (!form.name || !form.phone) {
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
@@ -240,17 +264,16 @@ const UserManagement = () => {
       await update(editingId, payload);
       toast({ title: "수정 완료" });
     } else {
-      const key = makeUniqueKey(form.name, form.phone);
-      const existing = users.find((u) => makeUniqueKey(u.name, u.phone) === key);
+      const key = makeUniqueKey(form.name, form.phone, getIdentityFallbackContext(form));
+      const existing = users.find((u) => makeUniqueKey(u.name, u.phone, getIdentityFallbackContext(u as any)) === key);
       if (existing?.id) {
-        savedId = existing.id;
-        await update(existing.id, payload);
-        toast({ title: "기존 데이터 업데이트 완료", description: "동일 이름+연락처로 덮어썼습니다." });
-      } else {
-        const ref = await add(payload as Omit<ServiceUser, "id">);
-        savedId = ref.id;
-        toast({ title: "등록 완료" });
+        // require explicit confirmation before overwriting existing record
+        setPendingOverwrite({ existingId: existing.id, payload });
+        return;
       }
+      const ref = await add(payload as Omit<ServiceUser, "id">);
+      savedId = ref.id;
+      toast({ title: "등록 완료" });
     }
     if (savedId) {
       await syncUserToWorkers(savedId, payload, workers, prevHelperIds, updateWorker);
@@ -259,6 +282,24 @@ const UserManagement = () => {
     setAgeInput("");
     setEditingId(null);
     setDialogOpen(false);
+  };
+
+  const confirmPendingOverwrite = async (proceed: boolean) => {
+    if (!pendingOverwrite) return;
+    const { existingId, payload } = pendingOverwrite;
+    setPendingOverwrite(null);
+    if (!proceed) {
+      // create new record instead of overwriting
+      const ref = await add(payload as Omit<ServiceUser, "id">);
+      toast({ title: "신규 등록 완료 (덮어쓰기 거부)" });
+      if (ref?.id) {
+        await syncUserToWorkers(ref.id, payload, workers, [], updateWorker);
+      }
+      return;
+    }
+    await update(existingId, payload);
+    toast({ title: "기존 데이터 덮어쓰기 완료" });
+    await syncUserToWorkers(existingId, payload, workers, [], updateWorker);
   };
 
   const handleDelete = async () => {
@@ -271,6 +312,38 @@ const UserManagement = () => {
   const handleBulkConfirm = async (items: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[]) => {
     try {
       console.log("[UserManagement] bulk confirm start:", items.length);
+      // detect conflicts by composite key
+      const existingKeys = new Set(
+        users.map((u) => makeUniqueKey(u.name, u.phone, getIdentityFallbackContext(u as any)))
+      );
+      const conflictEntries = items
+        .map((it) => {
+          const key = makeUniqueKey(it.name, it.phone, getIdentityFallbackContext(it as any));
+          if (!existingKeys.has(key)) return null;
+          const existing = users.find((u) => makeUniqueKey(u.name, u.phone, getIdentityFallbackContext(u as any)) === key);
+          return {
+            id: `${key}-${Math.random().toString(36).slice(2,8)}`,
+            itemKey: key,
+            label: `${it.name || "이름 없음"}${it.phone ? ` (${it.phone})` : ""}`,
+            existingName: existing?.name,
+            action: "skip" as const,
+          };
+        })
+        .filter(Boolean) as Array<{
+          id: string;
+          itemKey: string;
+          label: string;
+          existingName?: string;
+          action: "overwrite" | "skip";
+        }>;
+
+      if (conflictEntries.length > 0) {
+        setBulkConflicts(Array.from(new Set(conflictEntries.map((entry) => entry.itemKey))));
+        setPendingBulkItems(items);
+        setBulkConflictPreview(conflictEntries);
+        return null;
+      }
+
       return await upsertByNamePhoneBatch({
         collectionName: USERS_COLLECTION,
         items,
@@ -293,6 +366,50 @@ const UserManagement = () => {
           (e?.stack ? `\n[stack]\n${e.stack}` : "")
       );
       throw e;
+    }
+  };
+
+  const confirmBulkOverwrite = async (proceed: boolean) => {
+    if (!bulkConflicts) return;
+    setBulkConflicts(null);
+    const items = pendingBulkItems;
+    setPendingBulkItems(null);
+    setBulkConflictPreview([]);
+    if (!proceed || !items) return;
+    try {
+      let inserted = 0;
+      let updated = 0;
+      let skipped = 0;
+      const conflictMap = new Map(bulkConflictPreview.map((entry) => [entry.itemKey, entry]));
+
+      for (const item of items) {
+        const itemKey = makeUniqueKey(item.name, item.phone, getIdentityFallbackContext(item as any));
+        const conflict = conflictMap.get(itemKey);
+        if (conflict?.action === "skip") {
+          skipped += 1;
+          continue;
+        }
+
+        const payload = await geocodeIfNeeded(item);
+        const existing = users.find((u) => makeUniqueKey(u.name, u.phone, getIdentityFallbackContext(u as any)) === itemKey);
+        if (existing?.id) {
+          await update(existing.id, payload as Omit<ServiceUser, "id" | "createdAt" | "updatedAt">);
+          updated += 1;
+          await syncUserToWorkers(existing.id, payload as Omit<ServiceUser, "id" | "createdAt" | "updatedAt">, workers, existing.assignedHelperIds ?? [], updateWorker);
+        } else {
+          const ref = await add(payload as Omit<ServiceUser, "id">);
+          inserted += 1;
+          await syncUserToWorkers(ref.id, payload as Omit<ServiceUser, "id" | "createdAt" | "updatedAt">, workers, [], updateWorker);
+        }
+      }
+
+      toast({
+        title: "일괄 업로드 완료",
+        description: `신규 ${inserted}건 · 수정 ${updated}건 · 건너뜀 ${skipped}건`,
+      });
+      return { inserted, updated, skipped };
+    } catch (e) {
+      console.error("bulk overwrite error", e);
     }
   };
 
@@ -390,14 +507,14 @@ const UserManagement = () => {
     if (!detailTarget) return [];
     return counselingLogs
       .filter((record) => record.targetType === "이용자" && record.targetId === detailTarget.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
   }, [counselingLogs, detailTarget]);
 
   const selectedMatchingLogs = useMemo(() => {
     if (!detailTarget) return [];
     return matchingLogs
       .filter((record) => record.userId === detailTarget.id)
-      .sort((a, b) => b.date.localeCompare(a.date));
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
   }, [matchingLogs, detailTarget]);
 
   const getFilteredUsers = () => {
@@ -648,18 +765,22 @@ const UserManagement = () => {
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="flex-1">
-          <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+      <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
+              <TabsList>
+                <TabsTrigger value="all">전체</TabsTrigger>
+                <TabsTrigger value="서비스중">서비스중</TabsTrigger>
+                <TabsTrigger value="대기">대기</TabsTrigger>
+                <TabsTrigger value="계약해지">계약해지</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
         </div>
-        <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
-          <TabsList>
-            <TabsTrigger value="all">전체</TabsTrigger>
-            <TabsTrigger value="서비스중">서비스중</TabsTrigger>
-            <TabsTrigger value="대기">대기</TabsTrigger>
-            <TabsTrigger value="계약해지">계약해지</TabsTrigger>
-          </TabsList>
-        </Tabs>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -728,6 +849,70 @@ const UserManagement = () => {
           <AlertDialogFooter>
             <AlertDialogCancel>취소</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">삭제</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingOverwrite} onOpenChange={(open) => !open && setPendingOverwrite(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>기존 데이터 덮어쓰기 확인</AlertDialogTitle>
+            <AlertDialogDescription>
+              동일한 이름+연락처의 이용자가 이미 존재합니다. 기존 데이터를 덮어쓰시겠습니까? (아니오 선택 시 신규로 저장됩니다)
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => confirmPendingOverwrite(false)}>아니오 (신규로 저장)</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmPendingOverwrite(true)}>예, 덮어쓰기</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!bulkConflicts} onOpenChange={(open) => {
+        if (!open) {
+          setBulkConflicts(null);
+          setBulkConflictPreview([]);
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>업로드 충돌 감지</AlertDialogTitle>
+            <AlertDialogDescription>
+              업로드할 항목 중 기존 데이터와 충돌되는 {bulkConflicts?.length ?? 0}개의 항목이 발견되었습니다.
+              각 항목별로 덮어쓰기 또는 건너뛰기를 선택한 뒤 진행해 주세요.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 max-h-72 overflow-y-auto p-1">
+            {bulkConflictPreview.map((entry) => (
+              <div key={entry.id} className="border rounded-md p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-medium text-sm">{entry.label}</p>
+                    {entry.existingName && <p className="text-xs text-muted-foreground">기존 항목: {entry.existingName}</p>}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant={entry.action === "overwrite" ? "default" : "outline"}
+                      onClick={() => setBulkConflictPreview((prev) => prev.map((item) => item.id === entry.id ? { ...item, action: "overwrite" } : item))}
+                    >
+                      덮어쓰기
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={entry.action === "skip" ? "secondary" : "outline"}
+                      onClick={() => setBulkConflictPreview((prev) => prev.map((item) => item.id === entry.id ? { ...item, action: "skip" } : item))}
+                    >
+                      건너뛰기
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => confirmBulkOverwrite(false)}>취소</AlertDialogCancel>
+            <AlertDialogAction onClick={() => confirmBulkOverwrite(true)}>선택 내용으로 계속</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
