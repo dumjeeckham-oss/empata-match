@@ -1,0 +1,5 @@
+#!/bin/sh
+echo "Running pre-push checks: tests and build"
+npm test || { echo "Tests failed. Push aborted."; exit 1; }
+npm run build || { echo "Build failed. Push aborted."; exit 1; }
+echo "Pre-push checks passed. Proceeding with push."

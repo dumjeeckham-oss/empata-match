@@ -1,0 +1,8 @@
+#!/bin/sh
+echo "Running post-commit: tests and build, then auto-push if OK"
+set -e
+npm test
+npm run build
+BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "main")
+echo "Pushing to origin/${BRANCH}..."
+git push origin "${BRANCH}"

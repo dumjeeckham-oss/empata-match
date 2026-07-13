@@ -14,8 +14,15 @@ export function normalizePhone(phone: unknown): string {
   return String(phone || "").replace(/\D/g, "");
 }
 
-export function makeUniqueKey(name: unknown, phone: unknown): string {
-  return `${String(name || "").trim()}::${normalizePhone(phone)}`;
+export function makeUniqueKey(name: unknown, phone: unknown, fallbackContext?: unknown): string {
+  const normalizedName = String(name || "").trim();
+  const normalizedPhone = normalizePhone(phone);
+  if (normalizedPhone) {
+    return `${normalizedName}::${normalizedPhone}`;
+  }
+
+  const context = String(fallbackContext ?? "").trim();
+  return `${normalizedName}::UNKNOWN${context ? `::${context}` : ""}`;
 }
 
 export type FieldKey =
