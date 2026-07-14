@@ -42,12 +42,13 @@ const Dashboard = () => {
 
   const availableWaitingWorkers = waitingWorkers;
   
+  // Top matches: limit to top 3
   const topMatches = waitingUsers.map(u => {
     const results = matchUserWithWorkers(u, availableWaitingWorkers);
     return { user: u, bestMatch: results.length > 0 ? results[0] : null };
-  }).filter(m => m.bestMatch && m.bestMatch.score >= 50) // 대기자 매칭이므로 기준을 조금 낮춤
+  }).filter(m => m.bestMatch && m.bestMatch.score >= 50)
     .sort((a, b) => b.bestMatch!.score - a.bestMatch!.score)
-    .slice(0, 5);
+    .slice(0, 3);
 
   // 월별 통계 데이터 생성 (최근 6개월)
   const last6Months = eachMonthOfInterval({
@@ -189,7 +190,7 @@ const Dashboard = () => {
         </Card>
       </div>
 
-      <Card className="border-primary/30 border-2">
+      <Card className="border-primary/30 border-2" onClick={() => navigate("/matching")}>
         <CardHeader className="pb-3">
           <CardTitle className="text-lg flex items-center justify-between">
             <span>✨ 대기 이용자 추천 매칭 (1순위)</span>
@@ -202,13 +203,14 @@ const Dashboard = () => {
               <p className="text-muted-foreground">추천하는 매칭 이용자가 없음</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {topMatches.map(({ user: u, bestMatch }) => (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {topMatches.map(({ user: u, bestMatch }, idx) => (
                 <div key={u.id} className="p-4 rounded-lg bg-card border shadow-sm flex flex-col gap-3 hover:border-primary/50 transition-all cursor-pointer group" onClick={() => navigate(`/matching?userId=${u.id}`)}>
                   <div className="flex justify-between items-start">
                     <div>
-                      <span className="font-bold text-lg group-hover:text-primary transition-colors">{u.name}</span>
-                      <span className="text-xs text-muted-foreground ml-2">이용자 ({u.address?.split(' ').slice(0, 2).join(' ') || "주소미정"})</span>
+                      <span className="font-bold text-lg group-hover:text-primary transition-colors">{idx + 1}위</span>
+                      <span className="text-sm ml-2">{u.name}</span>
+                      <span className="text-xs text-muted-foreground ml-2">({u.address?.split(' ').slice(0, 2).join(' ') || "주소미정"})</span>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge variant="default" className="bg-primary/90">{bestMatch!.score.toFixed(0)}점</Badge>

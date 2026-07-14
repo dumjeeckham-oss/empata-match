@@ -140,6 +140,8 @@ export interface CounselingRecord {
   counselorName: string;
   date: string;
   content: string;
+  /** 상담 결과 */
+  result?: string;
   category: string;
   createdAt?: unknown;
 }

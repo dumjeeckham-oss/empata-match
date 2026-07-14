@@ -20,7 +20,7 @@ const Counseling = () => {
   const { data: records, add: addRecord } = useCollection<CounselingRecord>("counseling");
   const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
-  const [form, setForm] = useState({ targetType: "이용자" as "이용자" | "활동지원사", targetId: "", targetName: "", counselorName: "", date: new Date().toISOString().slice(0, 10), content: "", category: "일반상담" });
+  const [form, setForm] = useState({ targetType: "이용자" as "이용자" | "활동지원사", targetId: "", targetName: "", counselorName: "", date: new Date().toISOString().slice(0, 10), content: "", result: "", category: "일반상담" });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isTargetLocked, setIsTargetLocked] = useState(false);
   const [terminationOpen, setTerminationOpen] = useState(false);
@@ -46,9 +46,9 @@ const Counseling = () => {
       toast({ title: "대상자와 상담내용을 입력해주세요", variant: "destructive" });
       return;
     }
-    await addRecord(form as any);
+    await addRecord({ ...form } as any);
     toast({ title: "상담기록 저장 완료" });
-    setForm((f) => ({ ...f, targetId: "", targetName: "", content: "" }));
+    setForm((f) => ({ ...f, targetId: "", targetName: "", content: "", result: "" }));
     setDialogOpen(false);
   };
 
@@ -67,6 +67,7 @@ const Counseling = () => {
       counselorName: "",
       date: new Date().toISOString().slice(0, 10),
       content: "",
+      result: "",
       category: "일반상담"
     });
     setIsTargetLocked(true);
@@ -81,6 +82,7 @@ const Counseling = () => {
       counselorName: "",
       date: new Date().toISOString().slice(0, 10),
       content: "",
+      result: "",
       category: "일반상담"
     });
     setIsTargetLocked(false);
@@ -135,7 +137,7 @@ const Counseling = () => {
           .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
           .info-table th, .info-table td { border: 1px solid #333; padding: 10px; text-align: left; }
           .info-table th { background-color: #f5f5f5; width: 20%; }
-          .content-box { border: 1px solid #333; padding: 20px; min-height: 400px; white-space: pre-wrap; }
+          .content-box { border: 1px solid #333; padding: 20px; min-height: 200px; white-space: pre-wrap; }
           .footer { margin-top: 50px; text-align: right; }
           @media print { body { padding: 20px; } .no-print { display: none; } }
         </style></head><body>
@@ -158,6 +160,8 @@ const Counseling = () => {
           </table>
           <div style="font-weight: bold; margin-bottom: 10px;">상담 내용</div>
           <div class="content-box">${r.content}</div>
+          <div style="font-weight: bold; margin-top: 20px; margin-bottom: 10px;">상담 결과</div>
+          <div class="content-box">${r.result || ""}</div>
           <div class="footer">
             부천의료복지사회적협동조합 동백장애인활동지원센터
           </div>
@@ -173,7 +177,7 @@ const Counseling = () => {
   const sameNameUsers = termForm.userId ? users.filter((u) => u.name === selectedTermUser?.name) : [];
 
   const filtered = records.filter((r) => {
-    const matchSearch = !search || r.targetName.includes(search) || r.content.includes(search);
+    const matchSearch = !search || r.targetName.includes(search) || r.content.includes(search) || r.result?.includes(search);
     const matchTarget = filterTarget === "all" || r.targetType === filterTarget;
     return matchSearch && matchTarget;
   }).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
@@ -378,7 +382,8 @@ const Counseling = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>상담 내용</Label><Textarea rows={5} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="상담 내용을 입력하세요..." /></div>
+                <div><Label>상담 내용</Label><Textarea rows={3} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="상담 내용을 입력하세요..." /></div>
+                <div><Label>상담 결과</Label><Textarea rows={3} value={form.result} onChange={(e) => setForm((f) => ({ ...f, result: e.target.value }))} placeholder="상담 결과를 입력하세요..." /></div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
                   <Button onClick={handleSaveRecord}>저장</Button>
