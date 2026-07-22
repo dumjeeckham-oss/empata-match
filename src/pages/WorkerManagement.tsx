@@ -148,6 +148,8 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+  // 업무별 가능/거부: 기본값은 둘 다 미체크(미정)
+  const [explicitOks, setExplicitOks] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const filter = searchParams.get("status");
@@ -238,6 +240,7 @@ const WorkerManagement = () => {
       await syncWorkerToUsers(savedId, payload, users, prevUserIds, updateUser);
     }
     setForm(emptyWorker);
+    setExplicitOks(new Set());
     setEditingId(null);
     setDialogOpen(false);
   };
@@ -327,6 +330,12 @@ const WorkerManagement = () => {
       assignedUserNames: source.assignedUserNames ?? [],
       assignedUserPhones: source.assignedUserPhones ?? [],
     });
+    // 수정 시: 거부에 없고 worker에 명시된 가능 항목이 있으면 복원 (레거시 호환)
+    const oks = new Set<string>();
+    WORKER_REJECTION_TYPES.forEach(t => {
+      if (!source.rejectionTypes?.includes(t)) oks.add(t.replace("거부", "가능"));
+    });
+    setExplicitOks(oks);
     setEditingId(source.id);
     setDialogOpen(true);
   };
@@ -430,7 +439,7 @@ const WorkerManagement = () => {
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => { setForm(emptyWorker); setEditingId(null); }}>+ 신규등록</Button>
+              <Button onClick={() => { setForm(emptyWorker); setEditingId(null); setExplicitOks(new Set()); }}>+ 신규등록</Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
@@ -504,16 +513,25 @@ const WorkerManagement = () => {
                 <div className="space-y-2">
                   <Label>업무별 가능/거부 여부</Label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-3 p-3 bg-muted/30 rounded-lg">
-                    {WORKER_REJECTION_TYPES.map((type) => (
+                    {WORKER_REJECTION_TYPES.map((type) => {
+                      const okKey = type.replace("거부", "가능");
+                      const isOk = explicitOks.has(okKey);
+                      const isRejected = form.rejectionTypes.includes(type);
+                      return (
                       <div key={type} className="flex flex-col space-y-1">
                         <span className="text-xs font-medium text-muted-foreground">{type.replace("거부", "")}</span>
                         <div className="flex items-center space-x-4">
                           <div className="flex items-center space-x-1">
                             <Checkbox 
                               id={`${type}-ok`} 
-                              checked={!form.rejectionTypes.includes(type)} 
+                              checked={isOk}
                               onCheckedChange={(checked) => {
-                                if (checked) setForm(f => ({ ...f, rejectionTypes: f.rejectionTypes.filter(v => v !== type) }));
+                                if (checked) {
+                                  setExplicitOks(prev => new Set(prev).add(okKey));
+                                  setForm(f => ({ ...f, rejectionTypes: f.rejectionTypes.filter(v => v !== type) }));
+                                } else {
+                                  setExplicitOks(prev => { const s = new Set(prev); s.delete(okKey); return s; });
+                                }
                               }}
                             />
                             <Label htmlFor={`${type}-ok`} className="text-xs font-normal cursor-pointer">가능</Label>
@@ -521,16 +539,20 @@ const WorkerManagement = () => {
                           <div className="flex items-center space-x-1">
                             <Checkbox 
                               id={`${type}-no`} 
-                              checked={form.rejectionTypes.includes(type)} 
+                              checked={isRejected}
                               onCheckedChange={(checked) => {
-                                if (checked && !form.rejectionTypes.includes(type)) setForm(f => ({ ...f, rejectionTypes: [...f.rejectionTypes, type] }));
+                                if (checked && !form.rejectionTypes.includes(type)) {
+                                  setForm(f => ({ ...f, rejectionTypes: [...f.rejectionTypes, type] }));
+                                  setExplicitOks(prev => { const s = new Set(prev); s.delete(okKey); return s; });
+                                }
                               }}
                             />
                             <Label htmlFor={`${type}-no`} className="text-xs font-normal text-destructive cursor-pointer">거부</Label>
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 

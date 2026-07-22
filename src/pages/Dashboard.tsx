@@ -17,16 +17,25 @@ const Dashboard = () => {
   const { data: terminations } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
   const { data: handovers } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
 
-  const selectedUser = users.find((u) => u.id === selectedUserId);
-    // Latest registrations (based on createdAt timestamp)
-    const latestUser = users.reduce((prev, cur) => {
-      if (!prev) return cur;
-      return new Date(cur.createdAt) > new Date(prev.createdAt) ? cur : prev;
-    }, null);
-    const latestWorker = workers.reduce((prev, cur) => {
-      if (!prev) return cur;
-      return new Date(cur.createdAt) > new Date(prev.createdAt) ? cur : prev;
-    }, null);
+
+  // 데이터 로딩 가드
+  if (!users || !workers) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+      </div>
+    );
+  }
+
+    // 최근 신규 등록 (이용자 & 활동지원사)
+    const recentUsers = [...users]
+      .filter((u) => u.createdAt)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
+    const recentWorkers = [...workers]
+      .filter((w) => w.createdAt)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
 
   const activeUsers = users.filter((u) => u.contractStatus === "서비스중");
   const waitingUsers = users.filter(
@@ -176,6 +185,62 @@ const Dashboard = () => {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* 최근 신규 등록 이용자 */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">👤 최근 신규 등록 이용자</CardTitle>
+            <Badge variant="secondary" className="font-normal">최근 5건</Badge>
+          </CardHeader>
+          <CardContent>
+            {recentUsers.length === 0 ? (
+              <p className="text-muted-foreground text-sm py-4 text-center">신규 등록 이용자가 없습니다.</p>
+            ) : (
+              <div className="divide-y max-h-[250px] overflow-y-auto pr-2">
+                {recentUsers.map((u) => (
+                  <div key={u.id} className="py-3 flex justify-between items-center">
+                    <div>
+                      <span className="font-medium">{u.name}</span>
+                      <span className="text-muted-foreground ml-2 text-xs">{u.gender} · {u.disabilityType}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">{u.contractStatus}</Badge>
+                      <span className="text-[10px] text-muted-foreground">{u.receiptDate || ""}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 최근 신규 등록 활동지원사 */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg flex items-center gap-2">🧑‍💼 최근 신규 등록 활동지원사</CardTitle>
+            <Badge variant="secondary" className="font-normal">최근 5건</Badge>
+          </CardHeader>
+          <CardContent>
+            {recentWorkers.length === 0 ? (
+              <p className="text-muted-foreground text-sm py-4 text-center">신규 등록 활동지원사가 없습니다.</p>
+            ) : (
+              <div className="divide-y max-h-[250px] overflow-y-auto pr-2">
+                {recentWorkers.map((w) => (
+                  <div key={w.id} className="py-3 flex justify-between items-center">
+                    <div>
+                      <span className="font-medium">{w.name}</span>
+                      <span className="text-muted-foreground ml-2 text-xs">{w.gender} · {w.experience}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-xs">{w.contractStatus}</Badge>
+                      <span className="text-[10px] text-muted-foreground">{w.receiptDate || ""}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* 이번주 신규 서비스 */}
         <Card>
           <CardHeader>
