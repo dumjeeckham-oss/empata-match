@@ -17,6 +17,17 @@ const Dashboard = () => {
   const { data: terminations } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
   const { data: handovers } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
 
+  const selectedUser = users.find((u) => u.id === selectedUserId);
+    // Latest registrations (based on createdAt timestamp)
+    const latestUser = users.reduce((prev, cur) => {
+      if (!prev) return cur;
+      return new Date(cur.createdAt) > new Date(prev.createdAt) ? cur : prev;
+    }, null);
+    const latestWorker = workers.reduce((prev, cur) => {
+      if (!prev) return cur;
+      return new Date(cur.createdAt) > new Date(prev.createdAt) ? cur : prev;
+    }, null);
+
   const activeUsers = users.filter((u) => u.contractStatus === "서비스중");
   const waitingUsers = users.filter(
     (u) =>
