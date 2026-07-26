@@ -12,9 +12,12 @@ import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 const Matching = () => {
-  const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
+  const { data: usersRaw, loading } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
+  const users = usersRaw || [];
+  const workers = workersRaw || [];
+  const counselingRecords = counselingRecordsRaw || [];
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [nameSearch, setNameSearch] = useState<string>("");
   const [filterForeigners, setFilterForeigners] = useState(false);
@@ -36,6 +39,15 @@ const Matching = () => {
     );
   };
   const [results, setResults] = useState<MatchResult[]>([]);
+
+  // 4-2. 로딩 가드 — 빈 배열 상태에서 불필요한 렌더링 방지
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+      </div>
+    );
+  }
 
   const waitingUsers = users.filter((u) => u.contractStatus === "대기");
   const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");

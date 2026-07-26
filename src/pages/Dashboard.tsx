@@ -2,24 +2,29 @@ import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type TerminationDocument, type HandoverDocument } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { startOfWeek, endOfWeek, parseISO, isWithinInterval, format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths } from "date-fns";
+import { startOfWeek, endOfWeek, parseISO, isWithinInterval, format, eachMonthOfInterval, subMonths } from "date-fns";
 import { matchUserWithWorkers } from "@/lib/matching";
 import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, HANDOVERS_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workers } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: records } = useCollection<CounselingRecord>("counseling");
-  const { data: terminations } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
-  const { data: handovers } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
+  const { data: usersRaw, loading } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: recordsRaw } = useCollection<CounselingRecord>("counseling");
+  const { data: terminationsRaw } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const { data: handoversRaw } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
 
+  // 4-1. useCollection 결과 즉시 정규화
+  const users = usersRaw || [];
+  const workers = workersRaw || [];
+  const records = recordsRaw || [];
+  const terminations = terminationsRaw || [];
+  const handovers = handoversRaw || [];
 
-  // 데이터 로딩 가드
-  if (!users || !workers) {
+  // 4-2. 로딩 가드 — 파생 계산 전에 반드시 차단
+  if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
@@ -27,15 +32,16 @@ const Dashboard = () => {
     );
   }
 
-    // 최근 신규 등록 (이용자 & 활동지원사)
-    const recentUsers = [...users]
-      .filter((u) => u.createdAt)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 5);
-    const recentWorkers = [...workers]
-      .filter((w) => w.createdAt)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 5);
+  // ── 이 지점부터 users/workers는 []이거나 정상 데이터 ──
+
+  const recentUsers = [...users]
+    .filter((u) => u.createdAt)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
+  const recentWorkers = [...workers]
+    .filter((w) => w.createdAt)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
 
   const activeUsers = users.filter((u) => u.contractStatus === "서비스중");
   const waitingUsers = users.filter(
@@ -60,11 +66,9 @@ const Dashboard = () => {
     } catch { return false; }
   });
 
-  const availableWaitingWorkers = waitingWorkers;
-  
   // Top matches: limit to top 3
   const topMatches = waitingUsers.map(u => {
-    const results = matchUserWithWorkers(u, availableWaitingWorkers);
+    const results = matchUserWithWorkers(u, waitingWorkers);
     return { user: u, bestMatch: results.length > 0 ? results[0] : null };
   }).filter(m => m.bestMatch && m.bestMatch.score >= 50)
     .sort((a, b) => b.bestMatch!.score - a.bestMatch!.score)
@@ -76,12 +80,9 @@ const Dashboard = () => {
     end: now
   });
 
-  // 월별 통계: 종결 및 인계인수 데이터 집계
   const monthlyStats = last6Months.map(month => {
     const monthStr = format(month, 'yyyy-MM');
-    // 종결 인원: date 기준
     const termCount = terminations.filter(d => d.date?.startsWith(monthStr)).length;
-    // 인계인수 인원: handoverDate 기준
     const handCount = handovers.filter(d => d.handoverDate?.startsWith(monthStr)).length;
     return {
       name: format(month, 'M월'),
@@ -92,7 +93,6 @@ const Dashboard = () => {
     };
   });
 
-  // 월별 통계 요약 (테이블용)
   const monthlyStatsTable = monthlyStats.map(stat => ({
     month: stat.name,
     terminated: stat.종결,
@@ -153,7 +153,6 @@ const Dashboard = () => {
           </CardContent>
       </Card>
 
-      {/* 월별 통계 테이블 */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">📋 월별 종결/인계인수 현황</CardTitle>
@@ -185,7 +184,6 @@ const Dashboard = () => {
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* 최근 신규 등록 이용자 */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">👤 최근 신규 등록 이용자</CardTitle>
@@ -213,7 +211,6 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* 최근 신규 등록 활동지원사 */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">🧑‍💼 최근 신규 등록 활동지원사</CardTitle>
@@ -241,7 +238,6 @@ const Dashboard = () => {
           </CardContent>
         </Card>
 
-        {/* 이번주 신규 서비스 */}
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">📅 이번주 신규 서비스 시작</CardTitle>

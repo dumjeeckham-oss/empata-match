@@ -19,6 +19,95 @@
 ### 3. 컬렉션 이름 상수화
 - 컬렉션 이름을 직접 문자열로 쓰지 말고 `src/lib/collectionNames.ts`에 정의된 상수를 사용하세요. (예: `USERS_COLLECTION`, `WORKERS_COLLECTION`)
 
+### 4. 데이터 로딩 안전성 (Data Loading Safety)
+
+`useCollection` 훅은 초기에 `data=[]`, `loading=true`를 반환합니다. 데이터가 로드되기 전이나 오류 발생 시 `data`는 빈 배열이 됩니다. **모든 페이지는 이 상태에서도 에러 없이 렌더링되어야 합니다.**
+
+이 규칙을 어기면 `selectedUserId is not defined`, `Cannot read properties of undefined (reading 'name')` 등의 런타임 에러가 발생합니다. 과거에 대시보드에서 이 문제가 실제로 발생했으며, 이후에도 재발하지 않도록 아래 규칙을 **절대적으로** 따릅니다.
+
+#### 필수 규칙
+
+**4-1. useCollection 결과 즉시 정규화 — 모든 컬렉션에 대해**
+```tsx
+// ❌ 절대 하지 말 것: 데이터를 그대로 사용
+const { data: users } = useCollection<ServiceUser>(USERS_COLLECTION);
+// users는 항상 T[]이지만, 후에 다른 훅이 추가되면 순서가 꼬일 수 있음
+
+// ✅ 반드시 따라야 할 패턴 (모든 컬렉션 동일)
+const { data: usersRaw, loading } = useCollection<ServiceUser>(USERS_COLLECTION);
+const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
+const { data: recordsRaw } = useCollection<CounselingRecord>("counseling");
+const users = usersRaw || [];
+const workers = workersRaw || [];
+const records = recordsRaw || [];
+```
+
+**4-2. 로딩 가드 — 파생 변수보다 반드시 먼저**
+`filter`, `map`, `find`, `reduce`, `sort`를 호출하는 파생 변수보다 **반드시 위에** 로딩 가드를 배치합니다. 가드 아래의 코드는 데이터가 준비된 상태임이 보장됩니다.
+```tsx
+// ✅ 올바른 순서: 정규화 → 로딩 가드 → 파생 변수 → 렌더링
+const { data: usersRaw, loading, error } = useCollection(USERS_COLLECTION);
+const users = usersRaw || [];
+
+if (loading) { return <Spinner />; }  // ← 파생 변수보다 먼저
+if (error) { return <ErrorUI message={error} />; }
+
+// 이 아래부터 users는 []이거나 정상 데이터 → 안전하게 파생 계산 가능
+const activeUsers = users.filter(...);
+```
+
+**4-3. ❌ 금지: `!users || !workers` 가드**
+```tsx
+// ❌ 절대 사용 금지 — useCollection은 data를 절대 undefined로 반환하지 않음
+// 이 가드는 항상 false이므로 아무 역할도 하지 않음
+if (!users || !workers) { return <Spinner />; }
+```
+대신 `if (loading)`을 사용하세요.
+
+**4-4. .find() 결과는 항상 옵셔널 체이닝**
+```tsx
+const selectedUser = users.find(u => u.id === selectedUserId);
+// selectedUser는 T | undefined
+
+// ❌ 에러: selectedUser.name — undefined에서 속성 읽기
+// ✅ 안전
+{selectedUser && <span>{selectedUser.name}</span>}
+{selectedUser?.name || "선택안됨"}
+```
+
+**4-5. .reduce()는 반드시 초기값 지정, 더 안전한 대안 선호**
+```tsx
+// ⚠️ reduce: 빈 배열에서도 동작하지만 결과 타입에 주의
+const latest = users.reduce((prev, cur) => {
+  if (!prev) return cur;
+  return new Date(cur.createdAt) > new Date(prev.createdAt) ? cur : prev;
+}, null as (ServiceUser & { id: string }) | null);
+// → latest는 null 가능. 렌더링에서 반드시 null 체크.
+
+// ✅ 더 안전: sort + slice (빈 배열에서도 완벽히 안전)
+const recentUsers = [...users]
+  .filter(u => u.createdAt)
+  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  .slice(0, 5);
+```
+
+**4-6. useMemo 의존성 배열에 데이터 변수 포함**
+```tsx
+const filteredWorkers = useMemo(() => {
+  return waitingWorkers.filter(w => { /* ... */ });
+}, [waitingWorkers, filterForeigners, filterWeekend, supportFilters]);
+// ↑ waitingWorkers는 users/workers에서 파생되므로 원본 데이터 변화에 자동 반응
+```
+
+**4-7. 새 페이지/기능 추가 시 체크리스트 (매번 확인)**
+- [ ] **모든** `useCollection` 결과에 `(data || [])` 정규화 적용 (users, workers, records 등)
+- [ ] `loading` 상태에서 **파생 변수 선언보다 먼저** 조기 return
+- [ ] `error` 상태에서 에러 메시지 표시
+- [ ] `.find()` 결과를 JSX에서 사용할 때 `?.` 또는 조건부 렌더링
+- [ ] `.reduce()` 대신 `sort + slice` 우선 사용
+- [ ] `useMemo` 의존성 배열에 모든 관련 데이터 포함
+- [ ] `if (!data || !data2)` 같은 무의미한 가드 사용 금지
+
 ---
 
 ## 🛠️ 주요 기능 구현 규칙
