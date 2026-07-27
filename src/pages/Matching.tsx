@@ -18,11 +18,23 @@ const Matching = () => {
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
-  const [selectedUserId, setSelectedUserId] = useState<string>("");
+// Loading guard — ensure data is ready before rendering
+if (loading) {
+  return (
+    <div className="flex items-center justify-center min-h-[300px]">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
+    </div>
+  );
+}
+
   const [nameSearch, setNameSearch] = useState<string>("");
   const [filterForeigners, setFilterForeigners] = useState(false);
   const [filterWeekend, setFilterWeekend] = useState(false);
   const [supportFilters, setSupportFilters] = useState<string[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [results, setResults] = useState<MatchResult[]>([]);
+
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -50,15 +62,6 @@ const Matching = () => {
 
   // Add Dialog component at end of JSX
   // (Will be inserted after the main return block, before the final closing brace)
-
-  // 4-2. 로딩 가드 — 빈 배열 상태에서 불필요한 렌더링 방지
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[300px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-      </div>
-    );
-  }
 
   const waitingUsers = users.filter((u) => u.contractStatus === "대기");
   const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
@@ -319,7 +322,7 @@ const Matching = () => {
                 {displayedResults.length > 0 ? (
                   <div className="space-y-3">
                     {displayedResults.map((r, i) => (
-                      <Card key={r.worker.id} className="card-hover" onClick={() => openDetail(r.worker)}>
+                      <Card key={r.worker.id} className="card-hover" onClick={() => openWorkerDetail(r.worker)}>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3">
