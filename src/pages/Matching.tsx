@@ -12,20 +12,12 @@ import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 const Matching = () => {
-  const { data: usersRaw, loading } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: usersRaw, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
-// Loading guard — ensure data is ready before rendering
-if (loading) {
-  return (
-    <div className="flex items-center justify-center min-h-[300px]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
-    </div>
-  );
-}
 
   const [nameSearch, setNameSearch] = useState<string>("");
   const [filterForeigners, setFilterForeigners] = useState(false);
@@ -33,7 +25,7 @@ if (loading) {
   const [supportFilters, setSupportFilters] = useState<string[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [results, setResults] = useState<MatchResult[]>([]);
-
+  const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -50,7 +42,6 @@ if (loading) {
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
   };
-  const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
 
   const openWorkerDetail = (worker: Worker) => {
     setDetailWorker(worker);
@@ -59,9 +50,6 @@ if (loading) {
   const closeWorkerDetail = () => {
     setDetailWorker(null);
   };
-
-  // Add Dialog component at end of JSX
-  // (Will be inserted after the main return block, before the final closing brace)
 
   const waitingUsers = users.filter((u) => u.contractStatus === "대기");
   const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
@@ -84,7 +72,6 @@ if (loading) {
     });
   }, [waitingWorkers, filterForeigners, filterWeekend, supportFilters]);
 
-  // 전역 추천 매칭: 대기 이용자별 상위 3명 지원사 (이용자 미선택 시 표시)
   const globalTopMatches = useMemo(() => {
     return waitingUsers.map(u => {
       const matchResults = matchUserWithWorkers(u, filteredWorkers);
@@ -122,6 +109,29 @@ if (loading) {
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   const displayedResults = results.slice(0, 3);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[300px]">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">매칭 데이터를 불러오는 중입니다...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const loadError = usersError || workersError;
+  if (loadError) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto">
+        <div className="border border-destructive/30 rounded-lg p-6 bg-destructive/5">
+          <h2 className="text-lg font-semibold text-destructive mb-2">데이터를 불러오지 못했습니다</h2>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{loadError}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

@@ -248,12 +248,12 @@ export default function Handovers() {
       {printDoc && (
         <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-10 overflow-auto">
           <div className="max-w-[210mm] mx-auto border-2 border-black p-8 min-h-0 flex flex-col">
-            <style>
+            <style>{`
               @media print {
                 .page-break { break-before: page; }
                 .no-break { break-inside: avoid; }
               }
-            </style>
+            `}</style>
             <h1 className="text-3xl font-bold text-center mb-10 underline decoration-double underline-offset-8">업무 인계 · 인수서</h1>
             
             <h2 className="text-xl font-bold mb-3">1. 수급자 인적사항</h2>

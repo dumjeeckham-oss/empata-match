@@ -191,7 +191,7 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
       cleanupSnapshot();
       unsubAuth();
     };
-  }, [collectionName, constraints]);
+  }, [collectionName]);
 
   const add = useCallback(async (item: Omit<T, "id">) => {
     const payload = sanitizeForFirestore(item as Record<string, unknown>);
