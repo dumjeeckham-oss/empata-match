@@ -56,7 +56,7 @@ export default function Handovers() {
   const [takeoverPersonName, setTakeoverPersonName] = useState<string>("");
   const [takeoverDate, setTakeoverDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState<string>("");
-  const [notes, setNotes] = useState<string>("");
+  const [handoverTasks, setHandoverTasks] = useState<string>(""); // New field for handover tasks
   const [printDoc, setPrintDoc] = useState<HandoverDocument | null>(null);
 
   const selectedUser = useMemo(() => users.find((u) => u.id === userId), [users, userId]);
@@ -134,17 +134,36 @@ export default function Handovers() {
         nextWorkerName: nextWorker.name,
         nextWorkerPhone: nextWorker.phone,
         notes: notes.trim(),
+        handoverTasks: handoverTasks.trim(),
         updatedAt: Timestamp.now(),
       };
 
       if (editingId) {
+        // 기존 인계·인수서 수정
         await updateHandover(editingId, payload);
+        // 데이터 동기화 로직 (수정 시에도 담당 활동지원사 변경 반영)
+        const prevHelperIds = selectedUser.assignedHelperIds ?? [];
+        const newHelperIds = [nextWorker.id!];
+        const updatedUserEdit: Partial<ServiceUser> = {
+          assignedHelperIds: newHelperIds,
+          assigned_workers: newHelperIds,
+          assignedHelperNames: [nextWorker.name],
+          assignedHelperPhones: [nextWorker.phone],
+        };
+        await updateUser(selectedUser.id!, updatedUserEdit as any);
+        await syncUserToWorkers(
+          selectedUser.id!,
+          { name: selectedUser.name, phone: selectedUser.phone, assignedHelperIds: newHelperIds },
+          workers as any,
+          prevHelperIds,
+          updateWorker as any
+        );
         toast({ title: "업무 인계·인수서 수정 완료" });
       } else {
         (payload as any).createdAt = Timestamp.now();
         await addHandover(payload as any);
         
-        // 데이터 동기화 로직 (신규 저장 시에만 수행)
+        // Update user assignment on edit as well
         const prevHelperIds = selectedUser.assignedHelperIds ?? [];
         const newHelperIds = [nextWorker.id!];
         const updatedUser: Partial<ServiceUser> = {
@@ -185,6 +204,7 @@ export default function Handovers() {
     setTakeoverDate(doc.takeoverDate);
     setReason(doc.reason);
     setNotes(doc.notes || "");
+    setHandoverTasks(doc.handoverTasks || "");
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -207,6 +227,7 @@ export default function Handovers() {
     setTakeoverPersonName("");
     setTakeoverDate(new Date().toISOString().slice(0, 10));
     setReason("");
+    setHandoverTasks("");
     setNotes("");
   };
 
@@ -226,7 +247,13 @@ export default function Handovers() {
       {/* 인쇄용 영역 */}
       {printDoc && (
         <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-10 overflow-auto">
-          <div className="max-w-[210mm] mx-auto border-2 border-black p-8 min-h-[280mm] flex flex-col">
+          <div className="max-w-[210mm] mx-auto border-2 border-black p-8 min-h-0 flex flex-col">
+            <style>
+              @media print {
+                .page-break { break-before: page; }
+                .no-break { break-inside: avoid; }
+              }
+            </style>
             <h1 className="text-3xl font-bold text-center mb-10 underline decoration-double underline-offset-8">업무 인계 · 인수서</h1>
             
             <h2 className="text-xl font-bold mb-3">1. 수급자 인적사항</h2>
@@ -237,6 +264,10 @@ export default function Handovers() {
                   <td className="border border-black p-3 w-2/6 text-center font-bold">{printDoc.userName}</td>
                   <th className="border border-black bg-gray-100 p-3 w-1/6 text-center">연락처</th>
                   <td className="border border-black p-3 w-2/6 text-center">{printDoc.userPhone}</td>
+                </tr>
+                <tr className="page-break">
+                  <th className="border border-black bg-gray-100 p-3 text-center">인계 인수 업무사항</th>
+                  <td colSpan={3} className="border border-black p-3 min-h-[60px] whitespace-pre-wrap" style={{ whiteSpace: "pre-wrap" }}>{printDoc.handoverTasks || "—"}</td>
                 </tr>
                 <tr>
                   <th className="border border-black bg-gray-100 p-3 text-center">장애유형</th>
@@ -258,12 +289,10 @@ export default function Handovers() {
                   <th className="border border-black bg-gray-100 p-3 w-1/4 text-center">인계 사유</th>
                   <td colSpan={3} className="border border-black p-3 min-h-[60px]">{printDoc.reason}</td>
                 </tr>
-                <tr>
-                  <th className="border border-black bg-gray-100 p-3 w-1/4 text-center text-red-600 font-bold">전임(인계자)</th>
-                  <td className="border border-black p-3 w-1/4 text-center">{printDoc.prevWorkerName || printDoc.handoverPersonName}</td>
-                  <th className="border border-black bg-gray-100 p-3 w-1/4 text-center text-blue-600 font-bold">후임(인수자)</th>
-                  <td className="border border-black p-3 w-1/4 text-center">{printDoc.nextWorkerName || printDoc.takeoverPersonName}</td>
-                </tr>
+              <tr>
+                <th className="border border-black bg-gray-100 p-3 text-center">인계 인수 업무사항</th>
+                <td colSpan={3} className="border border-black p-3 min-h-[60px] whitespace-pre-wrap" style={{ whiteSpace: "pre-wrap" }}>{printDoc.handoverTasks || "—"}</td>
+              </tr>
               </tbody>
             </table>
 
@@ -452,9 +481,13 @@ export default function Handovers() {
             </div>
           </div>
 
-          <div>
+          <div className="flex flex-col">
             <Label>인계 사유 *</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 담당 활동지원사 변경, 개인사정, 기관변경 등" />
+          </div>
+          <div className="flex flex-col">
+            <Label>인계 인수 업무사항</Label>
+            <Textarea value={handoverTasks} onChange={(e) => setHandoverTasks(e.target.value)} placeholder="장문의 업무 내용 입력" />
           </div>
 
           <div>

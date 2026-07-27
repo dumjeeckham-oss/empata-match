@@ -188,6 +188,7 @@ export interface HandoverDocument {
   nextWorkerId?: string;
   nextWorkerName?: string;
   nextWorkerPhone?: string;
+  handoverTasks?: string;
   notes?: string;
   createdAt?: unknown;
   updatedAt?: unknown;

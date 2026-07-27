@@ -66,6 +66,7 @@ const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "address", label: "주소" },
   { key: "experience", label: "경력" },
   { key: "contractStatus", label: "근무상태" },
+  { key: "receiptDate", label: "최초 접수일" },
   { key: "assignedUserName", label: "담당이용자" },
 ];
 
@@ -311,6 +312,7 @@ const WorkerManagement = () => {
       address: item.address,
       experience: item.experience,
       contractStatus: item.contractStatus,
+      receiptDate: item.receiptDate,
       assignedUserName: item.assignedUserNames?.join(", "),
     };
     return String(map[key] ?? "");

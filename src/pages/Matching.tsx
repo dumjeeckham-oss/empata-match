@@ -38,7 +38,18 @@ const Matching = () => {
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
   };
-  const [results, setResults] = useState<MatchResult[]>([]);
+  const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
+
+  const openWorkerDetail = (worker: Worker) => {
+    setDetailWorker(worker);
+  };
+
+  const closeWorkerDetail = () => {
+    setDetailWorker(null);
+  };
+
+  // Add Dialog component at end of JSX
+  // (Will be inserted after the main return block, before the final closing brace)
 
   // 4-2. 로딩 가드 — 빈 배열 상태에서 불필요한 렌더링 방지
   if (loading) {
@@ -308,7 +319,7 @@ const Matching = () => {
                 {displayedResults.length > 0 ? (
                   <div className="space-y-3">
                     {displayedResults.map((r, i) => (
-                      <Card key={r.worker.id} className="card-hover">
+                      <Card key={r.worker.id} className="card-hover" onClick={() => openDetail(r.worker)}>
                         <CardContent className="p-4">
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3">
