@@ -4,6 +4,7 @@ import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHist
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
+import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
   rowsToEntities,
   rowToWorker,
@@ -151,6 +152,8 @@ const WorkerManagement = () => {
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
   // 업무별 가능/거부: 기본값은 둘 다 미체크(미정)
   const [explicitOks, setExplicitOks] = useState<Set<string>>(new Set());
+
+  const { checking: nameChecking, duplicates: nameDuplicates } = useDuplicateNameCheck(form.name, workers, editingId);
 
   useEffect(() => {
     const filter = searchParams.get("status");
@@ -449,7 +452,17 @@ const WorkerManagement = () => {
               </DialogHeader>
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
+                  <div>
+                    <Label>이름 *</Label>
+                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                    {nameChecking ? (
+                      <p className="text-xs text-muted-foreground mt-1">동명이인 확인 중...</p>
+                    ) : nameDuplicates.length > 0 ? (
+                      <p className="text-xs text-destructive mt-1">
+                        ⚠️ 동명이인 {nameDuplicates.length}명 존재: {nameDuplicates.map((d) => d.phone || "연락처 없음").join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
                   <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
                   <div>
                     <Label>성별</Label>
