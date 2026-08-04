@@ -432,7 +432,9 @@ export function rowToWorker(
     assignedUserNames: [...assigned.names],
     assignedUserPhones: [...assigned.phones],
     supportTypes: splitList(getCell(row, headerMap, "supportTypes")),
+    receiptDate: normalizeDateCell(getCell(row, headerMap, "receiptDate")),
     certificates: [],
+
   };
 }
 
