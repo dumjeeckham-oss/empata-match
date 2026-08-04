@@ -57,6 +57,7 @@ export default function Handovers() {
   const [takeoverDate, setTakeoverDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState<string>("");
   const [handoverTasks, setHandoverTasks] = useState<string>(""); // New field for handover tasks
+  const [notes, setNotes] = useState<string>("");
   const [printDoc, setPrintDoc] = useState<HandoverDocument | null>(null);
 
   const selectedUser = useMemo(() => users.find((u) => u.id === userId), [users, userId]);

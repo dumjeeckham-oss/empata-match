@@ -45,6 +45,7 @@ import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { useSearchParams } from "react-router-dom";
 import { useEffect } from "react";
 import { getComparableDateValue } from "@/lib/utils";
+import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
@@ -118,6 +119,8 @@ const UserManagement = () => {
       action: "overwrite" | "skip";
     }>
   >([]);
+
+  const { checking: nameChecking, duplicates: nameDuplicates } = useDuplicateNameCheck(form.name, users, editingId);
 
   const parseAgeInput = (val: string): number => {
     const clean = val.trim();
@@ -256,7 +259,7 @@ const UserManagement = () => {
       toast({
         title: "동명이인 주의",
         description: `${form.name} 이름이 이미 등록된 이용자가 있습니다. 연락처를 확인하세요.`,
-        variant: "warning",
+        variant: "destructive",
       });
     }
 
@@ -579,7 +582,17 @@ const UserManagement = () => {
               </DialogHeader>
               <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
-                  <div><Label>이름 *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
+                  <div>
+                    <Label>이름 *</Label>
+                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                    {nameChecking ? (
+                      <p className="text-xs text-muted-foreground mt-1">동명이인 확인 중...</p>
+                    ) : nameDuplicates.length > 0 ? (
+                      <p className="text-xs text-destructive mt-1">
+                        ⚠️ 동명이인 {nameDuplicates.length}명 존재: {nameDuplicates.map((d) => d.phone || "연락처 없음").join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
                   <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
                   <div>
                     <Label>나이 (생년 또는 생년월일 입력 시 자동변환)</Label>

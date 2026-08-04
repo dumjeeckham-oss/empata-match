@@ -26,6 +26,8 @@ const Matching = () => {
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [results, setResults] = useState<MatchResult[]>([]);
   const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
+  const [manualSearch, setManualSearch] = useState<string>("");
+  const [manualWorkerId, setManualWorkerId] = useState<string>("");
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -109,6 +111,17 @@ const Matching = () => {
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   const displayedResults = results.slice(0, 3);
+
+  // 수동 매칭: 특정 활동지원사를 직접 선택해 점수를 확인
+  const allScored = useMemo(() => {
+    if (!selectedUser) return [];
+    return matchUserWithWorkers(selectedUser, filteredWorkers);
+  }, [selectedUser, filteredWorkers]);
+
+  const manualCandidates = allScored.filter((r) =>
+    (r.worker.name || "").toLowerCase().includes(manualSearch.toLowerCase())
+  );
+  const manualSelected = allScored.find((r) => r.worker.id === manualWorkerId);
 
   if (loading) {
     return (
@@ -324,6 +337,77 @@ const Matching = () => {
                       ))
                     )}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="py-2 border-b">
+                  <CardTitle className="text-sm font-semibold">🖐 수동 매칭 (활동지원사 직접 선택)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 pt-3">
+                  <Input
+                    placeholder="활동지원사 이름 검색..."
+                    value={manualSearch}
+                    onChange={(e) => setManualSearch(e.target.value)}
+                  />
+                  <div className="max-h-[220px] overflow-y-auto border rounded-md divide-y">
+                    {manualCandidates.length === 0 ? (
+                      <p className="p-4 text-center text-xs text-muted-foreground">조건에 맞는 활동지원사가 없습니다.</p>
+                    ) : (
+                      manualCandidates.map((r) => (
+                        <button
+                          key={r.worker.id}
+                          onClick={() => setManualWorkerId(r.worker.id)}
+                          className={`w-full text-left p-2.5 text-xs hover:bg-muted/40 flex items-center justify-between gap-2 ${manualWorkerId === r.worker.id ? "bg-primary/5 border-l-4 border-primary" : ""}`}
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="font-semibold text-sm">{r.worker.name}</span>
+                            <span className="text-muted-foreground">
+                              {r.worker.gender} · {r.worker.experience} · {r.worker.preferredArea || "지역미정"}
+                            </span>
+                          </span>
+                          <span className="font-bold text-primary">{r.score.toFixed(0)}점</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {manualSelected && (
+                    <div className="border rounded-lg p-3 space-y-2 bg-muted/30">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold">
+                          {manualSelected.worker.name} · {manualSelected.worker.contractStatus}
+                        </span>
+                        <span className="text-sm font-bold text-primary">
+                          {manualSelected.score.toFixed(0)}<span className="text-xs text-muted-foreground">/90점</span>
+                        </span>
+                      </div>
+                      <Progress value={(manualSelected.score / 90) * 100} className="h-2" />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                        <div className="bg-card rounded p-1.5">
+                          <p className="text-muted-foreground">시간 적합도</p>
+                          <p className="font-semibold">{manualSelected.details.timeScore.toFixed(1)} / 40</p>
+                        </div>
+                        <div className="bg-card rounded p-1.5">
+                          <p className="text-muted-foreground">위치 근접도</p>
+                          <p className="font-semibold">{manualSelected.details.locationScore.toFixed(1)} / 30</p>
+                          {manualSelected.details.distanceKm !== null && (
+                            <p className="text-[10px] text-muted-foreground">{manualSelected.details.distanceKm.toFixed(1)}km</p>
+                          )}
+                        </div>
+                        <div className="bg-card rounded p-1.5">
+                          <p className="text-muted-foreground">선호도 반영</p>
+                          <p className="font-semibold">{manualSelected.details.preferenceScore.toFixed(1)} / 20</p>
+                        </div>
+                        <div className="bg-card rounded p-1.5">
+                          <p className="text-muted-foreground">거부패널티</p>
+                          <p className="font-semibold">{manualSelected.details.rejectionPenalty.toFixed(0)}</p>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        📍 {manualSelected.worker.address || "주소 미입력"} · 가능요일 {manualSelected.worker.availableDays || "미입력"}
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
