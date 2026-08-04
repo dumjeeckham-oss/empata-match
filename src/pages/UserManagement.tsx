@@ -256,7 +256,7 @@ const UserManagement = () => {
       toast({
         title: "동명이인 주의",
         description: `${form.name} 이름이 이미 등록된 이용자가 있습니다. 연락처를 확인하세요.`,
-        variant: "warning",
+        variant: "destructive",
       });
     }
 

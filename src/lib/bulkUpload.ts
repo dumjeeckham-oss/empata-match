@@ -60,9 +60,11 @@ export type FieldKey =
   | "canDrive"
   | "animalAllergy"
   | "certificateNumber"
-  | "resignationDate";
+  | "resignationDate"
+  | "receiptDate";
 
 const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
+  { field: "receiptDate", patterns: [/접수일/, /최초접수/, /^receiptDate$/i] },
   { field: "name", patterns: [/이름/, /성명/, /^name$/i, /이용자/, /지원사명/, /성명\(한글\)/] },
   { field: "gender", patterns: [/성별/, /구분/, /^sex$/i, /^gender$/i, /txtUSex/i, /txtHSex/i] },
   { field: "phone", patterns: [/연락처/, /전화/, /휴대폰/, /^hp$/i, /^phone$/i, /txtUPhone/i, /txtHPhone/i, /핸드폰/, /휴대전화/] },
@@ -386,6 +388,7 @@ export function rowToServiceUser(
     needsVehicle: false,
     usesDiaper: false,
     resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
+    receiptDate: normalizeDateCell(getCell(row, headerMap, "receiptDate")),
   };
 }
 
