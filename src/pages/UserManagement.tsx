@@ -246,7 +246,16 @@ const UserManagement = () => {
     if (payload.terminationReason?.trim()) {
       payload.contractStatus = "계약해지";
       payload.txtUMemostop = payload.terminationReason;
+    } else if (arrays.ids.length > 0) {
+      // 담당 활동지원사가 배정되면 "대기"/미지정 상태를 "서비스중"으로 자동 전환
+      if (!payload.contractStatus || payload.contractStatus === "대기") {
+        payload.contractStatus = "서비스중";
+      }
+    } else if (payload.contractStatus === "서비스중") {
+      // 담당자를 모두 해제하면 다시 "대기"로 복귀
+      payload.contractStatus = "대기";
     }
+
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
       : [];

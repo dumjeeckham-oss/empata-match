@@ -242,7 +242,25 @@ const WorkerManagement = () => {
     }
     if (savedId) {
       await syncWorkerToUsers(savedId, payload, users, prevUserIds, updateUser);
+      // 이용자 계약상태 자동 전환: 배정 → "서비스중", 해제 → 남은 담당자가 없으면 "대기"
+      const nextSet = new Set(arrays.ids);
+      const touched = new Set([...prevUserIds, ...arrays.ids]);
+      for (const userId of touched) {
+        const target = users.find((u) => u.id === userId);
+        if (!target) continue;
+        if (target.terminationReason?.trim()) continue;
+        if (nextSet.has(userId)) {
+          if (!target.contractStatus || target.contractStatus === "대기") {
+            await updateUser(userId, { contractStatus: "서비스중" });
+            target.contractStatus = "서비스중";
+          }
+        } else if (!(target.assignedHelperIds ?? []).length && target.contractStatus === "서비스중") {
+          await updateUser(userId, { contractStatus: "대기" });
+          target.contractStatus = "대기";
+        }
+      }
     }
+
     setForm(emptyWorker);
     setExplicitOks(new Set());
     setEditingId(null);
