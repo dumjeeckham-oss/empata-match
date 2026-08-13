@@ -168,13 +168,15 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   );
 
 
-  // 퇴사일이 없고 최초근무일(입사일)이 있으면 "근무중"으로 표시
+  // 사용자가 직접 "퇴사"로 지정하면 그대로 유지, 그 외에는 날짜 기준 자동 산정
+  const rawStatus = String(raw.contractStatus ?? "").trim();
   const derivedStatus: Worker["contractStatus"] =
-    resignationDate
+    rawStatus === "퇴사" || resignationDate
       ? "퇴사"
       : serviceStartDate
         ? "근무중"
-        : (String(raw.contractStatus ?? "").trim() === "퇴사" ? "퇴사" : "대기");
+        : "대기";
+
 
   // 최초근무일을 기준으로 현재까지 경력(년/개월)을 실시간 산정
   const derivedExperience =
