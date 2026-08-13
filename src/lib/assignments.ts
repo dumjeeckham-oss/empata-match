@@ -132,6 +132,8 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     contractStatus,
     // 엑셀/Firestore의 날짜 형식을 YYYY-MM-DD로 통일하여 화면 Input(type=date)에 즉시 반영
     serviceStartDate,
+    resignationDate: userResignationDate,
+
   } as Partial<ServiceUser>;
 }
 
