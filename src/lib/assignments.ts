@@ -102,14 +102,21 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
   );
 
   const contractStatusRaw = String(raw.contractStatus ?? "").trim();
+  const userResignationDate = toYmd(
+    raw.resignationDate ?? raw["계약해지날짜"] ?? raw["계약해지일"] ?? raw["종결일"] ?? raw["중단일"]
+  );
   const contractStatus: ServiceUser["contractStatus"] =
-    terminationReason.trim()
-      ? "계약해지"
-      : contractStatusRaw === "서비스중" || contractStatusRaw === "대기" || contractStatusRaw === "계약해지"
-        ? (contractStatusRaw as ServiceUser["contractStatus"])
-        : serviceStartDate
-          ? "서비스중"
-          : "대기";
+    // 사용자가 직접 지정한 상태(계약해지/타기관 계약/보류)는 절대 자동 변경하지 않음
+    contractStatusRaw === "계약해지" || contractStatusRaw === "타기관 계약" || contractStatusRaw === "보류"
+      ? (contractStatusRaw as ServiceUser["contractStatus"])
+      : terminationReason.trim() || userResignationDate
+        ? "계약해지"
+        : contractStatusRaw === "서비스중" || contractStatusRaw === "대기"
+          ? (contractStatusRaw as ServiceUser["contractStatus"])
+          : serviceStartDate
+            ? "서비스중"
+            : "대기";
+
 
   return {
     ...raw,
@@ -125,6 +132,8 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     contractStatus,
     // 엑셀/Firestore의 날짜 형식을 YYYY-MM-DD로 통일하여 화면 Input(type=date)에 즉시 반영
     serviceStartDate,
+    resignationDate: userResignationDate,
+
   } as Partial<ServiceUser>;
 }
 
@@ -161,13 +170,15 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   );
 
 
-  // 퇴사일이 없고 최초근무일(입사일)이 있으면 "근무중"으로 표시
+  // 사용자가 직접 "퇴사"로 지정하면 그대로 유지, 그 외에는 날짜 기준 자동 산정
+  const rawStatus = String(raw.contractStatus ?? "").trim();
   const derivedStatus: Worker["contractStatus"] =
-    resignationDate
+    rawStatus === "퇴사" || resignationDate
       ? "퇴사"
       : serviceStartDate
         ? "근무중"
-        : (String(raw.contractStatus ?? "").trim() === "퇴사" ? "퇴사" : "대기");
+        : "대기";
+
 
   // 최초근무일을 기준으로 현재까지 경력(년/개월)을 실시간 산정
   const derivedExperience =

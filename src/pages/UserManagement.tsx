@@ -242,19 +242,31 @@ const UserManagement = () => {
       txtUMemostop: form.terminationReason,
       receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
     };
-    // 중단/해지 사유가 입력되면 상태를 즉시 "계약해지"로 자동 전환(저장까지 반영)
-    if (payload.terminationReason?.trim()) {
+    // 계약해지/타기관 계약/보류는 사용자가 직접 지정한 상태이므로 자동 전환하지 않음
+    // (담당 활동지원사 연결은 삭제하지 않고 그대로 유지 → 이력이 끊기지 않음)
+    if (payload.contractStatus === "계약해지") {
+      payload.txtUMemostop = payload.terminationReason;
+      payload.resignationDate = payload.resignationDate || new Date().toISOString().slice(0, 10);
+    } else if (payload.contractStatus === "타기관 계약" || payload.contractStatus === "보류") {
+      // 그대로 유지
+    } else if (payload.terminationReason?.trim()) {
       payload.contractStatus = "계약해지";
       payload.txtUMemostop = payload.terminationReason;
+      payload.resignationDate = payload.resignationDate || new Date().toISOString().slice(0, 10);
     } else if (arrays.ids.length > 0) {
+      payload.resignationDate = "";
       // 담당 활동지원사가 배정되면 "대기"/미지정 상태를 "서비스중"으로 자동 전환
       if (!payload.contractStatus || payload.contractStatus === "대기") {
         payload.contractStatus = "서비스중";
       }
-    } else if (payload.contractStatus === "서비스중") {
-      // 담당자를 모두 해제하면 다시 "대기"로 복귀
-      payload.contractStatus = "대기";
+    } else {
+      payload.resignationDate = "";
+      if (payload.contractStatus === "서비스중") {
+        // 담당자를 모두 해제하면 다시 "대기"로 복귀
+        payload.contractStatus = "대기";
+      }
     }
+
 
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
@@ -754,7 +766,19 @@ const UserManagement = () => {
                 <div className="border-t pt-4 grid grid-cols-2 gap-4">
                   <div>
                     <Label>계약상태</Label>
-                    <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
+                    <Select
+                      value={form.contractStatus}
+                      onValueChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          contractStatus: v as any,
+                          resignationDate:
+                            v === "계약해지"
+                              ? f.resignationDate || new Date().toISOString().slice(0, 10)
+                              : "",
+                        }))
+                      }
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="서비스중">서비스중</SelectItem>
@@ -766,6 +790,19 @@ const UserManagement = () => {
                     </Select>
                   </div>
                   <div><Label>서비스 시작일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  {form.contractStatus === "계약해지" && (
+                    <>
+                      <div>
+                        <Label>계약 해지일</Label>
+                        <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                      </div>
+                      <div>
+                        <Label>중단/해지 사유</Label>
+                        <Input value={form.terminationReason} onChange={(e) => setForm((f) => ({ ...f, terminationReason: e.target.value }))} placeholder="사유 입력" />
+                      </div>
+                    </>
+                  )}
+
                   <div className="col-span-2">
                     <Label>담당 활동지원사 (N:M)</Label>
                     <MultiEntitySelect

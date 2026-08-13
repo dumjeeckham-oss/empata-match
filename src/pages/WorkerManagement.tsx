@@ -115,15 +115,22 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
   const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
+  const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
 
   return {
     ...worker,
-    contractStatus: hasServiceStartDate && !hasResignationDate ? "근무중" : worker.contractStatus,
+    // 직접 "퇴사"로 지정한 경우는 자동으로 "근무중"으로 되돌리지 않음
+    contractStatus: isResigned
+      ? "퇴사"
+      : hasServiceStartDate
+        ? "근무중"
+        : worker.contractStatus,
     experience: hasServiceStartDate
       ? calculateDisplayExperience(worker.serviceStartDate, worker.experience || "경력없음")
       : worker.experience,
   };
 }
+
 
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
@@ -215,7 +222,14 @@ const WorkerManagement = () => {
       assignedUserPhones: arrays.phones,
       txtHSex: form.gender,
       receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
+      // 퇴사 선택 시 퇴사일 자동 보정, 퇴사가 아니면 퇴사일 제거
+      // (담당 이용자 배정은 유지되어 이력이 끊기지 않음)
+      resignationDate:
+        form.contractStatus === "퇴사"
+          ? form.resignationDate || new Date().toISOString().slice(0, 10)
+          : "",
     };
+
     const prevUserIds = editingId
       ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []
       : [];
@@ -249,6 +263,9 @@ const WorkerManagement = () => {
         const target = users.find((u) => u.id === userId);
         if (!target) continue;
         if (target.terminationReason?.trim()) continue;
+        // 직접 지정한 상태는 자동 전환하지 않음 (연결 관계는 그대로 유지)
+        if (["계약해지", "타기관 계약", "보류"].includes(String(target.contractStatus || ""))) continue;
+
         if (nextSet.has(userId)) {
           if (!target.contractStatus || target.contractStatus === "대기") {
             await updateUser(userId, { contractStatus: "서비스중" });
@@ -626,12 +643,31 @@ const WorkerManagement = () => {
                   <div><Label>최초 접수일</Label><Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} /></div>
                   <div>
                     <Label>근무상태</Label>
-                    <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
+                    <Select
+                      value={form.contractStatus}
+                      onValueChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          contractStatus: v as any,
+                          resignationDate:
+                            v === "퇴사"
+                              ? f.resignationDate || new Date().toISOString().slice(0, 10)
+                              : "",
+                        }))
+                      }
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  {form.contractStatus === "퇴사" && (
+                    <div>
+                      <Label>퇴사일</Label>
+                      <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                    </div>
+                  )}
+
                   <div className="col-span-2">
                     <Label>담당 이용자 (N:M)</Label>
                     <MultiEntitySelect
