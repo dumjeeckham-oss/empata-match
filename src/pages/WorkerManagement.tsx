@@ -643,12 +643,31 @@ const WorkerManagement = () => {
                   <div><Label>최초 접수일</Label><Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} /></div>
                   <div>
                     <Label>근무상태</Label>
-                    <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
+                    <Select
+                      value={form.contractStatus}
+                      onValueChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          contractStatus: v as any,
+                          resignationDate:
+                            v === "퇴사"
+                              ? f.resignationDate || new Date().toISOString().slice(0, 10)
+                              : "",
+                        }))
+                      }
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  {form.contractStatus === "퇴사" && (
+                    <div>
+                      <Label>퇴사일</Label>
+                      <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                    </div>
+                  )}
+
                   <div className="col-span-2">
                     <Label>담당 이용자 (N:M)</Label>
                     <MultiEntitySelect
