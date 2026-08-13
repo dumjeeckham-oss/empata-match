@@ -222,7 +222,14 @@ const WorkerManagement = () => {
       assignedUserPhones: arrays.phones,
       txtHSex: form.gender,
       receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
+      // 퇴사 선택 시 퇴사일 자동 보정, 퇴사가 아니면 퇴사일 제거
+      // (담당 이용자 배정은 유지되어 이력이 끊기지 않음)
+      resignationDate:
+        form.contractStatus === "퇴사"
+          ? form.resignationDate || new Date().toISOString().slice(0, 10)
+          : "",
     };
+
     const prevUserIds = editingId
       ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []
       : [];
