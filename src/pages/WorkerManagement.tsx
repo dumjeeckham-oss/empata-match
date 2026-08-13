@@ -115,15 +115,22 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
   const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
+  const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
 
   return {
     ...worker,
-    contractStatus: hasServiceStartDate && !hasResignationDate ? "근무중" : worker.contractStatus,
+    // 직접 "퇴사"로 지정한 경우는 자동으로 "근무중"으로 되돌리지 않음
+    contractStatus: isResigned
+      ? "퇴사"
+      : hasServiceStartDate
+        ? "근무중"
+        : worker.contractStatus,
     experience: hasServiceStartDate
       ? calculateDisplayExperience(worker.serviceStartDate, worker.experience || "경력없음")
       : worker.experience,
   };
 }
+
 
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
