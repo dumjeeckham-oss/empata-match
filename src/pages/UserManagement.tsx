@@ -766,7 +766,19 @@ const UserManagement = () => {
                 <div className="border-t pt-4 grid grid-cols-2 gap-4">
                   <div>
                     <Label>계약상태</Label>
-                    <Select value={form.contractStatus} onValueChange={(v) => setForm((f) => ({ ...f, contractStatus: v as any }))}>
+                    <Select
+                      value={form.contractStatus}
+                      onValueChange={(v) =>
+                        setForm((f) => ({
+                          ...f,
+                          contractStatus: v as any,
+                          resignationDate:
+                            v === "계약해지"
+                              ? f.resignationDate || new Date().toISOString().slice(0, 10)
+                              : "",
+                        }))
+                      }
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="서비스중">서비스중</SelectItem>
@@ -778,6 +790,19 @@ const UserManagement = () => {
                     </Select>
                   </div>
                   <div><Label>서비스 시작일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  {form.contractStatus === "계약해지" && (
+                    <>
+                      <div>
+                        <Label>계약 해지일</Label>
+                        <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                      </div>
+                      <div>
+                        <Label>중단/해지 사유</Label>
+                        <Input value={form.terminationReason} onChange={(e) => setForm((f) => ({ ...f, terminationReason: e.target.value }))} placeholder="사유 입력" />
+                      </div>
+                    </>
+                  )}
+
                   <div className="col-span-2">
                     <Label>담당 활동지원사 (N:M)</Label>
                     <MultiEntitySelect
