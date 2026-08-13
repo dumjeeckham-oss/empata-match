@@ -263,6 +263,9 @@ const WorkerManagement = () => {
         const target = users.find((u) => u.id === userId);
         if (!target) continue;
         if (target.terminationReason?.trim()) continue;
+        // 직접 지정한 상태는 자동 전환하지 않음 (연결 관계는 그대로 유지)
+        if (["계약해지", "타기관 계약", "보류"].includes(String(target.contractStatus || ""))) continue;
+
         if (nextSet.has(userId)) {
           if (!target.contractStatus || target.contractStatus === "대기") {
             await updateUser(userId, { contractStatus: "서비스중" });
