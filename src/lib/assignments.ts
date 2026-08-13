@@ -102,14 +102,21 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
   );
 
   const contractStatusRaw = String(raw.contractStatus ?? "").trim();
+  const userResignationDate = toYmd(
+    raw.resignationDate ?? raw["계약해지날짜"] ?? raw["계약해지일"] ?? raw["종결일"] ?? raw["중단일"]
+  );
   const contractStatus: ServiceUser["contractStatus"] =
-    terminationReason.trim()
-      ? "계약해지"
-      : contractStatusRaw === "서비스중" || contractStatusRaw === "대기" || contractStatusRaw === "계약해지"
-        ? (contractStatusRaw as ServiceUser["contractStatus"])
-        : serviceStartDate
-          ? "서비스중"
-          : "대기";
+    // 사용자가 직접 지정한 상태(계약해지/타기관 계약/보류)는 절대 자동 변경하지 않음
+    contractStatusRaw === "계약해지" || contractStatusRaw === "타기관 계약" || contractStatusRaw === "보류"
+      ? (contractStatusRaw as ServiceUser["contractStatus"])
+      : terminationReason.trim() || userResignationDate
+        ? "계약해지"
+        : contractStatusRaw === "서비스중" || contractStatusRaw === "대기"
+          ? (contractStatusRaw as ServiceUser["contractStatus"])
+          : serviceStartDate
+            ? "서비스중"
+            : "대기";
+
 
   return {
     ...raw,
