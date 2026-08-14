@@ -145,7 +145,7 @@ const WorkerManagement = () => {
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
-  const { data: matchingHistory, add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: matchingHistory, add: addMatchingHistory, update: updateMatchingHistory, remove: removeMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
 
   // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
   const workers = workersRaw || [];
@@ -160,6 +160,9 @@ const WorkerManagement = () => {
   const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; notes: string} | null>(null);
+  const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
+  const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [supportFilter, setSupportFilter] = useState<string>("all");
@@ -1015,22 +1018,30 @@ const WorkerManagement = () => {
                   </CardContent>
                 </Card>
 
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm font-semibold">🔗 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
+                                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0">
+                    <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
+                    <Button size="sm" variant="outline" onClick={() => {
+                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", notes: ""});
+                      setEditingMatchHistoryId(null);
+                      setMatchHistoryDialogOpen(true);
+                    }}>＋ 기록 추가</Button>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {selectedMatchingLogs.length === 0 ? (
                       <p className="text-sm text-muted-foreground">기록된 매칭 이력이 없습니다.</p>
                     ) : (
                       selectedMatchingLogs.map((match) => (
-                        <div key={match.id || `${match.date}-${match.userId}`} className="border rounded-lg p-3 hover:bg-muted cursor-pointer" onClick={() => setExpandedMatchId(expandedMatchId === match.id ? null : match.id)}>
+                        <div key={match.id || [match.date, match.userId].join("-")} className="border rounded-lg p-3 hover:bg-muted">
                           <div className="flex justify-between items-start gap-3">
-                            <div>
-                              <p className="font-semibold">{match.date} · {match.type}</p>
+                            <div className="cursor-pointer flex-1" onClick={() => setExpandedMatchId(expandedMatchId === match.id ? null : match.id)}>
+                              <p className="font-semibold">{match.date}{match.endDate ? ` ~ ${match.endDate}` : ""} · {match.type}</p>
                               <p className="text-sm text-muted-foreground">{match.userName} · {match.userPhone}</p>
                             </div>
-                            <span className="text-xs text-muted-foreground">{expandedMatchId === match.id ? "접기" : "펼치기"}</span>
+                            <div className="flex gap-1">
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              {match.id && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); removeMatchingHistory(match.id); }}>🗑️</Button>}
+                            </div>
                           </div>
                           {expandedMatchId === match.id && (
                             <div className="mt-3 text-sm whitespace-pre-wrap">{match.notes || "상세 없음"}</div>
@@ -1049,7 +1060,86 @@ const WorkerManagement = () => {
             </div>
           )}
         </DialogContent>
-      </Dialog>
+      
+            {/* 매칭 히스토리 추가/수정 다이얼로그 */}
+            <Dialog open={matchHistoryDialogOpen} onOpenChange={setMatchHistoryDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>{editingMatchHistoryId ? "매칭 이력 수정" : "매칭 이력 추가"}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium">구분</label>
+                    <Select value={matchHistoryForm?.type || "매칭"} onValueChange={(v) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, type: v})}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="매칭">매칭 (배정)</SelectItem>
+                        <SelectItem value="해제">해제</SelectItem>
+                        <SelectItem value="시도">시도 (미성사)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">이용자</label>
+                    <Select value={matchHistoryForm?.userId || ""} onValueChange={(v) => {
+                      if (!matchHistoryForm) return;
+                      const u = users.find(x => x.id === v);
+                      setMatchHistoryForm({...matchHistoryForm, userId: v, userName: u?.name || "", userPhone: u?.phone || ""});
+                    }}>
+                      <SelectTrigger><SelectValue placeholder="이용자 선택" /></SelectTrigger>
+                      <SelectContent>
+                        {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name} ({u.phone || "연락처 없음"})</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-sm font-medium">시작일</label>
+                      <Input type="date" value={matchHistoryForm?.date || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, date: e.target.value})} />
+                    </div>
+                    {matchHistoryForm?.type === "해제" && (
+                      <div>
+                        <label className="text-sm font-medium">종료일</label>
+                        <Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value})} />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium">비고</label>
+                    <Input placeholder="비고 입력" value={matchHistoryForm?.notes || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, notes: e.target.value})} />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => setMatchHistoryDialogOpen(false)}>취소</Button>
+                  <Button disabled={!matchHistoryForm?.userId || !matchHistoryForm?.date} onClick={async () => {
+                    if (!matchHistoryForm || !detailTarget) return;
+                    const u = users.find(x => x.id === matchHistoryForm.userId);
+                    const payload: any = {
+                      type: matchHistoryForm.type,
+                      userId: matchHistoryForm.userId,
+                      userName: u?.name || "",
+                      userPhone: u?.phone || "",
+                      workerId: detailTarget.id,
+                      workerName: detailTarget.name,
+                      workerPhone: detailTarget.phone,
+                      date: matchHistoryForm.date,
+                      endDate: matchHistoryForm.endDate || undefined,
+                      notes: matchHistoryForm.notes || undefined,
+                    };
+                    if (editingMatchHistoryId) {
+                      await updateMatchingHistory(editingMatchHistoryId, payload);
+                      toast({ title: "매칭 이력 수정 완료" });
+                    } else {
+                      await addMatchingHistory(payload);
+                      toast({ title: "매칭 이력 추가 완료" });
+                    }
+                    setMatchHistoryDialogOpen(false);
+                    setMatchHistoryForm(null);
+                  }}>저장</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+</Dialog>
     </div>
   );
 };

@@ -1,4 +1,4 @@
-export const VOUCHER_HOURS: Record<number, number> = {
+﻿export const VOUCHER_HOURS: Record<number, number> = {
   1: 470, 2: 440, 3: 410, 4: 380, 5: 360, 6: 330, 7: 300,
   8: 270, 9: 240, 10: 210, 11: 180, 12: 150, 13: 120, 14: 90, 15: 60,
 };
@@ -208,14 +208,16 @@ export interface MatchResult {
 
 export interface MatchingHistoryRecord {
   id?: string;
-  type: "배정" | "해제" | "시도";
+  type: "매칭" | "해제" | "시도";
   userId: string;
   userName: string;
   userPhone: string;
   workerId: string;
   workerName: string;
   workerPhone: string;
-  date: string; // YYYY-MM-DD
+  date: string; // YYYY-MM-DD (시작일 또는 이벤트일)
+  endDate?: string; // YYYY-MM-DD (종료일, 해제 시에만)
   notes?: string;
   createdAt?: unknown;
+  updatedAt?: unknown;
 }
