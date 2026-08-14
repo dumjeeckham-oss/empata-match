@@ -172,6 +172,32 @@ const WorkerManagement = () => {
   } | null>(null);
   const [cascadeAction, setCascadeAction] = useState<"유지" | "대기" | "계약해지" | "인계인수">("유지");
   const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
+  const navigate = useNavigate();
+
+  const applyCascade = async () => {
+    if (!cascadeTarget) return;
+    const targets = cascadeTarget.users;
+    setCascadeTarget(null);
+    if (cascadeAction === "유지") return;
+    if (cascadeAction === "인계인수") {
+      const first = targets[0];
+      navigate(`/handovers${first ? `?userId=${first.id}` : ""}`);
+      return;
+    }
+    for (const u of targets) {
+      if (cascadeAction === "계약해지") {
+        await updateUser(u.id, { contractStatus: "계약해지", resignationDate: cascadeDate });
+      } else {
+        await updateUser(u.id, { contractStatus: "대기", resignationDate: "" });
+      }
+    }
+    toast({
+      title: cascadeAction === "계약해지" ? "이용자 계약해지 처리 완료" : "이용자 대기 처리 완료",
+      description: `${targets.length}명 상태를 변경했습니다.`,
+    });
+  };
+
+
 
 
 
