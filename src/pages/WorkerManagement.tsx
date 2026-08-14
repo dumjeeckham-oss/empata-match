@@ -429,20 +429,25 @@ const WorkerManagement = () => {
       const matchesName = String(w.name || "").includes(search);
       const matchesPhone = String(w.phone || "").includes(search);
       const matchSearch = !search || matchesName || matchesPhone;
-      
+
+      const status = effectiveWorkerStatus(w);
+
       // 대기중 필터: 미배정 활동지원사만 표시
       if (statusFilter === "대기") {
         const isUnmatched = !w.assignedUserIds || w.assignedUserIds.length === 0;
-        return matchSearch && w.contractStatus === "대기" && isUnmatched;
+        return matchSearch && status === "대기" && isUnmatched;
       }
-      
-      const matchStatus = statusFilter === "all" || String(w.contractStatus || "") === statusFilter;
+
+      const matchStatus = statusFilter === "all" || status === statusFilter;
       const matchSupport = supportFilter === "all" || (w.supportTypes || []).includes(supportFilter);
       return matchSearch && matchStatus && matchSupport;
     });
   };
 
   const filtered = getFiltered();
+  const resignedCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "퇴사").length;
+  const workingCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
+
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {

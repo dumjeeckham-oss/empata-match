@@ -546,19 +546,24 @@ const UserManagement = () => {
       const matchesName = String(u.name || "").includes(search);
       const matchesPhone = String(u.phone || "").includes(search);
       const matchSearch = !search || matchesName || matchesPhone;
-      
+
+      const status = effectiveUserStatus(u);
+
       // 대기중 필터: 미배정 사용자만 표시
       if (statusFilter === "대기") {
         const isUnmatched = !u.assignedHelperIds || u.assignedHelperIds.length === 0;
-        return matchSearch && u.contractStatus === "대기" && isUnmatched;
+        return matchSearch && status === "대기" && isUnmatched;
       }
-      
-      const matchStatus = statusFilter === "all" || String(u.contractStatus || "") === statusFilter;
+
+      const matchStatus = statusFilter === "all" || status === statusFilter;
       return matchSearch && matchStatus;
     });
   };
 
   const filtered = getFilteredUsers();
+  const terminatedCount = users.filter((u) => effectiveUserStatus(u) === "계약해지").length;
+  const activeCount = users.filter((u) => effectiveUserStatus(u) === "서비스중").length;
+
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
