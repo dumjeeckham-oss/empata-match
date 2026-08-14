@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+﻿import { useState, useMemo } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -93,7 +93,7 @@ const UserManagement = () => {
   const { data: usersRaw, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
-  const { data: matchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: matchingHistory, add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
 
   // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
   const users = usersRaw || [];
