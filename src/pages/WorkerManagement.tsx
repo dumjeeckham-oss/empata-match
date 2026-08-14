@@ -322,6 +322,20 @@ const WorkerManagement = () => {
       }
     }
 
+    // 퇴사로 전환된 경우, 매칭되어 있던 이용자 후속 처리를 확인
+    if (payload.contractStatus === "퇴사") {
+      const linked = arrays.ids
+        .map((id) => users.find((u) => u.id === id))
+        .filter((u): u is ServiceUser & { id: string } => !!u && u.contractStatus !== "계약해지");
+      if (linked.length > 0) {
+        setCascadeAction("유지");
+        setCascadeDate(payload.resignationDate || new Date().toISOString().slice(0, 10));
+        setCascadeTarget({ workerName: payload.name, users: linked });
+      }
+    }
+
+
+
     setForm(emptyWorker);
     setExplicitOks(new Set());
     setEditingId(null);
