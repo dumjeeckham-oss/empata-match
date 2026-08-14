@@ -1032,6 +1032,43 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={!!cascadeTarget} onOpenChange={(open) => !open && setCascadeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>매칭된 활동지원사 상태도 변경할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cascadeTarget?.userName} 이용자가 계약해지로 변경되었습니다. 매칭되어 있던 활동지원사
+              ({cascadeTarget?.workers.map((w) => w.name).join(", ")})의 상태를 어떻게 처리할까요?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>처리 방법</Label>
+              <Select value={cascadeAction} onValueChange={(v) => setCascadeAction(v as typeof cascadeAction)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="유지">그대로 유지</SelectItem>
+                  <SelectItem value="대기">대기로 변경</SelectItem>
+                  <SelectItem value="퇴사">퇴사로 변경</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {cascadeAction === "퇴사" && (
+              <div className="space-y-2">
+                <Label>퇴사일</Label>
+                <Input type="date" value={cascadeDate} onChange={(e) => setCascadeDate(e.target.value)} />
+              </div>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setCascadeTarget(null)}>나중에</AlertDialogCancel>
+            <AlertDialogAction onClick={applyCascade}>적용</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+
+
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
         <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
