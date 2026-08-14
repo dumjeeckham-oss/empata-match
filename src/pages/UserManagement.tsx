@@ -868,9 +868,10 @@ const UserManagement = () => {
                   <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={user.contractStatus === "서비스중" ? "default" : user.contractStatus === "대기" ? "secondary" : "destructive"}>
-                    {user.contractStatus}
+                  <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
+                    {effectiveUserStatus(user)}
                   </Badge>
+
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}

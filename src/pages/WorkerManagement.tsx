@@ -751,9 +751,10 @@ const WorkerManagement = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "대기" ? "secondary" : "destructive"}>
-                    {w.contractStatus}
+                  <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
+                    {effectiveWorkerStatus(w)}
                   </Badge>
+
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
