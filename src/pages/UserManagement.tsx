@@ -131,7 +131,34 @@ const UserManagement = () => {
     }>
   >([]);
 
+  // 계약해지 시 매칭된 활동지원사 상태 후속 처리
+  const [cascadeTarget, setCascadeTarget] = useState<{
+    userName: string;
+    workers: (Worker & { id: string })[];
+  } | null>(null);
+  const [cascadeAction, setCascadeAction] = useState<"유지" | "대기" | "퇴사">("유지");
+  const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const applyCascade = async () => {
+    if (!cascadeTarget) return;
+    const targets = cascadeTarget.workers;
+    setCascadeTarget(null);
+    if (cascadeAction === "유지") return;
+    for (const w of targets) {
+      if (cascadeAction === "퇴사") {
+        await updateWorker(w.id, { contractStatus: "퇴사", resignationDate: cascadeDate });
+      } else {
+        await updateWorker(w.id, { contractStatus: "대기", resignationDate: "" });
+      }
+    }
+    toast({
+      title: cascadeAction === "퇴사" ? "활동지원사 퇴사 처리 완료" : "활동지원사 대기 처리 완료",
+      description: `${targets.length}명 상태를 변경했습니다.`,
+    });
+  };
+
   const { checking: nameChecking, duplicates: nameDuplicates } = useDuplicateNameCheck(form.name, users, editingId);
+
 
   const parseAgeInput = (val: string): number => {
     const clean = val.trim();
