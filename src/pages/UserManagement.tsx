@@ -339,6 +339,45 @@ const UserManagement = () => {
     }
     if (savedId) {
       await syncUserToWorkers(savedId, payload, workers, prevHelperIds, updateWorker);
+      // 매칭 히스토리 자동 기록
+      const prevSet = new Set(prevHelperIds);
+      const nextSet = new Set(payload.assignedHelperIds || []);
+      for (const wid of nextSet) {
+        if (!prevSet.has(wid)) {
+          const w = workers.find((x) => x.id === wid);
+          if (w) {
+            await addMatchingHistory({
+              type: "매칭",
+              userId: savedId,
+              userName: payload.name,
+              userPhone: payload.phone,
+              workerId: w.id,
+              workerName: w.name,
+              workerPhone: w.phone,
+              date: new Date().toISOString().slice(0, 10),
+              notes: "활동지원사 배정",
+            } as any);
+          }
+        }
+      }
+      for (const wid of prevSet) {
+        if (!nextSet.has(wid)) {
+          const w = workers.find((x) => x.id === wid);
+          if (w) {
+            await addMatchingHistory({
+              type: "해제",
+              userId: savedId,
+              userName: payload.name,
+              userPhone: payload.phone,
+              workerId: w.id,
+              workerName: w.name,
+              workerPhone: w.phone,
+              date: new Date().toISOString().slice(0, 10),
+              notes: "활동지원사 배정 해제",
+            } as any);
+          }
+        }
+      }
     }
     // 계약해지로 전환된 경우, 매칭되어 있던 활동지원사 후속 처리를 확인
     if (payload.contractStatus === "계약해지") {

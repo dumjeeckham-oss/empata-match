@@ -300,6 +300,45 @@ const WorkerManagement = () => {
     }
     if (savedId) {
       await syncWorkerToUsers(savedId, payload, users, prevUserIds, updateUser);
+      // 매칭 히스토리 자동 기록
+      const prevSetW = new Set(prevUserIds);
+      const nextSetW = new Set(arrays.ids);
+      for (const uid of nextSetW) {
+        if (!prevSetW.has(uid)) {
+          const u = users.find((x) => x.id === uid);
+          if (u) {
+            await addMatchingHistory({
+              type: "매칭",
+              userId: u.id,
+              userName: u.name,
+              userPhone: u.phone,
+              workerId: savedId,
+              workerName: payload.name,
+              workerPhone: payload.phone,
+              date: new Date().toISOString().slice(0, 10),
+              notes: "이용자 배정",
+            } as any);
+          }
+        }
+      }
+      for (const uid of prevSetW) {
+        if (!nextSetW.has(uid)) {
+          const u = users.find((x) => x.id === uid);
+          if (u) {
+            await addMatchingHistory({
+              type: "해제",
+              userId: u.id,
+              userName: u.name,
+              userPhone: u.phone,
+              workerId: savedId,
+              workerName: payload.name,
+              workerPhone: payload.phone,
+              date: new Date().toISOString().slice(0, 10),
+              notes: "이용자 배정 해제",
+            } as any);
+          }
+        }
+      }
       // 이용자 계약상태 자동 전환: 배정 → "서비스중", 해제 → 남은 담당자가 없으면 "대기"
       const nextSet = new Set(arrays.ids);
       const touched = new Set([...prevUserIds, ...arrays.ids]);
