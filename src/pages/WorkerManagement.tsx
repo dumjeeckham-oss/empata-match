@@ -112,7 +112,15 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
   return `${months}개월`;
 }
 
+/** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
+function effectiveWorkerStatus(worker: Worker): string {
+  const raw = String(worker.contractStatus || "");
+  if (raw === "퇴사" || String(worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  return raw;
+}
+
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
+
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
   const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
   const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;

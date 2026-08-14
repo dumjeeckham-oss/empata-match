@@ -47,7 +47,18 @@ import { useEffect } from "react";
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
+/** 화면 표시용 계약상태: 계약해지일 또는 중단사유가 있으면 항상 "계약해지" 목록으로 이동 */
+function effectiveUserStatus(user: ServiceUser): string {
+  const raw = String(user.contractStatus || "");
+  if (raw === "타기관 계약" || raw === "보류") return raw;
+  const hasResign = String(user.resignationDate ?? "").trim() !== "";
+  const hasReason = String(user.terminationReason ?? user.txtUMemostop ?? "").trim() !== "";
+  if (raw === "계약해지" || hasResign || hasReason) return "계약해지";
+  return raw;
+}
+
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
+
   name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
