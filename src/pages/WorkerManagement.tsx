@@ -714,9 +714,9 @@ const WorkerManagement = () => {
                 <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
                   <TabsList className="grid grid-cols-4 h-9">
                     <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
-                    <TabsTrigger value="근무중" className="text-xs">근무중</TabsTrigger>
+                    <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
                     <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
-                    <TabsTrigger value="퇴사" className="text-xs">퇴사</TabsTrigger>
+                    <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>

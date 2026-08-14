@@ -849,9 +849,9 @@ const UserManagement = () => {
             <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
               <TabsList>
                 <TabsTrigger value="all">전체</TabsTrigger>
-                <TabsTrigger value="서비스중">서비스중</TabsTrigger>
+                <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
                 <TabsTrigger value="대기">대기</TabsTrigger>
-                <TabsTrigger value="계약해지">계약해지</TabsTrigger>
+                <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
