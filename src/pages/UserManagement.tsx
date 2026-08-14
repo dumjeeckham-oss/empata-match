@@ -340,6 +340,18 @@ const UserManagement = () => {
     if (savedId) {
       await syncUserToWorkers(savedId, payload, workers, prevHelperIds, updateWorker);
     }
+    // 계약해지로 전환된 경우, 매칭되어 있던 활동지원사 후속 처리를 확인
+    if (payload.contractStatus === "계약해지") {
+      const linked = (payload.assignedHelperIds || [])
+        .map((id) => workers.find((w) => w.id === id))
+        .filter((w): w is Worker & { id: string } => !!w && w.contractStatus !== "퇴사");
+      if (linked.length > 0) {
+        setCascadeAction("유지");
+        setCascadeDate(payload.resignationDate || new Date().toISOString().slice(0, 10));
+        setCascadeTarget({ userName: payload.name, workers: linked });
+      }
+    }
+
     setForm(emptyUser);
     setAgeInput("");
     setEditingId(null);
