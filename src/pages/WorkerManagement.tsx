@@ -165,6 +165,15 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+  // 퇴사 시 매칭된 이용자 상태 후속 처리
+  const [cascadeTarget, setCascadeTarget] = useState<{
+    workerName: string;
+    users: (ServiceUser & { id: string })[];
+  } | null>(null);
+  const [cascadeAction, setCascadeAction] = useState<"유지" | "대기" | "계약해지" | "인계인수">("유지");
+  const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
+  const [explicitOks, setExplicitOks] = useState<Set<string>>(new Set());
+
   // 업무별 가능/거부: 기본값은 둘 다 미체크(미정)
   const [explicitOks, setExplicitOks] = useState<Set<string>>(new Set());
 
