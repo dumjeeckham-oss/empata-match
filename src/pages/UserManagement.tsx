@@ -47,7 +47,18 @@ import { useEffect } from "react";
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
+/** 화면 표시용 계약상태: 계약해지일 또는 중단사유가 있으면 항상 "계약해지" 목록으로 이동 */
+function effectiveUserStatus(user: ServiceUser): string {
+  const raw = String(user.contractStatus || "");
+  if (raw === "타기관 계약" || raw === "보류") return raw;
+  const hasResign = String(user.resignationDate ?? "").trim() !== "";
+  const hasReason = String(user.terminationReason ?? user.txtUMemostop ?? "").trim() !== "";
+  if (raw === "계약해지" || hasResign || hasReason) return "계약해지";
+  return raw;
+}
+
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
+
   name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
@@ -546,19 +557,24 @@ const UserManagement = () => {
       const matchesName = String(u.name || "").includes(search);
       const matchesPhone = String(u.phone || "").includes(search);
       const matchSearch = !search || matchesName || matchesPhone;
-      
+
+      const status = effectiveUserStatus(u);
+
       // 대기중 필터: 미배정 사용자만 표시
       if (statusFilter === "대기") {
         const isUnmatched = !u.assignedHelperIds || u.assignedHelperIds.length === 0;
-        return matchSearch && u.contractStatus === "대기" && isUnmatched;
+        return matchSearch && status === "대기" && isUnmatched;
       }
-      
-      const matchStatus = statusFilter === "all" || String(u.contractStatus || "") === statusFilter;
+
+      const matchStatus = statusFilter === "all" || status === statusFilter;
       return matchSearch && matchStatus;
     });
   };
 
   const filtered = getFilteredUsers();
+  const terminatedCount = users.filter((u) => effectiveUserStatus(u) === "계약해지").length;
+  const activeCount = users.filter((u) => effectiveUserStatus(u) === "서비스중").length;
+
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
@@ -833,9 +849,9 @@ const UserManagement = () => {
             <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
               <TabsList>
                 <TabsTrigger value="all">전체</TabsTrigger>
-                <TabsTrigger value="서비스중">서비스중</TabsTrigger>
+                <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
                 <TabsTrigger value="대기">대기</TabsTrigger>
-                <TabsTrigger value="계약해지">계약해지</TabsTrigger>
+                <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -852,9 +868,10 @@ const UserManagement = () => {
                   <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={user.contractStatus === "서비스중" ? "default" : user.contractStatus === "대기" ? "secondary" : "destructive"}>
-                    {user.contractStatus}
+                  <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
+                    {effectiveUserStatus(user)}
                   </Badge>
+
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}

@@ -112,7 +112,15 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
   return `${months}개월`;
 }
 
+/** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
+function effectiveWorkerStatus(worker: Worker): string {
+  const raw = String(worker.contractStatus || "");
+  if (raw === "퇴사" || String(worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  return raw;
+}
+
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
+
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
   const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
   const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
@@ -429,20 +437,25 @@ const WorkerManagement = () => {
       const matchesName = String(w.name || "").includes(search);
       const matchesPhone = String(w.phone || "").includes(search);
       const matchSearch = !search || matchesName || matchesPhone;
-      
+
+      const status = effectiveWorkerStatus(w);
+
       // 대기중 필터: 미배정 활동지원사만 표시
       if (statusFilter === "대기") {
         const isUnmatched = !w.assignedUserIds || w.assignedUserIds.length === 0;
-        return matchSearch && w.contractStatus === "대기" && isUnmatched;
+        return matchSearch && status === "대기" && isUnmatched;
       }
-      
-      const matchStatus = statusFilter === "all" || String(w.contractStatus || "") === statusFilter;
+
+      const matchStatus = statusFilter === "all" || status === statusFilter;
       const matchSupport = supportFilter === "all" || (w.supportTypes || []).includes(supportFilter);
       return matchSearch && matchStatus && matchSupport;
     });
   };
 
   const filtered = getFiltered();
+  const resignedCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "퇴사").length;
+  const workingCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
+
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
@@ -701,9 +714,9 @@ const WorkerManagement = () => {
                 <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
                   <TabsList className="grid grid-cols-4 h-9">
                     <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
-                    <TabsTrigger value="근무중" className="text-xs">근무중</TabsTrigger>
+                    <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
                     <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
-                    <TabsTrigger value="퇴사" className="text-xs">퇴사</TabsTrigger>
+                    <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -738,9 +751,10 @@ const WorkerManagement = () => {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={w.contractStatus === "근무중" ? "default" : w.contractStatus === "대기" ? "secondary" : "destructive"}>
-                    {w.contractStatus}
+                  <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
+                    {effectiveWorkerStatus(w)}
                   </Badge>
+
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
