@@ -46,6 +46,10 @@ export default function Handovers() {
   const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workers, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: docs, add: addHandover, update: updateHandover, remove: removeHandover, loading } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
+  const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const [searchParams] = useSearchParams();
+
+
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("");
