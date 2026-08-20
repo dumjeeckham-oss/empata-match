@@ -42,7 +42,7 @@ import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
@@ -141,6 +141,17 @@ const UserManagement = () => {
   } | null>(null);
   const [cascadeAction, setCascadeAction] = useState<"유지" | "대기" | "퇴사">("유지");
   const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
+  const navigate = useNavigate();
+
+  // 기존 매칭 활동지원사를 다른 활동지원사로 교체할 때 인계·인수서 작성을 먼저 요구
+  const [handoverGate, setHandoverGate] = useState<{
+    userId: string;
+    userName: string;
+    prevWorkerNames: string;
+    nextWorkerId: string;
+    nextWorkerName: string;
+  } | null>(null);
+
 
   const applyCascade = async () => {
     if (!cascadeTarget) return;
@@ -312,6 +323,27 @@ const UserManagement = () => {
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
       : [];
+
+    // 기존 담당 활동지원사를 다른 활동지원사로 교체하는 경우 → 인계·인수서 작성 후에만 수정 가능
+    if (editingId) {
+      const removed = prevHelperIds.filter((id) => !arrays.ids.includes(id));
+      const added = arrays.ids.filter((id) => !prevHelperIds.includes(id));
+      if (removed.length > 0 && added.length > 0) {
+        const nextWorker = workers.find((w) => w.id === added[0]);
+        setHandoverGate({
+          userId: editingId,
+          userName: form.name,
+          prevWorkerNames: removed
+            .map((id) => workers.find((w) => w.id === id)?.name || id)
+            .join(", "),
+          nextWorkerId: added[0],
+          nextWorkerName: nextWorker?.name || "",
+        });
+        return;
+      }
+    }
+
+
 
     let savedId = editingId;
     const duplicateName = users.find((u) =>
@@ -1108,6 +1140,37 @@ const UserManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!handoverGate} onOpenChange={(open) => !open && setHandoverGate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>인계·인수서 작성이 필요합니다</AlertDialogTitle>
+            <AlertDialogDescription>
+              {handoverGate?.userName} 이용자의 담당 활동지원사를 {handoverGate?.prevWorkerNames} →{" "}
+              {handoverGate?.nextWorkerName || "신규 담당자"}(으)로 변경하려고 합니다. 인계·인수서를 먼저
+              작성해야 담당자 변경이 저장됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setHandoverGate(null)}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!handoverGate) return;
+                const params = new URLSearchParams({
+                  userId: handoverGate.userId,
+                  nextWorkerId: handoverGate.nextWorkerId,
+                });
+                setHandoverGate(null);
+                setDialogOpen(false);
+                navigate(`/handovers?${params.toString()}`);
+              }}
+            >
+              인계·인수서 작성으로 이동
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
 
 
 

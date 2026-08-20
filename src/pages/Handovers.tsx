@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type HandoverDocument } from "@/types";
-import { HANDOVERS_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { type ServiceUser, type Worker, type HandoverDocument, type MatchingHistoryRecord } from "@/types";
+import { HANDOVERS_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
 import { syncUserToWorkers } from "@/lib/assignments";
+
 import { Printer, Search, X, Edit2, Trash2 } from "lucide-react";
 import {
   Command,
@@ -44,6 +46,10 @@ export default function Handovers() {
   const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workers, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: docs, add: addHandover, update: updateHandover, remove: removeHandover, loading } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
+  const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const [searchParams] = useSearchParams();
+
+
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>("");
@@ -92,6 +98,17 @@ export default function Handovers() {
       }
     }
   }, [selectedUser, prevWorker, editingId]);
+
+  // 이용자/활동지원사 관리에서 담당자 교체 시 넘어온 값으로 자동 채움
+  useEffect(() => {
+    const qUserId = searchParams.get("userId") || "";
+    const qNextWorkerId = searchParams.get("nextWorkerId") || "";
+    if (qUserId) setUserId(qUserId);
+    if (qNextWorkerId) setNextWorkerId(qNextWorkerId);
+    if (qUserId && !reason) setReason("담당 활동지원사 변경");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
 
   const handleSave = async () => {
     try {

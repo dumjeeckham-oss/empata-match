@@ -177,6 +177,15 @@ const WorkerManagement = () => {
   const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
   const navigate = useNavigate();
 
+  // 기존 담당 이용자를 다른 이용자로 교체할 때 인계·인수서 작성을 먼저 요구
+  const [handoverGate, setHandoverGate] = useState<{
+    workerId: string;
+    workerName: string;
+    prevUserNames: string;
+    prevUserId: string;
+  } | null>(null);
+
+
   const applyCascade = async () => {
     if (!cascadeTarget) return;
     const targets = cascadeTarget.users;
@@ -280,6 +289,25 @@ const WorkerManagement = () => {
     const prevUserIds = editingId
       ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []
       : [];
+
+    // 기존 담당 이용자를 다른 이용자로 교체하는 경우 → 인계·인수서 작성 후에만 수정 가능
+    if (editingId) {
+      const removedUsers = prevUserIds.filter((id) => !arrays.ids.includes(id));
+      const addedUsers = arrays.ids.filter((id) => !prevUserIds.includes(id));
+      if (removedUsers.length > 0 && addedUsers.length > 0) {
+        setHandoverGate({
+          workerId: editingId,
+          workerName: form.name,
+          prevUserId: removedUsers[0],
+          prevUserNames: removedUsers
+            .map((id) => users.find((u) => u.id === id)?.name || id)
+            .join(", "),
+        });
+        return;
+      }
+    }
+
+
 
     let savedId = editingId;
     const duplicateName = workers.find((w) =>
@@ -947,6 +975,36 @@ const WorkerManagement = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!handoverGate} onOpenChange={(open) => !open && setHandoverGate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>인계·인수서 작성이 필요합니다</AlertDialogTitle>
+            <AlertDialogDescription>
+              {handoverGate?.workerName} 활동지원사의 담당 이용자({handoverGate?.prevUserNames})를 다른
+              이용자로 변경하려고 합니다. 인계·인수서를 먼저 작성해야 담당 변경이 저장됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setHandoverGate(null)}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!handoverGate) return;
+                const params = new URLSearchParams({
+                  userId: handoverGate.prevUserId,
+                  prevWorkerId: handoverGate.workerId,
+                });
+                setHandoverGate(null);
+                setDialogOpen(false);
+                navigate(`/handovers?${params.toString()}`);
+              }}
+            >
+              인계·인수서 작성으로 이동
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
 
 
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
