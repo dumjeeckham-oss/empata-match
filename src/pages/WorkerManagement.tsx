@@ -290,6 +290,25 @@ const WorkerManagement = () => {
       ? workers.find((w) => w.id === editingId)?.assignedUserIds ?? []
       : [];
 
+    // 기존 담당 이용자를 다른 이용자로 교체하는 경우 → 인계·인수서 작성 후에만 수정 가능
+    if (editingId) {
+      const removedUsers = prevUserIds.filter((id) => !arrays.ids.includes(id));
+      const addedUsers = arrays.ids.filter((id) => !prevUserIds.includes(id));
+      if (removedUsers.length > 0 && addedUsers.length > 0) {
+        setHandoverGate({
+          workerId: editingId,
+          workerName: form.name,
+          prevUserId: removedUsers[0],
+          prevUserNames: removedUsers
+            .map((id) => users.find((u) => u.id === id)?.name || id)
+            .join(", "),
+        });
+        return;
+      }
+    }
+
+
+
     let savedId = editingId;
     const duplicateName = workers.find((w) =>
       w.name === form.name && w.id !== editingId && w.phone !== form.phone
