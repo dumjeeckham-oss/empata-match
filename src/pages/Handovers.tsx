@@ -99,6 +99,17 @@ export default function Handovers() {
     }
   }, [selectedUser, prevWorker, editingId]);
 
+  // 이용자/활동지원사 관리에서 담당자 교체 시 넘어온 값으로 자동 채움
+  useEffect(() => {
+    const qUserId = searchParams.get("userId") || "";
+    const qNextWorkerId = searchParams.get("nextWorkerId") || "";
+    if (qUserId) setUserId(qUserId);
+    if (qNextWorkerId) setNextWorkerId(qNextWorkerId);
+    if (qUserId && !reason) setReason("담당 활동지원사 변경");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+
   const handleSave = async () => {
     try {
       if (!selectedUser?.id) {
