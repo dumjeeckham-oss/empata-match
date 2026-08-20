@@ -42,7 +42,7 @@ import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
