@@ -141,6 +141,17 @@ const UserManagement = () => {
   } | null>(null);
   const [cascadeAction, setCascadeAction] = useState<"유지" | "대기" | "퇴사">("유지");
   const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
+  const navigate = useNavigate();
+
+  // 기존 매칭 활동지원사를 다른 활동지원사로 교체할 때 인계·인수서 작성을 먼저 요구
+  const [handoverGate, setHandoverGate] = useState<{
+    userId: string;
+    userName: string;
+    prevWorkerNames: string;
+    nextWorkerId: string;
+    nextWorkerName: string;
+  } | null>(null);
+
 
   const applyCascade = async () => {
     if (!cascadeTarget) return;
