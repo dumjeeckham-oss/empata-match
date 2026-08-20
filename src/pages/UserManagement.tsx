@@ -324,6 +324,27 @@ const UserManagement = () => {
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
       : [];
 
+    // 기존 담당 활동지원사를 다른 활동지원사로 교체하는 경우 → 인계·인수서 작성 후에만 수정 가능
+    if (editingId) {
+      const removed = prevHelperIds.filter((id) => !arrays.ids.includes(id));
+      const added = arrays.ids.filter((id) => !prevHelperIds.includes(id));
+      if (removed.length > 0 && added.length > 0) {
+        const nextWorker = workers.find((w) => w.id === added[0]);
+        setHandoverGate({
+          userId: editingId,
+          userName: form.name,
+          prevWorkerNames: removed
+            .map((id) => workers.find((w) => w.id === id)?.name || id)
+            .join(", "),
+          nextWorkerId: added[0],
+          nextWorkerName: nextWorker?.name || "",
+        });
+        return;
+      }
+    }
+
+
+
     let savedId = editingId;
     const duplicateName = users.find((u) =>
       u.name === form.name && u.id !== editingId && u.phone !== form.phone
