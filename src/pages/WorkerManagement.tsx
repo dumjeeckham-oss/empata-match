@@ -177,6 +177,15 @@ const WorkerManagement = () => {
   const [cascadeDate, setCascadeDate] = useState(new Date().toISOString().slice(0, 10));
   const navigate = useNavigate();
 
+  // 기존 담당 이용자를 다른 이용자로 교체할 때 인계·인수서 작성을 먼저 요구
+  const [handoverGate, setHandoverGate] = useState<{
+    workerId: string;
+    workerName: string;
+    prevUserNames: string;
+    prevUserId: string;
+  } | null>(null);
+
+
   const applyCascade = async () => {
     if (!cascadeTarget) return;
     const targets = cascadeTarget.users;
