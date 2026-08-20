@@ -1141,6 +1141,37 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={!!handoverGate} onOpenChange={(open) => !open && setHandoverGate(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>인계·인수서 작성이 필요합니다</AlertDialogTitle>
+            <AlertDialogDescription>
+              {handoverGate?.userName} 이용자의 담당 활동지원사를 {handoverGate?.prevWorkerNames} →{" "}
+              {handoverGate?.nextWorkerName || "신규 담당자"}(으)로 변경하려고 합니다. 인계·인수서를 먼저
+              작성해야 담당자 변경이 저장됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setHandoverGate(null)}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!handoverGate) return;
+                const params = new URLSearchParams({
+                  userId: handoverGate.userId,
+                  nextWorkerId: handoverGate.nextWorkerId,
+                });
+                setHandoverGate(null);
+                setDialogOpen(false);
+                navigate(`/handovers?${params.toString()}`);
+              }}
+            >
+              인계·인수서 작성으로 이동
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+
 
 
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
