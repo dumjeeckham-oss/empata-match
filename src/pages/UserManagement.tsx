@@ -54,6 +54,11 @@ function effectiveUserStatus(user: ServiceUser): string {
   const hasResign = String(user.resignationDate ?? "").trim() !== "";
   const hasReason = String(user.terminationReason ?? user.txtUMemostop ?? "").trim() !== "";
   if (raw === "계약해지" || hasResign || hasReason) return "계약해지";
+  // 최초서비스제공일이 입력되면 서비스중, 공란이면 대기로 표시
+  const hasServiceStart = String(user.serviceStartDate ?? "").trim() !== "";
+  if (hasServiceStart) return "서비스중";
+  if (!raw) return "대기";
+  if (raw === "서비스중") return "대기";
   return raw;
 }
 
@@ -280,7 +285,16 @@ const UserManagement = () => {
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
+    if (form.serviceStartDate && !form.receiptDate) {
+      toast({
+        title: "최초 접수일이 필요합니다",
+        description: "최초 서비스제공일을 입력하려면 최초 접수일을 먼저 기록해주세요.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!form.lat && form.address) await handleGeocode();
+
 
     const uniqueHelperIds = Array.from(new Set(form.assignedHelperIds || []));
     const arrays = buildHelperArraysFromIds(uniqueHelperIds, workers);
@@ -305,18 +319,10 @@ const UserManagement = () => {
       payload.contractStatus = "계약해지";
       payload.txtUMemostop = payload.terminationReason;
       payload.resignationDate = payload.resignationDate || new Date().toISOString().slice(0, 10);
-    } else if (arrays.ids.length > 0) {
-      payload.resignationDate = "";
-      // 담당 활동지원사가 배정되면 "대기"/미지정 상태를 "서비스중"으로 자동 전환
-      if (!payload.contractStatus || payload.contractStatus === "대기") {
-        payload.contractStatus = "서비스중";
-      }
     } else {
       payload.resignationDate = "";
-      if (payload.contractStatus === "서비스중") {
-        // 담당자를 모두 해제하면 다시 "대기"로 복귀
-        payload.contractStatus = "대기";
-      }
+      // 최초 서비스제공일이 입력되면 "서비스중", 공란이면 "대기"로 자동 전환
+      payload.contractStatus = payload.serviceStartDate?.trim() ? "서비스중" : "대기";
     }
 
 
@@ -669,7 +675,11 @@ const UserManagement = () => {
     return users.filter((u) => {
       const matchesName = String(u.name || "").includes(search);
       const matchesPhone = String(u.phone || "").includes(search);
-      const matchSearch = !search || matchesName || matchesPhone;
+      // 매칭된 활동지원사 이름/연락처로도 검색 가능
+      const matchesHelper =
+        (u.assignedHelperNames || []).some((n) => String(n || "").includes(search)) ||
+        (u.assignedHelperPhones || []).some((p) => String(p || "").includes(search));
+      const matchSearch = !search || matchesName || matchesPhone || matchesHelper;
 
       const status = effectiveUserStatus(u);
 
@@ -918,7 +928,34 @@ const UserManagement = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>서비스 시작일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  <div>
+                    <Label>최초 접수일</Label>
+                    <Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>최초 서비스제공일</Label>
+                    <Input
+                      type="date"
+                      value={form.serviceStartDate}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          serviceStartDate: e.target.value,
+                          contractStatus:
+                            f.contractStatus === "계약해지" || f.contractStatus === "타기관 계약" || f.contractStatus === "보류"
+                              ? f.contractStatus
+                              : e.target.value
+                                ? "서비스중"
+                                : "대기",
+                        }))
+                      }
+                    />
+                    {form.serviceStartDate && !form.receiptDate && (
+                      <p className="text-xs text-destructive mt-1">
+                        ⚠ 최초 서비스제공일을 입력하려면 최초 접수일을 먼저 기록해야 합니다.
+                      </p>
+                    )}
+                  </div>
                   {form.contractStatus === "계약해지" && (
                     <>
                       <div>
@@ -957,7 +994,7 @@ const UserManagement = () => {
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
-              <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="이름·연락처 또는 담당 활동지원사로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
               <TabsList>
