@@ -923,7 +923,34 @@ const UserManagement = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>서비스 시작일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  <div>
+                    <Label>최초 접수일</Label>
+                    <Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>최초 서비스제공일</Label>
+                    <Input
+                      type="date"
+                      value={form.serviceStartDate}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          serviceStartDate: e.target.value,
+                          contractStatus:
+                            f.contractStatus === "계약해지" || f.contractStatus === "타기관 계약" || f.contractStatus === "보류"
+                              ? f.contractStatus
+                              : e.target.value
+                                ? "서비스중"
+                                : "대기",
+                        }))
+                      }
+                    />
+                    {form.serviceStartDate && !form.receiptDate && (
+                      <p className="text-xs text-destructive mt-1">
+                        ⚠ 최초 서비스제공일을 입력하려면 최초 접수일을 먼저 기록해야 합니다.
+                      </p>
+                    )}
+                  </div>
                   {form.contractStatus === "계약해지" && (
                     <>
                       <div>
