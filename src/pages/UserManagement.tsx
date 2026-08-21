@@ -54,6 +54,11 @@ function effectiveUserStatus(user: ServiceUser): string {
   const hasResign = String(user.resignationDate ?? "").trim() !== "";
   const hasReason = String(user.terminationReason ?? user.txtUMemostop ?? "").trim() !== "";
   if (raw === "계약해지" || hasResign || hasReason) return "계약해지";
+  // 최초서비스제공일이 입력되면 서비스중, 공란이면 대기로 표시
+  const hasServiceStart = String(user.serviceStartDate ?? "").trim() !== "";
+  if (hasServiceStart) return "서비스중";
+  if (!raw) return "대기";
+  if (raw === "서비스중") return "대기";
   return raw;
 }
 
