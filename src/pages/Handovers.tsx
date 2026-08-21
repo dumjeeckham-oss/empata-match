@@ -200,6 +200,9 @@ export default function Handovers() {
           prevHelperIds,
           updateWorker as any
         );
+        await recordHandoverHistory(selectedUser, prevWorker, nextWorker);
+
+
 
         toast({
           title: "업무 인계·인수서 저장 완료",
