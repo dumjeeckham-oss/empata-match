@@ -319,18 +319,10 @@ const UserManagement = () => {
       payload.contractStatus = "계약해지";
       payload.txtUMemostop = payload.terminationReason;
       payload.resignationDate = payload.resignationDate || new Date().toISOString().slice(0, 10);
-    } else if (arrays.ids.length > 0) {
-      payload.resignationDate = "";
-      // 담당 활동지원사가 배정되면 "대기"/미지정 상태를 "서비스중"으로 자동 전환
-      if (!payload.contractStatus || payload.contractStatus === "대기") {
-        payload.contractStatus = "서비스중";
-      }
     } else {
       payload.resignationDate = "";
-      if (payload.contractStatus === "서비스중") {
-        // 담당자를 모두 해제하면 다시 "대기"로 복귀
-        payload.contractStatus = "대기";
-      }
+      // 최초 서비스제공일이 입력되면 "서비스중", 공란이면 "대기"로 자동 전환
+      payload.contractStatus = payload.serviceStartDate?.trim() ? "서비스중" : "대기";
     }
 
 
