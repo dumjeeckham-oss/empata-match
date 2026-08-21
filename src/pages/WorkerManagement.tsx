@@ -830,7 +830,7 @@ const WorkerManagement = () => {
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
-              <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="이름·연락처 또는 담당 이용자로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <div className="flex flex-wrap gap-4 w-full md:w-auto">
               <div className="flex flex-col gap-1.5 min-w-[120px]">
