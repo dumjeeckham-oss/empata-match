@@ -285,7 +285,16 @@ const UserManagement = () => {
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
+    if (form.serviceStartDate && !form.receiptDate) {
+      toast({
+        title: "최초 접수일이 필요합니다",
+        description: "최초 서비스제공일을 입력하려면 최초 접수일을 먼저 기록해주세요.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!form.lat && form.address) await handleGeocode();
+
 
     const uniqueHelperIds = Array.from(new Set(form.assignedHelperIds || []));
     const arrays = buildHelperArraysFromIds(uniqueHelperIds, workers);
