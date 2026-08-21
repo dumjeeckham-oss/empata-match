@@ -556,7 +556,11 @@ const WorkerManagement = () => {
     return (displayWorkers || []).filter((w) => {
       const matchesName = String(w.name || "").includes(search);
       const matchesPhone = String(w.phone || "").includes(search);
-      const matchSearch = !search || matchesName || matchesPhone;
+      // 매칭된 이용자 이름/연락처로도 검색 가능
+      const matchesUser =
+        (w.assignedUserNames || []).some((n) => String(n || "").includes(search)) ||
+        (w.assignedUserPhones || []).some((p) => String(p || "").includes(search));
+      const matchSearch = !search || matchesName || matchesPhone || matchesUser;
 
       const status = effectiveWorkerStatus(w);
 

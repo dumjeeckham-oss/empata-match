@@ -675,7 +675,11 @@ const UserManagement = () => {
     return users.filter((u) => {
       const matchesName = String(u.name || "").includes(search);
       const matchesPhone = String(u.phone || "").includes(search);
-      const matchSearch = !search || matchesName || matchesPhone;
+      // 매칭된 활동지원사 이름/연락처로도 검색 가능
+      const matchesHelper =
+        (u.assignedHelperNames || []).some((n) => String(n || "").includes(search)) ||
+        (u.assignedHelperPhones || []).some((p) => String(p || "").includes(search));
+      const matchSearch = !search || matchesName || matchesPhone || matchesHelper;
 
       const status = effectiveUserStatus(u);
 
@@ -990,7 +994,7 @@ const UserManagement = () => {
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
-              <Input placeholder="이름 또는 연락처로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input placeholder="이름·연락처 또는 담당 활동지원사로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
               <TabsList>
