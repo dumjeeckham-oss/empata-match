@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetClose } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -22,7 +23,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      <header className="sticky top-0 z-50 border-b border-border/60 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <img src={dongbaekLogo} alt="동백" className="h-8 w-auto shrink-0" />
@@ -64,18 +65,38 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             </Button>
             <Button
               variant="ghost"
-              size="sm"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="rounded-full text-muted-foreground hover:text-foreground md:hidden"
+              size="icon"
+              aria-label={mobileMenuOpen ? "메뉴 닫기" : "메뉴 열기"}
+              aria-expanded={mobileMenuOpen}
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              className="h-10 w-10 rounded-full text-xl text-muted-foreground hover:text-foreground md:hidden"
             >
               {mobileMenuOpen ? "✕" : "☰"}
             </Button>
           </div>
         </div>
+      </header>
 
-        {mobileMenuOpen && (
-          <div className="border-t bg-card/95 md:hidden">
-            <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-3 sm:px-6">
+      {/* Mobile Navigation Drawer */}
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="right" className="w-[85vw] max-w-sm border-l border-border/60 bg-card p-0 sm:max-w-sm">
+          <SheetHeader className="sr-only">
+            <SheetTitle>바로가기 메뉴</SheetTitle>
+          </SheetHeader>
+          <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
+              <div className="flex items-center gap-3">
+                <img src={dongbaekLogo} alt="동백" className="h-8 w-auto shrink-0" />
+                <p className="text-base font-semibold text-foreground">메뉴</p>
+              </div>
+              <SheetClose asChild>
+                <Button variant="ghost" size="icon" aria-label="메뉴 닫기" className="h-10 w-10 rounded-full text-xl">
+                  ✕
+                </Button>
+              </SheetClose>
+            </div>
+
+            <nav className="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-4">
               {navItems.map((item) => {
                 const isActive = location.pathname === item.path;
                 return (
@@ -84,29 +105,36 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
                     to={item.path}
                     onClick={() => setMobileMenuOpen(false)}
                     className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors",
+                      "flex items-center gap-4 rounded-xl px-4 py-4 text-base font-medium transition-colors active:scale-[0.98]",
                       isActive
                         ? "bg-primary/10 text-primary"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
                     )}
                   >
-                    <span className="text-base">{item.icon}</span>
+                    <span className="text-2xl">{item.icon}</span>
                     <span>{item.label}</span>
                   </Link>
                 );
               })}
+            </nav>
+
+            <div className="border-t border-border/60 p-3">
               <Button
                 variant="ghost"
-                size="default"
-                className="justify-start rounded-xl px-3 py-3 text-sm font-medium text-muted-foreground hover:text-foreground"
-                onClick={logout}
+                size="lg"
+                className="w-full justify-start gap-4 rounded-xl px-4 text-base font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  logout();
+                }}
               >
-                🚪 로그아웃
+                <span className="text-2xl">🚪</span>
+                <span>로그아웃</span>
               </Button>
             </div>
           </div>
-        )}
-      </header>
+        </SheetContent>
+      </Sheet>
 
       {/* Main Content Area */}
       <main className="flex-1 overflow-auto">
