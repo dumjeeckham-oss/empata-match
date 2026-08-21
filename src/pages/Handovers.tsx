@@ -110,6 +110,45 @@ export default function Handovers() {
   }, [searchParams]);
 
 
+  // 담당 변경 내역을 매칭 히스토리에 자동 기록 (전임 해제 + 후임 매칭)
+  const recordHandoverHistory = async (
+    user: ServiceUser & { id?: string },
+    fromWorker: (Worker & { id?: string }) | undefined,
+    toWorker: Worker & { id?: string }
+  ) => {
+    try {
+      const note = `인계·인수서 작성 (${fromWorker?.name || "미배정"} → ${toWorker.name}) / 사유: ${reason.trim() || "-"}`;
+      if (fromWorker?.id && fromWorker.id !== toWorker.id) {
+        await addMatchingHistory({
+          type: "해제",
+          userId: user.id!,
+          userName: user.name,
+          userPhone: user.phone,
+          workerId: fromWorker.id,
+          workerName: fromWorker.name,
+          workerPhone: fromWorker.phone,
+          date: handoverDate,
+          endDate: handoverDate,
+          notes: note,
+        } as any);
+      }
+      await addMatchingHistory({
+        type: "매칭",
+        userId: user.id!,
+        userName: user.name,
+        userPhone: user.phone,
+        workerId: toWorker.id!,
+        workerName: toWorker.name,
+        workerPhone: toWorker.phone,
+        date: takeoverDate,
+        notes: note,
+      } as any);
+    } catch (e) {
+      console.error("매칭 히스토리 기록 실패:", e);
+    }
+  };
+
+
   const handleSave = async () => {
     try {
       if (!selectedUser?.id) {
