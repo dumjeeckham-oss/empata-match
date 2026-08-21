@@ -7,6 +7,12 @@ import type { Worker } from '@/types';
 
 interface WorkerPeriodEditorProps {
   worker: Worker;
+  /** Function to update worker in Firestore */
+  updateWorker: (id: string, data: Partial<Worker>) => Promise<void>;
+  /** Callback after successful save, can be used to refresh parent data */
+  onSaved?: () => void;
+}
+  worker: Worker;
   /** Callback after successful save, can be used to refresh parent data */
   onSaved?: () => void;
 }
