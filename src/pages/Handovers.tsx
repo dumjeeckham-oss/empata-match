@@ -176,7 +176,9 @@ export default function Handovers() {
           prevHelperIds,
           updateWorker as any
         );
+        await recordHandoverHistory(selectedUser, prevWorker, nextWorker);
         toast({ title: "업무 인계·인수서 수정 완료" });
+
       } else {
         (payload as any).createdAt = Timestamp.now();
         await addHandover(payload as any);
