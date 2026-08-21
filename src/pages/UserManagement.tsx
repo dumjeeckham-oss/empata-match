@@ -1,4 +1,6 @@
-﻿import { useState, useMemo } from "react";
+import { useState, useMemo } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { WorkerTerminationDialog } from "@/components/WorkerTerminationDialog";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -42,8 +44,10 @@ import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
-import { useSearchParams, useNavigate } from "react-router-dom";
-import { useEffect } from "react";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+
+  const [terminationTarget, setTerminationTarget] = useState<Worker | null>(null);
+  const [terminationDialogOpen, setTerminationDialogOpen] = useState(false);
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
