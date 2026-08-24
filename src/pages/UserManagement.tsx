@@ -183,6 +183,13 @@ const UserManagement = () => {
   const [cleanupActions, setCleanupActions] = useState<Record<string, MultiMatchCleanupAction>>({});
   const [matchingPeriodDrafts, setMatchingPeriodDrafts] = useState<Record<string, MatchingPeriodDraft>>({});
   const [workerServiceEndMigrationDone, setWorkerServiceEndMigrationDone] = useState(false);
+  const [serviceCloseTarget, setServiceCloseTarget] = useState<{ user: ServiceUser & { id: string }; entry: DocumentMatchingHistoryEntry } | null>(null);
+  const [serviceCloseForm, setServiceCloseForm] = useState<{ endDate: string; workerStatus: "대기" | "퇴사"; reason: MatchingHistoryReason; reasonDetail: string }>({
+    endDate: new Date().toISOString().slice(0, 10),
+    workerStatus: "대기",
+    reason: "종료",
+    reasonDetail: "",
+  });
 
 
   const applyCascade = async () => {
@@ -482,13 +489,43 @@ const UserManagement = () => {
       return;
     }
 
-    const arrays = buildHelperArraysFromIds(handoverGate.addedHelperIds, workers);
+    const activeAddedIds = handoverGate.addedHelperIds.slice(-1);
+    const arrays = buildHelperArraysFromIds(activeAddedIds, workers);
+    const handoverUser = users.find((u) => u.id === handoverGate.userId);
+    const handoverBaseHistory = handoverUser ? getDocumentMatchingEntries(handoverUser) : [];
+    const startDateForHandover = handoverGate.payload.serviceStartDate || new Date().toISOString().slice(0, 10);
+    const handoverHistoryByWorker = new Map<string, DocumentMatchingHistoryEntry>();
+    for (const entry of handoverBaseHistory) {
+      handoverHistoryByWorker.set(entry.workerId, {
+        ...entry,
+        serviceEndDate: handoverGate.prevHelperIds.includes(entry.workerId) ? handoverEndDate : entry.serviceEndDate,
+        reason: handoverGate.prevHelperIds.includes(entry.workerId) ? (handoverMode === "handover" ? "인계" : "종료") : entry.reason,
+        reasonDetail: handoverGate.prevHelperIds.includes(entry.workerId) ? handoverNote : entry.reasonDetail,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    for (const workerId of activeAddedIds) {
+      const worker = workers.find((w) => w.id === workerId);
+      if (!worker) continue;
+      handoverHistoryByWorker.set(workerId, {
+        id: handoverHistoryByWorker.get(workerId)?.id || `${workerId}-${Date.now()}`,
+        workerId,
+        workerName: worker.name,
+        workerPhone: worker.phone,
+        serviceStartDate: startDateForHandover,
+        serviceEndDate: null,
+        reason: handoverMode === "handover" ? "인계" : "교체",
+        reasonDetail: handoverNote,
+        updatedAt: new Date().toISOString(),
+      });
+    }
     const finalPayload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
       ...handoverGate.payload,
       assignedHelperIds: arrays.ids,
       assigned_workers: arrays.ids,
       assignedHelperNames: arrays.names,
       assignedHelperPhones: arrays.phones,
+      matchingHistory: Array.from(handoverHistoryByWorker.values()),
     };
 
     await update(handoverGate.userId, finalPayload);
@@ -506,9 +543,10 @@ const UserManagement = () => {
       }
     }
 
-    for (const workerId of handoverGate.addedHelperIds) {
+    for (const workerId of activeAddedIds) {
       const worker = workers.find((w) => w.id === workerId);
       if (!worker) continue;
+      await updateWorker(workerId, { contractStatus: "근무중", serviceStartDate: startDateForHandover, serviceEndDate: null, retirementDate: "", resignationDate: "" });
       await addMatchingHistory({
         type: "매칭",
         userId: handoverGate.userId,
@@ -523,7 +561,7 @@ const UserManagement = () => {
     }
 
     for (const workerId of handoverGate.prevHelperIds) {
-      if (handoverGate.addedHelperIds.includes(workerId)) continue;
+      if (activeAddedIds.includes(workerId)) continue;
       const worker = workers.find((w) => w.id === workerId);
       if (!worker) continue;
       await addMatchingHistory({
@@ -805,13 +843,14 @@ const UserManagement = () => {
     for (const workerId of user.assignedHelperIds || []) {
       const worker = workers.find((w) => w.id === workerId);
       const existing = byWorker.get(workerId);
+      const existingEnded = existing && existing.serviceEndDate !== null && existing.serviceEndDate !== "";
       byWorker.set(workerId, {
         id: existing?.id || `${workerId}-${user.serviceStartDate || today}`,
         workerId,
         workerName: existing?.workerName || worker?.name || user.assignedHelperNames?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
         workerPhone: existing?.workerPhone || worker?.phone || user.assignedHelperPhones?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
         serviceStartDate: existing?.serviceStartDate || user.serviceStartDate || today,
-        serviceEndDate: null,
+        serviceEndDate: existingEnded ? existing.serviceEndDate : null,
         reason: existing?.reason || "추가",
         reasonDetail: existing?.reasonDetail || "",
         updatedAt: existing?.updatedAt,
@@ -840,6 +879,20 @@ const UserManagement = () => {
     });
   };
 
+
+  const getCurrentMatchingEntry = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry | null => {
+    const active = getDocumentMatchingEntries(user)
+      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
+    return active[0] || null;
+  };
+
+  const formatCurrentHelper = (user: ServiceUser & { id: string }): string => {
+    const current = getCurrentMatchingEntry(user);
+    if (!current) return "";
+    const last4 = String(current.workerPhone || "").replace(/\D/g, "").slice(-4);
+    return last4 ? `${current.workerName}(${last4})` : current.workerName;
+  };
   const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
     const next = Object.fromEntries(
       getDocumentMatchingEntries(user).map((entry) => [
@@ -897,7 +950,12 @@ const UserManagement = () => {
       ...existingEntries.filter((entry) => entry.workerId !== workerId),
       nextEntry,
     ];
-    const activeIds = nextHistory.filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "").map((entry) => entry.workerId);
+    const activeEntries = nextHistory
+      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
+    const activeIds = draft.isCurrent
+      ? [workerId]
+      : activeEntries.filter((entry) => entry.workerId !== workerId).slice(0, 1).map((entry) => entry.workerId);
     const arrays = buildHelperArraysFromIds(activeIds, workers);
     const nextStatus = user.contractStatus === "계약해지" || user.contractStatus === "타기관 계약" || user.contractStatus === "보류"
       ? user.contractStatus
@@ -916,7 +974,7 @@ const UserManagement = () => {
     await update(user.id, payload);
     await syncUserToWorkers(user.id, { ...user, ...payload }, workers, user.assignedHelperIds || [], updateWorker);
     if (draft.isCurrent) {
-      await updateWorker(workerId, { contractStatus: "근무중", serviceEndDate: null, resignationDate: "" });
+      await updateWorker(workerId, { contractStatus: "근무중", serviceStartDate: draft.serviceStartDate, serviceEndDate: null, retirementDate: "", resignationDate: "" });
     } else {
       await updateWorker(workerId, {
         contractStatus: draft.workerStatus,
@@ -947,6 +1005,91 @@ const UserManagement = () => {
     toast({ title: draft.isCurrent ? "현재 담당으로 저장했습니다" : "종료 이력으로 전환했습니다" });
   };
 
+  const openServiceCloseDialog = (user: ServiceUser & { id: string }, entry: DocumentMatchingHistoryEntry) => {
+    const draft = matchingPeriodDrafts[entry.workerId];
+    setServiceCloseTarget({ user, entry });
+    setServiceCloseForm({
+      endDate: draft?.serviceEndDate || entry.serviceEndDate || new Date().toISOString().slice(0, 10),
+      workerStatus: draft?.workerStatus || "대기",
+      reason: "종료",
+      reasonDetail: draft?.reasonDetail || "",
+    });
+  };
+
+  const finalizeServiceClose = async () => {
+    if (!serviceCloseTarget) return;
+    if (!serviceCloseForm.endDate) {
+      toast({ title: "서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    const { user, entry } = serviceCloseTarget;
+    const worker = workers.find((w) => w.id === entry.workerId);
+    if (!worker) return;
+
+    const existingEntries = getDocumentMatchingEntries(user);
+    const closedEntry: DocumentMatchingHistoryEntry = {
+      ...entry,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      serviceStartDate: entry.serviceStartDate || user.serviceStartDate || new Date().toISOString().slice(0, 10),
+      serviceEndDate: serviceCloseForm.endDate,
+      reason: serviceCloseForm.reason,
+      reasonDetail: serviceCloseForm.reasonDetail,
+      updatedAt: new Date().toISOString(),
+    };
+    const nextHistory = [
+      ...existingEntries.filter((item) => item.workerId !== entry.workerId),
+      closedEntry,
+    ];
+    const nextActiveIds = nextHistory
+      .filter((item) => item.workerId !== entry.workerId && (item.serviceEndDate === null || item.serviceEndDate === ""))
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)))
+      .slice(0, 1)
+      .map((item) => item.workerId);
+    const arrays = buildHelperArraysFromIds(nextActiveIds, workers);
+    const payload: Partial<ServiceUser> = {
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+      matchingHistory: nextHistory,
+      contractStatus: user.contractStatus === "계약해지" || user.contractStatus === "타기관 계약" || user.contractStatus === "보류"
+        ? user.contractStatus
+        : arrays.ids.length > 0
+          ? "서비스중"
+          : "대기",
+    };
+
+    await update(user.id, payload);
+    await syncUserToWorkers(user.id, { ...user, ...payload }, workers, user.assignedHelperIds || [], updateWorker);
+    await updateWorker(entry.workerId, {
+      contractStatus: serviceCloseForm.workerStatus,
+      serviceEndDate: serviceCloseForm.endDate,
+      retirementDate: serviceCloseForm.workerStatus === "퇴사" ? serviceCloseForm.endDate : "",
+      resignationDate: serviceCloseForm.workerStatus === "퇴사" ? serviceCloseForm.endDate : "",
+    });
+    await addMatchingHistory({
+      type: "해제",
+      userId: user.id,
+      userName: user.name,
+      userPhone: user.phone,
+      workerId: entry.workerId,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: closedEntry.serviceStartDate,
+      endDate: serviceCloseForm.endDate,
+      reason: serviceCloseForm.reason,
+      reasonDetail: serviceCloseForm.reasonDetail,
+      notes: serviceCloseForm.reasonDetail || serviceCloseForm.reason,
+    } as any);
+
+    const updatedUser = { ...user, ...payload } as ServiceUser & { id: string };
+    if (detailTarget?.id === user.id) setDetailTarget(updatedUser);
+    if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
+    resetMatchingPeriodDrafts(updatedUser);
+    setServiceCloseTarget(null);
+    toast({ title: "서비스 종료/교체 처리 완료", description: `${worker.name} 지원사를 현재 담당에서 제외했습니다.` });
+  };
   const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
     const entries = getDocumentMatchingEntries(user);
     const currentCount = entries.filter((entry) => {
@@ -982,7 +1125,10 @@ const UserManagement = () => {
                   <p className="font-medium">{entry.workerName || entry.workerId}</p>
                   <p className="text-xs text-muted-foreground">{entry.workerPhone || "연락처 없음"}</p>
                 </div>
-                <Badge variant={draft.isCurrent ? "default" : "secondary"}>{draft.isCurrent ? "서비스 중" : "종료(이력)"}</Badge>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge variant={draft.isCurrent ? "default" : "secondary"}>{draft.isCurrent ? "서비스 중" : "종료(이력)"}</Badge>
+                  <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div className="space-y-2">
@@ -1500,7 +1646,7 @@ const UserManagement = () => {
                 </p>
                 <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
                 <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
-                <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user)}</p>
+                <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelper(user) || "없음"}</p>
                 {(user.assignedHelperIds?.length || 0) > 1 && (
                   <Button
                     size="sm"
@@ -1634,6 +1780,53 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={!!serviceCloseTarget} onOpenChange={(open) => !open && setServiceCloseTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>서비스 종료/교체</DialogTitle>
+          </DialogHeader>
+          {serviceCloseTarget && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {serviceCloseTarget.user.name} 이용자의 {serviceCloseTarget.entry.workerName} 활동지원사를 현재 담당에서 제외합니다.
+              </p>
+              <div className="space-y-2">
+                <Label>서비스 종료일</Label>
+                <Input type="date" value={serviceCloseForm.endDate} onChange={(e) => setServiceCloseForm((prev) => ({ ...prev, endDate: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>종료 후 지원사 상태</Label>
+                <Select value={serviceCloseForm.workerStatus} onValueChange={(v) => setServiceCloseForm((prev) => ({ ...prev, workerStatus: v as "대기" | "퇴사" }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="대기">대기</SelectItem>
+                    <SelectItem value="퇴사">퇴사</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>변경 사유</Label>
+                  <Select value={serviceCloseForm.reason} onValueChange={(v) => setServiceCloseForm((prev) => ({ ...prev, reason: v as MatchingHistoryReason }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MATCH_REASON_OPTIONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>상세 사유(선택)</Label>
+                  <Input value={serviceCloseForm.reasonDetail} onChange={(e) => setServiceCloseForm((prev) => ({ ...prev, reasonDetail: e.target.value }))} placeholder="필요 시 간단히 입력" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setServiceCloseTarget(null)}>취소</Button>
+                <Button onClick={finalizeServiceClose}>종료 등록</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!cleanupTarget} onOpenChange={(open) => !open && setCleanupTarget(null)}>
         <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -1785,7 +1978,7 @@ const UserManagement = () => {
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 활동지원사</p>
-                  <p className="font-medium">{formatHelperList(detailTarget) || "없음"}</p>
+                  <p className="font-medium">{formatCurrentHelper(detailTarget) || "없음"}</p>
                   {(detailTarget.assignedHelperIds?.length || 0) > 1 && (
                     <Button size="sm" variant="destructive" className="mt-2" onClick={() => openCleanupDialog(detailTarget)}>
                       ⚠️ 1:다 매칭 정돈
@@ -1957,6 +2150,13 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
+
+
 
 
 
