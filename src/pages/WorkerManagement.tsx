@@ -44,6 +44,7 @@ import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { getComparableDateValue } from "@/lib/utils";
+import { isWithinRecentMonths } from "@/lib/dashboardStats";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -580,6 +581,22 @@ const WorkerManagement = () => {
   const resignedCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "퇴사").length;
   const workingCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
 
+  const workerSummary = useMemo(() => {
+    const recentJoined = displayWorkers.filter((w) => isWithinRecentMonths(w.serviceStartDate)).length;
+    const recentResigned = displayWorkers.filter((w) => isWithinRecentMonths(w.retirementDate || w.resignationDate)).length;
+    const waiting = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "대기").length;
+    const working = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
+    const handoverEvents = matchingLogs.filter((log) =>
+      isWithinRecentMonths(log.date) &&
+      (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체"))
+    ).length;
+    const counselingIssues = counselingLogs.filter((record) =>
+      record.targetType === "활동지원사" &&
+      isWithinRecentMonths(record.date) &&
+      (["고충", "보고", "모니터링"].some((word) => String(record.category || record.content || "").includes(word)) || true)
+    ).length;
+    return { recentJoined, recentResigned, waiting, working, handoverEvents, counselingIssues };
+  }, [displayWorkers, matchingLogs, counselingLogs]);
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
@@ -826,6 +843,40 @@ const WorkerManagement = () => {
         </div>
       </div>
 
+
+      <Card className="border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">활동지원사 현황 요약 대시보드</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">3개월 신규 입사</p>
+              <p className="text-2xl font-bold text-primary">{workerSummary.recentJoined}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">3개월 퇴사</p>
+              <p className="text-2xl font-bold text-destructive">{workerSummary.recentResigned}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">현재 근무 중</p>
+              <p className="text-2xl font-bold">{workerSummary.working}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">현재 대기</p>
+              <p className="text-2xl font-bold">{workerSummary.waiting}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">인계/변경</p>
+              <p className="text-2xl font-bold text-primary">{workerSummary.handoverEvents}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">상담/보고</p>
+              <p className="text-2xl font-bold">{workerSummary.counselingIssues}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row gap-4">
@@ -1207,4 +1258,5 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
 

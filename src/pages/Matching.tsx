@@ -1,23 +1,26 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, SUPPORT_TYPES, VOUCHER_HOURS } from "@/types";
+import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, type MatchingHistoryRecord, SUPPORT_TYPES, VOUCHER_HOURS } from "@/types";
 import { matchUserWithWorkers } from "@/lib/matching";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
-import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
 
 const Matching = () => {
   const { data: usersRaw, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
+  const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
+  const matchingHistory = matchingHistoryRaw || [];
 
   const [nameSearch, setNameSearch] = useState<string>("");
   const [filterForeigners, setFilterForeigners] = useState(false);
@@ -123,6 +126,30 @@ const Matching = () => {
   );
   const manualSelected = allScored.find((r) => r.worker.id === manualWorkerId);
 
+  const matchingSummary = useMemo(() => {
+    const successful = matchingHistory.filter((record) => record.type === "매칭");
+    const attempts = matchingHistory.filter((record) => record.type === "시도");
+    const recentSuccessful = successful.filter((record) => isWithinRecentMonths(record.date));
+    const recentAttempts = attempts.filter((record) => isWithinRecentMonths(record.date));
+    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentAttempts.length);
+    const durations = successful
+      .map((record) => {
+        const user = users.find((u) => u.id === record.userId);
+        return daysBetween(user?.receiptDate || user?.createdAt, record.date);
+      })
+      .filter((value): value is number => value !== null);
+    const avgDays = durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : 0;
+    const possibleRatio = waitingUsers.length ? percent(filteredWorkers.length, waitingUsers.length) : 0;
+    return {
+      totalSuccess: successful.length,
+      recentSuccess: recentSuccessful.length,
+      successRate,
+      avgDays,
+      possibleRatio,
+      waitingUserCount: waitingUsers.length,
+      possibleWorkerCount: filteredWorkers.length,
+    };
+  }, [matchingHistory, users, waitingUsers.length, filteredWorkers.length]);
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
@@ -149,6 +176,40 @@ const Matching = () => {
   return (
     <div>
       <h1 className="page-header">이용자-활동지원사 매칭</h1>
+      <Card className="mb-6 border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">매칭 성과 대시보드</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">누적 매칭 성사</p>
+              <p className="text-2xl font-bold text-primary">{matchingSummary.totalSuccess}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">3개월 성사</p>
+              <p className="text-2xl font-bold text-primary">{matchingSummary.recentSuccess}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">최근 성공률</p>
+              <p className="text-2xl font-bold">{matchingSummary.successRate}%</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">평균 소요 기간</p>
+              <p className="text-2xl font-bold">{matchingSummary.avgDays}<span className="text-sm text-muted-foreground">일</span></p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">대기 이용자</p>
+              <p className="text-2xl font-bold">{matchingSummary.waitingUserCount}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">가능 지원사 비율</p>
+              <p className="text-2xl font-bold">{matchingSummary.possibleRatio}%</p>
+              <p className="text-[11px] text-muted-foreground">{matchingSummary.possibleWorkerCount}명 가능</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card className="mb-6">
         <CardHeader className="py-3">
@@ -477,3 +538,5 @@ const Matching = () => {
 };
 
 export default Matching;
+
+

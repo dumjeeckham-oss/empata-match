@@ -45,6 +45,7 @@ import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { getComparableDateValue } from "@/lib/utils";
+import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
 /** 화면 표시용 계약상태: 계약해지일 또는 중단사유가 있으면 항상 "계약해지" 목록으로 이동 */
@@ -1281,6 +1282,22 @@ const UserManagement = () => {
   const terminatedCount = users.filter((u) => effectiveUserStatus(u) === "계약해지").length;
   const activeCount = users.filter((u) => effectiveUserStatus(u) === "서비스중").length;
 
+  const userSummary = useMemo(() => {
+    const recentContracts = users.filter((u) => isWithinRecentMonths(u.serviceStartDate)).length;
+    const recentTerminations = users.filter((u) => isWithinRecentMonths(u.resignationDate)).length;
+    const waiting = users.filter((u) => effectiveUserStatus(u) === "대기" || !(u.assignedHelperIds || []).length).length;
+    const handoverEvents = matchingLogs.filter((log) =>
+      isWithinRecentMonths(log.date) &&
+      (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체"))
+    ).length;
+    const recentCounseling = counselingLogs.filter((record) => record.targetType === "이용자" && isWithinRecentMonths(record.date)).length;
+    const unresolvedCounseling = counselingLogs.filter((record) =>
+      record.targetType === "이용자" &&
+      isWithinRecentMonths(record.date) &&
+      (!record.result || String(record.result).includes("미처리"))
+    ).length;
+    return { recentContracts, recentTerminations, waiting, handoverEvents, recentCounseling, unresolvedCounseling };
+  }, [users, matchingLogs, counselingLogs]);
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
@@ -1582,6 +1599,40 @@ const UserManagement = () => {
         </div>
       </div>
 
+
+      <Card className="mb-6 border-primary/20">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">이용자 현황 요약 대시보드</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">3개월 신규 계약</p>
+              <p className="text-2xl font-bold text-primary">{userSummary.recentContracts}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">3개월 서비스 해지</p>
+              <p className="text-2xl font-bold text-destructive">{userSummary.recentTerminations}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">현재 대기자</p>
+              <p className="text-2xl font-bold">{userSummary.waiting}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">인계/변경</p>
+              <p className="text-2xl font-bold text-primary">{userSummary.handoverEvents}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">이용자 상담</p>
+              <p className="text-2xl font-bold">{userSummary.recentCounseling}</p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">미처리 상담</p>
+              <p className="text-2xl font-bold text-destructive">{userSummary.unresolvedCounseling}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
       <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row gap-4">
@@ -2150,6 +2201,8 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
 
 
 
