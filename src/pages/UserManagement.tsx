@@ -191,6 +191,10 @@ const UserManagement = () => {
     reason: "종료",
     reasonDetail: "",
   });
+  const [summaryModal, setSummaryModal] = useState<{
+    title: string;
+    rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string }>;
+  } | null>(null);
 
 
   const applyCascade = async () => {
@@ -1206,6 +1210,70 @@ const UserManagement = () => {
     setDialogOpen(true);
   };
 
+
+  const openUserSummaryModal = (kind: "contracts" | "terminations" | "waiting" | "handover" | "counseling") => {
+    const helperText = (user: ServiceUser & { id: string }) => formatCurrentHelper(user) || formatHelperList(user) || "담당자 없음";
+    const makeUserRow = (user: ServiceUser & { id: string }, date: string, note: string) => ({
+      id: `${kind}-${user.id}`,
+      name: user.name,
+      date,
+      status: effectiveUserStatus(user),
+      note,
+      userId: user.id,
+    });
+
+    let title = "";
+    let rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string }> = [];
+
+    if (kind === "contracts") {
+      rows = users
+        .filter((user) => isWithinRecentMonths(user.serviceStartDate || user.receiptDate))
+        .map((user) => makeUserRow(user, user.serviceStartDate || user.receiptDate || "미등록", `담당: ${helperText(user)}`));
+      title = `최근 3개월 신규 계약/접수 명단 (총 ${rows.length}명)`;
+    } else if (kind === "terminations") {
+      rows = users
+        .filter((user) => effectiveUserStatus(user) === "계약해지" || isWithinRecentMonths(user.resignationDate))
+        .map((user) => makeUserRow(user, user.resignationDate || "미등록", user.terminationReason || user.txtUMemostop || "해지 사유 미등록"));
+      title = `해지/종결 이용자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "waiting") {
+      rows = users
+        .filter((user) => effectiveUserStatus(user) === "대기" || !(user.assignedHelperIds || []).length)
+        .map((user) => makeUserRow(user, user.receiptDate || "미등록", [user.requiredDays, user.requiredHours, user.preferredWorkerTraits].filter(Boolean).join(" · ") || "희망 조건 미등록"));
+      title = `현재 대기 이용자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "handover") {
+      rows = matchingLogs
+        .filter((log) => isWithinRecentMonths(log.date) && (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체")))
+        .map((log) => ({
+          id: `handover-${log.id || log.userId}-${log.workerId}`,
+          name: log.userName,
+          date: log.date,
+          status: log.reason || log.type,
+          note: `${log.workerName || "지원사 미등록"} · ${log.notes || log.reasonDetail || "상세 없음"}`,
+          userId: log.userId,
+        }));
+      title = `최근 3개월 인계인수/변경 명단 (총 ${rows.length}건)`;
+    } else {
+      rows = counselingLogs
+        .filter((record) => record.targetType === "이용자" && isWithinRecentMonths(record.date))
+        .map((record) => ({
+          id: `counsel-${record.id || record.targetId}-${record.date}`,
+          name: record.targetName,
+          date: record.date,
+          status: record.result || record.category || "상담",
+          note: record.content || "상담 내용 없음",
+          userId: record.targetId,
+        }));
+      title = `최근 이용자/보호자 상담 기록 (총 ${rows.length}건)`;
+    }
+
+    setSummaryModal({ title, rows });
+  };
+
+  const openSummaryUser = (userId?: string) => {
+    if (!userId) return;
+    const target = users.find((user) => user.id === userId);
+    if (target) openDetail(target);
+  };
   const downloadExcel = () => {
     const filtered = getFilteredUsers();
     const data = filtered.map((u) => ({
@@ -1606,30 +1674,30 @@ const UserManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
+            <button type="button" onClick={() => openUserSummaryModal("contracts")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">3개월 신규 계약</p>
               <p className="text-2xl font-bold text-primary">{userSummary.recentContracts}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openUserSummaryModal("terminations")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">3개월 서비스 해지</p>
               <p className="text-2xl font-bold text-destructive">{userSummary.recentTerminations}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openUserSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">현재 대기자</p>
               <p className="text-2xl font-bold">{userSummary.waiting}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openUserSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">인계/변경</p>
               <p className="text-2xl font-bold text-primary">{userSummary.handoverEvents}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">이용자 상담</p>
               <p className="text-2xl font-bold">{userSummary.recentCounseling}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">미처리 상담</p>
               <p className="text-2xl font-bold text-destructive">{userSummary.unresolvedCounseling}</p>
-            </div>
+            </button>
           </div>
         </CardContent>
       </Card>
@@ -1831,6 +1899,43 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={!!summaryModal} onOpenChange={(open) => !open && setSummaryModal(null)}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{summaryModal?.title || "대상자 상세 명단"}</DialogTitle>
+          </DialogHeader>
+          {summaryModal && (
+            <div className="overflow-x-auto">
+              {summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-2 pr-3">이름</th>
+                      <th className="py-2 pr-3">주요 날짜</th>
+                      <th className="py-2 pr-3">상태</th>
+                      <th className="py-2 pr-3">비고/사유</th>
+                      <th className="py-2 text-right">바로가기</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryModal.rows.map((row) => (
+                      <tr key={row.id} className="border-b hover:bg-muted/40">
+                        <td className="py-2 pr-3 font-medium">{row.name}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                        <td className="py-2 pr-3"><Badge variant={row.status.includes("해지") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                        <td className="py-2 pr-3 max-w-[360px] truncate">{row.note || "-"}</td>
+                        <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={() => openSummaryUser(row.userId)}>상세</Button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <Dialog open={!!serviceCloseTarget} onOpenChange={(open) => !open && setServiceCloseTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -2201,6 +2306,8 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
 
 
 

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
@@ -31,6 +32,10 @@ const Matching = () => {
   const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
   const [manualSearch, setManualSearch] = useState<string>("");
   const [manualWorkerId, setManualWorkerId] = useState<string>("");
+  const [summaryModal, setSummaryModal] = useState<{
+    title: string;
+    rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string; workerId?: string }>;
+  } | null>(null);
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -150,6 +155,61 @@ const Matching = () => {
       possibleWorkerCount: filteredWorkers.length,
     };
   }, [matchingHistory, users, waitingUsers.length, filteredWorkers.length]);
+
+  const openMatchingSummaryModal = (kind: "success" | "waiting") => {
+    if (kind === "success") {
+      const rows = users.flatMap((user) => {
+        const helperIds = user.assignedHelperIds || [];
+        return helperIds.map((workerId) => {
+          const worker = workers.find((item) => item.id === workerId);
+          const matchLog = matchingHistory
+            .filter((record) => record.userId === user.id && record.workerId === workerId && record.type === "매칭")
+            .sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")))[0];
+          return {
+            id: `success-${user.id}-${workerId}`,
+            name: `${user.name} - ${worker?.name || "지원사 미등록"}`,
+            date: matchLog?.date || user.serviceStartDate || worker?.serviceStartDate || "미등록",
+            status: "서비스중",
+            note: `${user.phone || "이용자 연락처 없음"} / ${worker?.phone || "지원사 연락처 없음"}`,
+            userId: user.id,
+            workerId,
+          };
+        });
+      });
+      setSummaryModal({ title: `매칭 성공(성사) 명단 (총 ${rows.length}쌍)`, rows });
+      return;
+    }
+
+    const waitingUserRows = waitingUsers.map((user) => ({
+      id: `waiting-user-${user.id}`,
+      name: user.name,
+      date: user.receiptDate || "미등록",
+      status: "이용자 대기",
+      note: [user.requiredDays, user.requiredHours, user.preferredWorkerTraits].filter(Boolean).join(" · ") || "희망 조건 미등록",
+      userId: user.id,
+    }));
+    const waitingWorkerRows = waitingWorkers.map((worker) => ({
+      id: `waiting-worker-${worker.id}`,
+      name: worker.name,
+      date: worker.receiptDate || worker.serviceEndDate || "미등록",
+      status: "지원사 대기",
+      note: `${worker.phone || "연락처 없음"} · ${worker.preferredArea || "희망지역 미등록"}`,
+      workerId: worker.id,
+    }));
+    setSummaryModal({ title: `매칭 대기 명단 (총 ${waitingUserRows.length + waitingWorkerRows.length}명)`, rows: [...waitingUserRows, ...waitingWorkerRows] });
+  };
+
+  const openSummaryTarget = (row: { userId?: string; workerId?: string }) => {
+    setSummaryModal(null);
+    if (row.userId) {
+      handleSelectUser(row.userId);
+      return;
+    }
+    if (row.workerId) {
+      const worker = workers.find((item) => item.id === row.workerId);
+      if (worker) openWorkerDetail(worker);
+    }
+  };
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
@@ -182,35 +242,72 @@ const Matching = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
+            <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">누적 매칭 성사</p>
               <p className="text-2xl font-bold text-primary">{matchingSummary.totalSuccess}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">3개월 성사</p>
               <p className="text-2xl font-bold text-primary">{matchingSummary.recentSuccess}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">최근 성공률</p>
               <p className="text-2xl font-bold">{matchingSummary.successRate}%</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">평균 소요 기간</p>
               <p className="text-2xl font-bold">{matchingSummary.avgDays}<span className="text-sm text-muted-foreground">일</span></p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openMatchingSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">대기 이용자</p>
               <p className="text-2xl font-bold">{matchingSummary.waitingUserCount}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openMatchingSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">가능 지원사 비율</p>
               <p className="text-2xl font-bold">{matchingSummary.possibleRatio}%</p>
               <p className="text-[11px] text-muted-foreground">{matchingSummary.possibleWorkerCount}명 가능</p>
-            </div>
+            </button>
           </div>
         </CardContent>
       </Card>
 
+      <Dialog open={!!summaryModal} onOpenChange={(open) => !open && setSummaryModal(null)}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{summaryModal?.title || "대상자 상세 명단"}</DialogTitle>
+          </DialogHeader>
+          {summaryModal && (
+            <div className="overflow-x-auto">
+              {summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-2 pr-3">이름</th>
+                      <th className="py-2 pr-3">주요 날짜</th>
+                      <th className="py-2 pr-3">상태</th>
+                      <th className="py-2 pr-3">비고/사유</th>
+                      <th className="py-2 text-right">바로가기</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryModal.rows.map((row) => (
+                      <tr key={row.id} className="border-b hover:bg-muted/40">
+                        <td className="py-2 pr-3 font-medium">{row.name}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                        <td className="py-2 pr-3"><Badge variant={row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                        <td className="py-2 pr-3 max-w-[360px] truncate">{row.note || "-"}</td>
+                        <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={() => openSummaryTarget(row)}>보기</Button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <Card className="mb-6">
         <CardHeader className="py-3">
           <CardTitle className="text-sm">매칭 기준 안내</CardTitle>
@@ -538,5 +635,7 @@ const Matching = () => {
 };
 
 export default Matching;
+
+
 
 

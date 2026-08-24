@@ -169,6 +169,10 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [summaryModal, setSummaryModal] = useState<{
+    title: string;
+    rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }>;
+  } | null>(null);
   // 퇴사 시 매칭된 이용자 상태 후속 처리
   const [cascadeTarget, setCascadeTarget] = useState<{
     workerName: string;
@@ -509,6 +513,73 @@ const WorkerManagement = () => {
     setDialogOpen(true);
   };
 
+
+  const openWorkerSummaryModal = (kind: "joined" | "resigned" | "working" | "waiting" | "handover" | "counseling") => {
+    const makeWorkerRow = (worker: Worker & { id: string }, date: string, note: string) => ({
+      id: `${kind}-${worker.id}`,
+      name: worker.name,
+      date,
+      status: effectiveWorkerStatus(worker),
+      note,
+      workerId: worker.id,
+    });
+    let title = "";
+    let rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }> = [];
+
+    if (kind === "joined") {
+      rows = displayWorkers
+        .filter((worker) => isWithinRecentMonths(worker.serviceStartDate))
+        .map((worker) => makeWorkerRow(worker, worker.serviceStartDate || "미등록", worker.phone || "연락처 없음"));
+      title = `최근 3개월 입사자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "resigned") {
+      rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "퇴사" || isWithinRecentMonths(worker.retirementDate || worker.resignationDate))
+        .map((worker) => makeWorkerRow(worker, worker.retirementDate || worker.resignationDate || "미등록", worker.notes || "퇴사 사유 미등록"));
+      title = `퇴사자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "working") {
+      rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "근무중")
+        .map((worker) => makeWorkerRow(worker, worker.serviceStartDate || "미등록", `담당: ${(worker.assignedUserNames || []).join(", ") || "담당 이용자 없음"}`));
+      title = `현재 근무 중 활동지원사 명단 (총 ${rows.length}명)`;
+    } else if (kind === "waiting") {
+      rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "대기" && !(worker.assignedUserIds || []).length)
+        .map((worker) => makeWorkerRow(worker, worker.receiptDate || worker.serviceEndDate || "미등록", worker.preferredArea || "희망지역 미등록"));
+      title = `현재 매칭 대기 활동지원사 명단 (총 ${rows.length}명)`;
+    } else if (kind === "handover") {
+      rows = matchingLogs
+        .filter((log) => isWithinRecentMonths(log.date) && (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체")))
+        .map((log) => ({
+          id: `handover-${log.id || log.workerId}-${log.userId}`,
+          name: log.workerName,
+          date: log.date,
+          status: log.reason || log.type,
+          note: `${log.userName || "이용자 미등록"} · ${log.notes || log.reasonDetail || "상세 없음"}`,
+          workerId: log.workerId,
+        }));
+      title = `최근 지원사 기준 인계인수 명단 (총 ${rows.length}건)`;
+    } else {
+      rows = counselingLogs
+        .filter((record) => record.targetType === "활동지원사" && isWithinRecentMonths(record.date))
+        .map((record) => ({
+          id: `counsel-${record.id || record.targetId}-${record.date}`,
+          name: record.targetName,
+          date: record.date,
+          status: record.result || record.category || "상담",
+          note: record.content || "상담/보고 내용 없음",
+          workerId: record.targetId,
+        }));
+      title = `최근 상담/고충/보고 명단 (총 ${rows.length}건)`;
+    }
+
+    setSummaryModal({ title, rows });
+  };
+
+  const openSummaryWorker = (workerId?: string) => {
+    if (!workerId) return;
+    const target = displayWorkers.find((worker) => worker.id === workerId);
+    if (target) openDetail(target);
+  };
   const downloadExcel = () => {
     const data = getFiltered().map((w) => ({
       이름: w.name, 나이: w.age, 성별: w.gender, 연락처: w.phone,
@@ -850,30 +921,30 @@ const WorkerManagement = () => {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <div className="rounded-lg border bg-muted/30 p-3">
+            <button type="button" onClick={() => openWorkerSummaryModal("joined")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">3개월 신규 입사</p>
               <p className="text-2xl font-bold text-primary">{workerSummary.recentJoined}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openWorkerSummaryModal("resigned")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">3개월 퇴사</p>
               <p className="text-2xl font-bold text-destructive">{workerSummary.recentResigned}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openWorkerSummaryModal("working")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">현재 근무 중</p>
               <p className="text-2xl font-bold">{workerSummary.working}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openWorkerSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">현재 대기</p>
               <p className="text-2xl font-bold">{workerSummary.waiting}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openWorkerSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">인계/변경</p>
               <p className="text-2xl font-bold text-primary">{workerSummary.handoverEvents}</p>
-            </div>
-            <div className="rounded-lg border bg-muted/30 p-3">
+            </button>
+            <button type="button" onClick={() => openWorkerSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">상담/보고</p>
               <p className="text-2xl font-bold">{workerSummary.counselingIssues}</p>
-            </div>
+            </button>
           </div>
         </CardContent>
       </Card>
@@ -995,6 +1066,43 @@ const WorkerManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={!!summaryModal} onOpenChange={(open) => !open && setSummaryModal(null)}>
+        <DialogContent className="max-w-4xl w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{summaryModal?.title || "대상자 상세 명단"}</DialogTitle>
+          </DialogHeader>
+          {summaryModal && (
+            <div className="overflow-x-auto">
+              {summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-muted-foreground">
+                      <th className="py-2 pr-3">이름</th>
+                      <th className="py-2 pr-3">주요 날짜</th>
+                      <th className="py-2 pr-3">상태</th>
+                      <th className="py-2 pr-3">비고/사유</th>
+                      <th className="py-2 text-right">바로가기</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryModal.rows.map((row) => (
+                      <tr key={row.id} className="border-b hover:bg-muted/40">
+                        <td className="py-2 pr-3 font-medium">{row.name}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                        <td className="py-2 pr-3"><Badge variant={row.status.includes("퇴사") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                        <td className="py-2 pr-3 max-w-[360px] truncate">{row.note || "-"}</td>
+                        <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={() => openSummaryWorker(row.workerId)}>상세</Button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <AlertDialog open={!!cascadeTarget} onOpenChange={(open) => !open && setCascadeTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1258,5 +1366,7 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
 
 
