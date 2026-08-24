@@ -47,27 +47,30 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <img src={dongbaekLogo} alt="동백" className="h-8 w-auto shrink-0" />
-            <div className="min-w-0">
+        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <img src={dongbaekLogo} alt="동백" className="h-8 w-auto shrink-0" />
               <p className="truncate text-sm font-semibold text-foreground sm:text-base">동백 활동지원센터</p>
-              <p className="hidden text-xs text-muted-foreground sm:block">상담·매칭·인계 관리를 한눈에</p>
             </div>
+
+            <nav className="hidden flex-1 items-center justify-end gap-2 md:flex">
+              {navItems.map((item) => renderNavLink(item))}
+            </nav>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 rounded-full text-xs text-muted-foreground hover:text-foreground sm:text-sm"
+              onClick={logout}
+            >
+              🚪 로그아웃
+            </Button>
           </div>
 
-          <nav className="hidden flex-1 items-center justify-end gap-2 md:flex">
-            {navItems.map((item) => renderNavLink(item))}
-          </nav>
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className="shrink-0 rounded-full text-xs text-muted-foreground hover:text-foreground sm:text-sm"
-            onClick={logout}
-          >
-            🚪 로그아웃
-          </Button>
+          <p className="w-full overflow-x-auto whitespace-nowrap text-xs text-muted-foreground [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            상담·매칭·인계 관리를 한눈에
+          </p>
         </div>
 
         <nav className="md:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
@@ -85,3 +88,4 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default Layout;
+
