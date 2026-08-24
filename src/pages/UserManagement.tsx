@@ -1,6 +1,5 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { WorkerTerminationDialog } from "@/components/WorkerTerminationDialog";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -159,7 +158,13 @@ const UserManagement = () => {
     prevWorkerNames: string;
     nextWorkerId: string;
     nextWorkerName: string;
+    payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">;
+    prevHelperIds: string[];
+    addedHelperIds: string[];
   } | null>(null);
+  const [handoverMode, setHandoverMode] = useState<"replace" | "add">("replace");
+  const [handoverEndDate, setHandoverEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [handoverNote, setHandoverNote] = useState("");
 
 
   const applyCascade = async () => {
@@ -338,16 +343,22 @@ const UserManagement = () => {
     if (editingId) {
       const removed = prevHelperIds.filter((id) => !arrays.ids.includes(id));
       const added = arrays.ids.filter((id) => !prevHelperIds.includes(id));
-      if (removed.length > 0 && added.length > 0) {
+      if (prevHelperIds.length > 0 && added.length > 0) {
         const nextWorker = workers.find((w) => w.id === added[0]);
+        setHandoverMode(removed.length > 0 ? "replace" : "add");
+        setHandoverEndDate(new Date().toISOString().slice(0, 10));
+        setHandoverNote("");
         setHandoverGate({
           userId: editingId,
           userName: form.name,
-          prevWorkerNames: removed
+          prevWorkerNames: prevHelperIds
             .map((id) => workers.find((w) => w.id === id)?.name || id)
             .join(", "),
           nextWorkerId: added[0],
           nextWorkerName: nextWorker?.name || "",
+          payload,
+          prevHelperIds,
+          addedHelperIds: added,
         });
         return;
       }
@@ -442,6 +453,76 @@ const UserManagement = () => {
     setDialogOpen(false);
   };
 
+  const finalizeHandoverSave = async () => {
+    if (!handoverGate) return;
+    if (!handoverNote.trim()) {
+      toast({ title: "인계인수서 내용을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    if (handoverMode === "replace" && !handoverEndDate) {
+      toast({ title: "기존 지원사의 서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+
+    const finalIds = handoverMode === "replace"
+      ? handoverGate.addedHelperIds
+      : Array.from(new Set([...(handoverGate.payload.assignedHelperIds || []), ...handoverGate.addedHelperIds]));
+    const arrays = buildHelperArraysFromIds(finalIds, workers);
+    const finalPayload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
+      ...handoverGate.payload,
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+    };
+
+    await update(handoverGate.userId, finalPayload);
+    await syncUserToWorkers(handoverGate.userId, finalPayload, workers, handoverGate.prevHelperIds, updateWorker);
+
+    for (const workerId of handoverGate.addedHelperIds) {
+      const worker = workers.find((w) => w.id === workerId);
+      if (!worker) continue;
+      await addMatchingHistory({
+        type: "매칭",
+        userId: handoverGate.userId,
+        userName: finalPayload.name,
+        userPhone: finalPayload.phone,
+        workerId: worker.id,
+        workerName: worker.name,
+        workerPhone: worker.phone,
+        date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
+        notes: `${handoverMode === "replace" ? "교체" : "추가"}: ${handoverNote}`,
+      } as any);
+    }
+
+    if (handoverMode === "replace") {
+      for (const workerId of handoverGate.prevHelperIds) {
+        if (handoverGate.addedHelperIds.includes(workerId)) continue;
+        const worker = workers.find((w) => w.id === workerId);
+        if (!worker) continue;
+        await addMatchingHistory({
+          type: "해제",
+          userId: handoverGate.userId,
+          userName: finalPayload.name,
+          userPhone: finalPayload.phone,
+          workerId: worker.id,
+          workerName: worker.name,
+          workerPhone: worker.phone,
+          date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
+          endDate: handoverEndDate,
+          notes: `교체 종료: ${handoverNote}`,
+        } as any);
+      }
+    }
+
+    toast({ title: handoverMode === "replace" ? "담당자 교체 완료" : "담당자 추가 완료" });
+    setHandoverGate(null);
+    setHandoverNote("");
+    setForm(emptyUser);
+    setAgeInput("");
+    setEditingId(null);
+    setDialogOpen(false);
+  };
   const confirmPendingOverwrite = async (proceed: boolean) => {
     if (!pendingOverwrite) return;
     const { existingId, payload } = pendingOverwrite;
@@ -1185,29 +1266,41 @@ const UserManagement = () => {
       <AlertDialog open={!!handoverGate} onOpenChange={(open) => !open && setHandoverGate(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>인계·인수서 작성이 필요합니다</AlertDialogTitle>
+            <AlertDialogTitle>담당자 변경을 위해서는 인계인수서 작성이 필요합니다</AlertDialogTitle>
             <AlertDialogDescription>
-              {handoverGate?.userName} 이용자의 담당 활동지원사를 {handoverGate?.prevWorkerNames} →{" "}
-              {handoverGate?.nextWorkerName || "신규 담당자"}(으)로 변경하려고 합니다. 인계·인수서를 먼저
-              작성해야 담당자 변경이 저장됩니다.
+              {handoverGate?.userName} 이용자에게 이미 담당 활동지원사({handoverGate?.prevWorkerNames})가 있습니다.
+              기존 지원사를 교체할지, 신규 지원사를 추가 매칭할지 선택한 뒤 인계인수 내용을 저장해야 변경이 반영됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>변경 방식</Label>
+              <Select value={handoverMode} onValueChange={(v) => setHandoverMode(v as "replace" | "add")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="replace">기존 지원사 교체</SelectItem>
+                  <SelectItem value="add">신규 지원사 추가</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {handoverMode === "replace" && (
+              <div className="space-y-2">
+                <Label>기존 지원사 서비스 종료일</Label>
+                <Input type="date" value={handoverEndDate} onChange={(e) => setHandoverEndDate(e.target.value)} />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>인계인수서 내용</Label>
+              <Textarea
+                value={handoverNote}
+                onChange={(e) => setHandoverNote(e.target.value)}
+                placeholder="변경 사유, 인계할 서비스 내용, 특이사항을 입력하세요."
+              />
+            </div>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setHandoverGate(null)}>취소</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (!handoverGate) return;
-                const params = new URLSearchParams({
-                  userId: handoverGate.userId,
-                  nextWorkerId: handoverGate.nextWorkerId,
-                });
-                setHandoverGate(null);
-                setDialogOpen(false);
-                navigate(`/handovers?${params.toString()}`);
-              }}
-            >
-              인계·인수서 작성으로 이동
-            </AlertDialogAction>
+            <AlertDialogAction onClick={finalizeHandoverSave}>인계인수서 저장 후 변경</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1395,3 +1488,6 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
