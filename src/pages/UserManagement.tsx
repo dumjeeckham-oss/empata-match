@@ -44,9 +44,6 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-
-  const [terminationTarget, setTerminationTarget] = useState<Worker | null>(null);
-  const [terminationDialogOpen, setTerminationDialogOpen] = useState(false);
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
@@ -83,6 +80,11 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   receiptDate: "",
 };
 
+type MultiMatchCleanupAction = {
+  mode: "end" | "handover";
+  endDate: string;
+  workerStatus: "대기" | "퇴사";
+};
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -162,9 +164,12 @@ const UserManagement = () => {
     prevHelperIds: string[];
     addedHelperIds: string[];
   } | null>(null);
-  const [handoverMode, setHandoverMode] = useState<"replace" | "add">("replace");
+  const [handoverMode, setHandoverMode] = useState<"end" | "handover">("end");
   const [handoverEndDate, setHandoverEndDate] = useState(new Date().toISOString().slice(0, 10));
   const [handoverNote, setHandoverNote] = useState("");
+  const [handoverWorkerStatus, setHandoverWorkerStatus] = useState<"대기" | "퇴사">("대기");
+  const [cleanupTarget, setCleanupTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [cleanupActions, setCleanupActions] = useState<Record<string, MultiMatchCleanupAction>>({});
 
 
   const applyCascade = async () => {
@@ -345,7 +350,7 @@ const UserManagement = () => {
       const added = arrays.ids.filter((id) => !prevHelperIds.includes(id));
       if (prevHelperIds.length > 0 && added.length > 0) {
         const nextWorker = workers.find((w) => w.id === added[0]);
-        setHandoverMode(removed.length > 0 ? "replace" : "add");
+        setHandoverMode("end");
         setHandoverEndDate(new Date().toISOString().slice(0, 10));
         setHandoverNote("");
         setHandoverGate({
@@ -455,19 +460,16 @@ const UserManagement = () => {
 
   const finalizeHandoverSave = async () => {
     if (!handoverGate) return;
-    if (!handoverNote.trim()) {
-      toast({ title: "인계인수서 내용을 입력해주세요", variant: "destructive" });
-      return;
-    }
-    if (handoverMode === "replace" && !handoverEndDate) {
+    if (!handoverEndDate) {
       toast({ title: "기존 지원사의 서비스 종료일을 입력해주세요", variant: "destructive" });
       return;
     }
+    if (handoverMode === "handover" && !handoverNote.trim()) {
+      toast({ title: "인계인수서 내용을 입력해주세요", variant: "destructive" });
+      return;
+    }
 
-    const finalIds = handoverMode === "replace"
-      ? handoverGate.addedHelperIds
-      : Array.from(new Set([...(handoverGate.payload.assignedHelperIds || []), ...handoverGate.addedHelperIds]));
-    const arrays = buildHelperArraysFromIds(finalIds, workers);
+    const arrays = buildHelperArraysFromIds(handoverGate.addedHelperIds, workers);
     const finalPayload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
       ...handoverGate.payload,
       assignedHelperIds: arrays.ids,
@@ -478,6 +480,16 @@ const UserManagement = () => {
 
     await update(handoverGate.userId, finalPayload);
     await syncUserToWorkers(handoverGate.userId, finalPayload, workers, handoverGate.prevHelperIds, updateWorker);
+
+    if (handoverMode === "end") {
+      for (const workerId of handoverGate.prevHelperIds) {
+        if (handoverGate.addedHelperIds.includes(workerId)) continue;
+        await updateWorker(workerId, {
+          contractStatus: handoverWorkerStatus,
+          resignationDate: handoverWorkerStatus === "퇴사" ? handoverEndDate : "",
+        });
+      }
+    }
 
     for (const workerId of handoverGate.addedHelperIds) {
       const worker = workers.find((w) => w.id === workerId);
@@ -491,37 +503,102 @@ const UserManagement = () => {
         workerName: worker.name,
         workerPhone: worker.phone,
         date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
-        notes: `${handoverMode === "replace" ? "교체" : "추가"}: ${handoverNote}`,
+        notes: handoverMode === "handover" ? `인계인수 교체: ${handoverNote}` : "기존 지원사 종료 후 신규 매칭",
       } as any);
     }
 
-    if (handoverMode === "replace") {
-      for (const workerId of handoverGate.prevHelperIds) {
-        if (handoverGate.addedHelperIds.includes(workerId)) continue;
-        const worker = workers.find((w) => w.id === workerId);
-        if (!worker) continue;
-        await addMatchingHistory({
-          type: "해제",
-          userId: handoverGate.userId,
-          userName: finalPayload.name,
-          userPhone: finalPayload.phone,
-          workerId: worker.id,
-          workerName: worker.name,
-          workerPhone: worker.phone,
-          date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
-          endDate: handoverEndDate,
-          notes: `교체 종료: ${handoverNote}`,
-        } as any);
-      }
+    for (const workerId of handoverGate.prevHelperIds) {
+      if (handoverGate.addedHelperIds.includes(workerId)) continue;
+      const worker = workers.find((w) => w.id === workerId);
+      if (!worker) continue;
+      await addMatchingHistory({
+        type: "해제",
+        userId: handoverGate.userId,
+        userName: finalPayload.name,
+        userPhone: finalPayload.phone,
+        workerId: worker.id,
+        workerName: worker.name,
+        workerPhone: worker.phone,
+        date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
+        endDate: handoverEndDate,
+        notes: handoverMode === "handover" ? `인계인수 교체 종료: ${handoverNote}` : `기존 지원사 종료 처리 (${handoverWorkerStatus})`,
+      } as any);
     }
 
-    toast({ title: handoverMode === "replace" ? "담당자 교체 완료" : "담당자 추가 완료" });
+    toast({ title: handoverMode === "handover" ? "인계인수 교체 완료" : "기존 지원사 종료 후 매칭 완료" });
     setHandoverGate(null);
     setHandoverNote("");
+    setHandoverWorkerStatus("대기");
     setForm(emptyUser);
     setAgeInput("");
     setEditingId(null);
     setDialogOpen(false);
+  };
+
+  const openCleanupDialog = (user: ServiceUser & { id: string }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const actions = Object.fromEntries(
+      (user.assignedHelperIds || []).map((workerId) => [workerId, { mode: "end" as const, endDate: today, workerStatus: "대기" as const }])
+    );
+    setCleanupTarget(user);
+    setCleanupActions(actions);
+  };
+
+  const updateCleanupAction = (workerId: string, patch: Partial<MultiMatchCleanupAction>) => {
+    setCleanupActions((prev) => ({
+      ...prev,
+      [workerId]: { ...(prev[workerId] || { mode: "end", endDate: new Date().toISOString().slice(0, 10), workerStatus: "대기" }), ...patch },
+    }));
+  };
+
+  const cleanupWorkerAssignment = async (workerId: string) => {
+    if (!cleanupTarget) return;
+    const action = cleanupActions[workerId];
+    const worker = workers.find((w) => w.id === workerId);
+    if (!worker || !action) return;
+
+    if (action.mode === "handover") {
+      setCleanupTarget(null);
+      navigate(`/handovers?${new URLSearchParams({ userId: cleanupTarget.id, prevWorkerId: worker.id }).toString()}`);
+      return;
+    }
+
+    if (!action.endDate) {
+      toast({ title: "서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+
+    const nextIds = (cleanupTarget.assignedHelperIds || []).filter((id) => id !== workerId);
+    const arrays = buildHelperArraysFromIds(nextIds, workers);
+    const payload: Partial<ServiceUser> = {
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+    };
+    await update(cleanupTarget.id, payload);
+    await syncUserToWorkers(cleanupTarget.id, { ...cleanupTarget, ...payload }, workers, cleanupTarget.assignedHelperIds || [], updateWorker);
+    await updateWorker(workerId, {
+      contractStatus: action.workerStatus,
+      resignationDate: action.workerStatus === "퇴사" ? action.endDate : "",
+    });
+    await addMatchingHistory({
+      type: "해제",
+      userId: cleanupTarget.id,
+      userName: cleanupTarget.name,
+      userPhone: cleanupTarget.phone,
+      workerId: worker.id,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: cleanupTarget.serviceStartDate || new Date().toISOString().slice(0, 10),
+      endDate: action.endDate,
+      notes: `1:다 매칭 정돈 - 종료 처리 (${action.workerStatus})`,
+    } as any);
+
+    const updatedTarget = { ...cleanupTarget, ...payload } as ServiceUser & { id: string };
+    setCleanupTarget(updatedTarget.assignedHelperIds.length > 1 ? updatedTarget : null);
+    if (detailTarget?.id === cleanupTarget.id) setDetailTarget(updatedTarget);
+    toast({ title: "1:다 매칭 정돈 완료", description: `${worker.name} 지원사를 담당 목록에서 제외했습니다.` });
   };
   const confirmPendingOverwrite = async (proceed: boolean) => {
     if (!pendingOverwrite) return;
@@ -1140,6 +1217,16 @@ const UserManagement = () => {
                 <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
                 <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
                 <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user)}</p>
+                {(user.assignedHelperIds?.length || 0) > 1 && (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="mt-2 h-8"
+                    onClick={(e) => { e.stopPropagation(); openCleanupDialog(user as ServiceUser & { id: string }); }}
+                  >
+                    ⚠️ 1:다 매칭 정돈
+                  </Button>
+                )}
                 {user.contractStatus === "계약해지" && user.resignationDate && (
                   <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
                 )}
@@ -1263,34 +1350,118 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={!!cleanupTarget} onOpenChange={(open) => !open && setCleanupTarget(null)}>
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>⚠️ 1:다 매칭 정돈</DialogTitle>
+          </DialogHeader>
+          {cleanupTarget && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {cleanupTarget.name} 이용자에게 활동지원사가 {cleanupTarget.assignedHelperIds.length}명 연결되어 있습니다.
+                각 지원사를 종료 처리하거나 인계인수 교체로 넘겨 정돈하세요.
+              </p>
+              <div className="space-y-3">
+                {(cleanupTarget.assignedHelperIds || []).map((workerId) => {
+                  const worker = workers.find((w) => w.id === workerId);
+                  const action = cleanupActions[workerId] || { mode: "end", endDate: new Date().toISOString().slice(0, 10), workerStatus: "대기" };
+                  if (!worker) return null;
+                  return (
+                    <div key={workerId} className="border rounded-lg p-3 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">{worker.name}</p>
+                          <p className="text-xs text-muted-foreground">{worker.phone || "연락처 없음"}</p>
+                        </div>
+                        <Badge variant={worker.contractStatus === "퇴사" ? "destructive" : worker.contractStatus === "근무중" ? "default" : "secondary"}>
+                          {worker.contractStatus}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="space-y-2">
+                          <Label>처리 방식</Label>
+                          <Select value={action.mode} onValueChange={(v) => updateCleanupAction(workerId, { mode: v as "end" | "handover" })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="end">종료 처리</SelectItem>
+                              <SelectItem value="handover">인계인수로 교체</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {action.mode === "end" ? (
+                          <>
+                            <div className="space-y-2">
+                              <Label>서비스 종료일</Label>
+                              <Input type="date" value={action.endDate} onChange={(e) => updateCleanupAction(workerId, { endDate: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>지원사 상태</Label>
+                              <Select value={action.workerStatus} onValueChange={(v) => updateCleanupAction(workerId, { workerStatus: v as "대기" | "퇴사" })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="대기">대기</SelectItem>
+                                  <SelectItem value="퇴사">퇴사</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="md:col-span-2 text-sm text-muted-foreground flex items-end">
+                            이 지원사를 전임자(인계자)로 지정하여 인계인수서 작성 화면으로 이동합니다.
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex justify-end">
+                        <Button size="sm" onClick={() => cleanupWorkerAssignment(workerId)}>
+                          {action.mode === "handover" ? "인계인수서 작성" : "종료 처리 적용"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <AlertDialog open={!!handoverGate} onOpenChange={(open) => !open && setHandoverGate(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>담당자 변경을 위해서는 인계인수서 작성이 필요합니다</AlertDialogTitle>
             <AlertDialogDescription>
               {handoverGate?.userName} 이용자에게 이미 담당 활동지원사({handoverGate?.prevWorkerNames})가 있습니다.
-              기존 지원사를 교체할지, 신규 지원사를 추가 매칭할지 선택한 뒤 인계인수 내용을 저장해야 변경이 반영됩니다.
+              기존 지원사를 종료 처리할지, 인계인수 교체로 진행할지 선택해야 변경이 반영됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
               <Label>변경 방식</Label>
-              <Select value={handoverMode} onValueChange={(v) => setHandoverMode(v as "replace" | "add")}>
+              <Select value={handoverMode} onValueChange={(v) => setHandoverMode(v as "end" | "handover")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="replace">기존 지원사 교체</SelectItem>
-                  <SelectItem value="add">신규 지원사 추가</SelectItem>
+                  <SelectItem value="end">기존 지원사 종료</SelectItem>
+                  <SelectItem value="handover">인계인수 교체</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            {handoverMode === "replace" && (
+            <div className="space-y-2">
+              <Label>기존 지원사 서비스 종료일</Label>
+              <Input type="date" value={handoverEndDate} onChange={(e) => setHandoverEndDate(e.target.value)} />
+            </div>
+            {handoverMode === "end" && (
               <div className="space-y-2">
-                <Label>기존 지원사 서비스 종료일</Label>
-                <Input type="date" value={handoverEndDate} onChange={(e) => setHandoverEndDate(e.target.value)} />
+                <Label>종료 후 기존 지원사 상태</Label>
+                <Select value={handoverWorkerStatus} onValueChange={(v) => setHandoverWorkerStatus(v as "대기" | "퇴사")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="대기">대기</SelectItem>
+                    <SelectItem value="퇴사">퇴사</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
             <div className="space-y-2">
-              <Label>인계인수서 내용</Label>
+              <Label>{handoverMode === "handover" ? "인계인수서 내용" : "처리 메모"}</Label>
               <Textarea
                 value={handoverNote}
                 onChange={(e) => setHandoverNote(e.target.value)}
@@ -1300,7 +1471,7 @@ const UserManagement = () => {
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setHandoverGate(null)}>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={finalizeHandoverSave}>인계인수서 저장 후 변경</AlertDialogAction>
+            <AlertDialogAction onClick={finalizeHandoverSave}>선택 내용 저장 후 변경</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1331,6 +1502,11 @@ const UserManagement = () => {
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 활동지원사</p>
                   <p className="font-medium">{formatHelperList(detailTarget) || "없음"}</p>
+                  {(detailTarget.assignedHelperIds?.length || 0) > 1 && (
+                    <Button size="sm" variant="destructive" className="mt-2" onClick={() => openCleanupDialog(detailTarget)}>
+                      ⚠️ 1:다 매칭 정돈
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -1488,6 +1664,11 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
 
 
 
