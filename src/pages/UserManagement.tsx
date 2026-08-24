@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
@@ -77,7 +77,7 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   wantsWeekendSupport: false,
   femaleOnly: false,
   maleOnly: false,
-  receiptDate: "",
+  receiptDate: "", matchingHistory: [],
 };
 
 type MultiMatchCleanupAction = {
@@ -85,6 +85,17 @@ type MultiMatchCleanupAction = {
   endDate: string;
   workerStatus: "대기" | "퇴사";
 };
+
+type MatchingPeriodDraft = {
+  serviceStartDate: string;
+  serviceEndDate: string;
+  isCurrent: boolean;
+  workerStatus: "대기" | "퇴사";
+  reason: MatchingHistoryReason;
+  reasonDetail: string;
+};
+
+const MATCH_REASON_OPTIONS: MatchingHistoryReason[] = ["교체", "추가", "종료", "인계"];
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -118,7 +129,7 @@ const UserManagement = () => {
   const [detailTarget, setDetailTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -170,6 +181,8 @@ const UserManagement = () => {
   const [handoverWorkerStatus, setHandoverWorkerStatus] = useState<"대기" | "퇴사">("대기");
   const [cleanupTarget, setCleanupTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [cleanupActions, setCleanupActions] = useState<Record<string, MultiMatchCleanupAction>>({});
+  const [matchingPeriodDrafts, setMatchingPeriodDrafts] = useState<Record<string, MatchingPeriodDraft>>({});
+  const [workerServiceEndMigrationDone, setWorkerServiceEndMigrationDone] = useState(false);
 
 
   const applyCascade = async () => {
@@ -486,6 +499,8 @@ const UserManagement = () => {
         if (handoverGate.addedHelperIds.includes(workerId)) continue;
         await updateWorker(workerId, {
           contractStatus: handoverWorkerStatus,
+          serviceEndDate: handoverEndDate,
+          retirementDate: handoverWorkerStatus === "퇴사" ? handoverEndDate : "",
           resignationDate: handoverWorkerStatus === "퇴사" ? handoverEndDate : "",
         });
       }
@@ -580,6 +595,8 @@ const UserManagement = () => {
     await syncUserToWorkers(cleanupTarget.id, { ...cleanupTarget, ...payload }, workers, cleanupTarget.assignedHelperIds || [], updateWorker);
     await updateWorker(workerId, {
       contractStatus: action.workerStatus,
+      serviceEndDate: action.endDate,
+      retirementDate: action.workerStatus === "퇴사" ? action.endDate : "",
       resignationDate: action.workerStatus === "퇴사" ? action.endDate : "",
     });
     await addMatchingHistory({
@@ -765,6 +782,264 @@ const UserManagement = () => {
     return String(map[key] ?? "");
   };
 
+  const getDocumentMatchingEntries = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry[] => {
+    const byWorker = new Map<string, DocumentMatchingHistoryEntry>();
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const entry of user.matchingHistory || []) {
+      if (!entry.workerId) continue;
+      const worker = workers.find((w) => w.id === entry.workerId);
+      byWorker.set(entry.workerId, {
+        id: entry.id || `${entry.workerId}-${entry.serviceStartDate || today}`,
+        workerId: entry.workerId,
+        workerName: entry.workerName || worker?.name || "",
+        workerPhone: entry.workerPhone || worker?.phone || "",
+        serviceStartDate: entry.serviceStartDate || user.serviceStartDate || today,
+        serviceEndDate: entry.serviceEndDate ?? null,
+        reason: entry.reason || "추가",
+        reasonDetail: entry.reasonDetail || "",
+        updatedAt: entry.updatedAt,
+      });
+    }
+
+    for (const workerId of user.assignedHelperIds || []) {
+      const worker = workers.find((w) => w.id === workerId);
+      const existing = byWorker.get(workerId);
+      byWorker.set(workerId, {
+        id: existing?.id || `${workerId}-${user.serviceStartDate || today}`,
+        workerId,
+        workerName: existing?.workerName || worker?.name || user.assignedHelperNames?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
+        workerPhone: existing?.workerPhone || worker?.phone || user.assignedHelperPhones?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
+        serviceStartDate: existing?.serviceStartDate || user.serviceStartDate || today,
+        serviceEndDate: null,
+        reason: existing?.reason || "추가",
+        reasonDetail: existing?.reasonDetail || "",
+        updatedAt: existing?.updatedAt,
+      });
+    }
+
+    for (const log of matchingLogs.filter((record) => record.userId === user.id)) {
+      if (!log.workerId || byWorker.has(log.workerId)) continue;
+      byWorker.set(log.workerId, {
+        id: log.id || `${log.workerId}-${log.date || today}`,
+        workerId: log.workerId,
+        workerName: log.workerName,
+        workerPhone: log.workerPhone,
+        serviceStartDate: log.date || today,
+        serviceEndDate: log.endDate || (log.type === "해제" ? today : null),
+        reason: log.reason || (log.type === "해제" ? "종료" : "추가"),
+        reasonDetail: log.reasonDetail || log.notes || "",
+        updatedAt: undefined,
+      });
+    }
+
+    return Array.from(byWorker.values()).sort((a, b) => {
+      const activeDiff = Number(a.serviceEndDate !== null) - Number(b.serviceEndDate !== null);
+      if (activeDiff !== 0) return activeDiff;
+      return getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate));
+    });
+  };
+
+  const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
+    const next = Object.fromEntries(
+      getDocumentMatchingEntries(user).map((entry) => [
+        entry.workerId,
+        {
+          serviceStartDate: entry.serviceStartDate || "",
+          serviceEndDate: entry.serviceEndDate || "",
+          isCurrent: entry.serviceEndDate === null || entry.serviceEndDate === "",
+          workerStatus: "대기" as const,
+          reason: entry.reason || "추가",
+          reasonDetail: entry.reasonDetail || "",
+        },
+      ])
+    );
+    setMatchingPeriodDrafts(next);
+  };
+
+  const updateMatchingPeriodDraft = (workerId: string, patch: Partial<MatchingPeriodDraft>) => {
+    setMatchingPeriodDrafts((prev) => ({
+      ...prev,
+      [workerId]: {
+        ...(prev[workerId] || { serviceStartDate: "", serviceEndDate: "", isCurrent: true, workerStatus: "대기", reason: "추가", reasonDetail: "" }),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveMatchingPeriod = async (user: ServiceUser & { id: string }, workerId: string) => {
+    const draft = matchingPeriodDrafts[workerId];
+    const worker = workers.find((w) => w.id === workerId);
+    if (!draft || !worker) return;
+    if (!draft.serviceStartDate) {
+      toast({ title: "서비스 시작일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    if (!draft.isCurrent && !draft.serviceEndDate) {
+      toast({ title: "종료 처리하려면 서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingEntries = getDocumentMatchingEntries(user);
+    const nextEntry: DocumentMatchingHistoryEntry = {
+      id: existingEntries.find((entry) => entry.workerId === workerId)?.id || `${workerId}-${Date.now()}`,
+      workerId,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      serviceStartDate: draft.serviceStartDate,
+      serviceEndDate: draft.isCurrent ? null : draft.serviceEndDate,
+      reason: draft.reason,
+      reasonDetail: draft.reasonDetail,
+      updatedAt: now,
+    };
+    const nextHistory = [
+      ...existingEntries.filter((entry) => entry.workerId !== workerId),
+      nextEntry,
+    ];
+    const activeIds = nextHistory.filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "").map((entry) => entry.workerId);
+    const arrays = buildHelperArraysFromIds(activeIds, workers);
+    const nextStatus = user.contractStatus === "계약해지" || user.contractStatus === "타기관 계약" || user.contractStatus === "보류"
+      ? user.contractStatus
+      : arrays.ids.length > 0
+        ? "서비스중"
+        : "대기";
+    const payload: Partial<ServiceUser> = {
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+      matchingHistory: nextHistory,
+      contractStatus: nextStatus,
+    };
+
+    await update(user.id, payload);
+    await syncUserToWorkers(user.id, { ...user, ...payload }, workers, user.assignedHelperIds || [], updateWorker);
+    if (draft.isCurrent) {
+      await updateWorker(workerId, { contractStatus: "근무중", serviceEndDate: null, resignationDate: "" });
+    } else {
+      await updateWorker(workerId, {
+        contractStatus: draft.workerStatus,
+        serviceEndDate: draft.serviceEndDate,
+        retirementDate: draft.workerStatus === "퇴사" ? draft.serviceEndDate : "",
+        resignationDate: draft.workerStatus === "퇴사" ? draft.serviceEndDate : "",
+      });
+    }
+    await addMatchingHistory({
+      type: draft.isCurrent ? "매칭" : "해제",
+      userId: user.id,
+      userName: user.name,
+      userPhone: user.phone,
+      workerId,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: draft.serviceStartDate,
+      endDate: draft.isCurrent ? undefined : draft.serviceEndDate,
+      reason: draft.reason,
+      reasonDetail: draft.reasonDetail,
+      notes: draft.reasonDetail || draft.reason,
+    } as any);
+
+    const updatedUser = { ...user, ...payload } as ServiceUser & { id: string };
+    if (detailTarget?.id === user.id) setDetailTarget(updatedUser);
+    if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
+    resetMatchingPeriodDrafts(updatedUser);
+    toast({ title: draft.isCurrent ? "현재 담당으로 저장했습니다" : "종료 이력으로 전환했습니다" });
+  };
+
+  const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
+    const entries = getDocumentMatchingEntries(user);
+    const currentCount = entries.filter((entry) => {
+      const draft = matchingPeriodDrafts[entry.workerId];
+      return draft ? draft.isCurrent : entry.serviceEndDate === null || entry.serviceEndDate === "";
+    }).length;
+
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground">연결된 활동지원사가 없습니다.</p>;
+    }
+
+    return (
+      <div className="space-y-3">
+        {currentCount > 1 && (
+          <Alert variant="destructive">
+            <AlertTitle>현재 서비스 중인 지원사가 2명 이상입니다.</AlertTitle>
+            <AlertDescription>실제 담당자 1명만 '서비스 중'으로 유지하거나 기간을 정리해 주세요.</AlertDescription>
+          </Alert>
+        )}
+        {entries.map((entry) => {
+          const draft = matchingPeriodDrafts[entry.workerId] || {
+            serviceStartDate: entry.serviceStartDate || "",
+            serviceEndDate: entry.serviceEndDate || "",
+            isCurrent: entry.serviceEndDate === null || entry.serviceEndDate === "",
+            workerStatus: "대기" as const,
+            reason: entry.reason || "추가",
+            reasonDetail: entry.reasonDetail || "",
+          };
+          return (
+            <div key={entry.workerId} className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">{entry.workerName || entry.workerId}</p>
+                  <p className="text-xs text-muted-foreground">{entry.workerPhone || "연락처 없음"}</p>
+                </div>
+                <Badge variant={draft.isCurrent ? "default" : "secondary"}>{draft.isCurrent ? "서비스 중" : "종료(이력)"}</Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="space-y-2">
+                  <Label>서비스 시작일</Label>
+                  <Input type="date" value={draft.serviceStartDate} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { serviceStartDate: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>현재 서비스 중</Label>
+                  <div className="h-10 flex items-center gap-2">
+                    <Checkbox
+                      checked={draft.isCurrent}
+                      onCheckedChange={(checked) => updateMatchingPeriodDraft(entry.workerId, { isCurrent: checked === true, serviceEndDate: checked === true ? "" : draft.serviceEndDate })}
+                    />
+                    <span className="text-sm">서비스 중</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>서비스 종료일</Label>
+                  <Input type="date" disabled={draft.isCurrent} value={draft.serviceEndDate} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { serviceEndDate: e.target.value })} />
+                </div>
+                {!draft.isCurrent && (
+                  <div className="space-y-2">
+                    <Label>종료 후 지원사 상태</Label>
+                    <Select value={draft.workerStatus} onValueChange={(v) => updateMatchingPeriodDraft(entry.workerId, { workerStatus: v as "대기" | "퇴사" })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="대기">대기</SelectItem>
+                        <SelectItem value="퇴사">퇴사</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>변경 사유</Label>
+                  <Select value={draft.reason} onValueChange={(v) => updateMatchingPeriodDraft(entry.workerId, { reason: v as MatchingHistoryReason })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MATCH_REASON_OPTIONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>상세 사유(선택)</Label>
+                  <Input value={draft.reasonDetail} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { reasonDetail: e.target.value })} placeholder="필요 시 간단히 입력" />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => saveMatchingPeriod(user, entry.workerId)}>기간 저장</Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
   const openDetail = (user: ServiceUser & { id: string }) => {
     setDetailTarget(user);
     setExpandedCounselId(null);
@@ -1141,6 +1416,15 @@ const UserManagement = () => {
                       placeholder="지원사 선택..."
                     />
                   </div>
+                  {editingId && (
+                    <div className="col-span-2 space-y-3">
+                      <div>
+                        <Label>활동지원사별 서비스 기간</Label>
+                        <p className="text-xs text-muted-foreground mt-1">지원사별 시작일/종료일을 저장하면 현재 담당과 과거 이력이 자동으로 분리됩니다.</p>
+                      </div>
+                      {renderMatchingPeriodEditor({ ...form, id: editingId })}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-2">
@@ -1510,6 +1794,15 @@ const UserManagement = () => {
                 </div>
               </div>
 
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">활동지원사별 서비스 기간</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {renderMatchingPeriodEditor(detailTarget)}
+                </CardContent>
+              </Card>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
                   <CardHeader>
@@ -1541,7 +1834,7 @@ const UserManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", notes: ""});
+                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", reason: "추가", reasonDetail: "", notes: ""});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -1558,7 +1851,7 @@ const UserManagement = () => {
                               <p className="text-sm text-muted-foreground">{match.workerName} · {match.workerPhone}</p>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); removeMatchingHistory(match.id); }}>🗑️</Button>}
                             </div>
                           </div>
@@ -1664,6 +1957,14 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
+
+
+
 
 
 

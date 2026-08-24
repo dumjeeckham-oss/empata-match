@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -50,7 +50,7 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   isForeigner: false, hasF4: false, hasF5: false,
-  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", resignationDate: "", notes: "",
+  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
   supportTypes: [],
   certificates: [],
@@ -115,14 +115,14 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
 /** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
 function effectiveWorkerStatus(worker: Worker): string {
   const raw = String(worker.contractStatus || "");
-  if (raw === "퇴사" || String(worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  if (raw === "퇴사" || String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "") return "퇴사";
   return raw;
 }
 
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
 
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
-  const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
+  const hasResignationDate = String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "";
   const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
 
   return {
@@ -517,7 +517,7 @@ const WorkerManagement = () => {
       운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
       이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
       담당이용자: w.assignedUserNames?.join(", "), 최초접수일: w.receiptDate,
-      최초근무일: w.serviceStartDate, 퇴사일: w.resignationDate, 비고: w.notes,
+      최초근무일: w.serviceStartDate, 퇴사일: w.retirementDate || w.resignationDate, 서비스종료일: w.serviceEndDate || "", 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -801,7 +801,7 @@ const WorkerManagement = () => {
                   {form.contractStatus === "퇴사" && (
                     <div>
                       <Label>퇴사일</Label>
-                      <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                      <Input type="date" value={form.retirementDate || form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, retirementDate: e.target.value, resignationDate: e.target.value }))} />
                     </div>
                   )}
 
@@ -1207,3 +1207,4 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+

@@ -133,6 +133,7 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     // 엑셀/Firestore의 날짜 형식을 YYYY-MM-DD로 통일하여 화면 Input(type=date)에 즉시 반영
     serviceStartDate,
     resignationDate: userResignationDate,
+    matchingHistory: Array.isArray(raw.matchingHistory) ? (raw.matchingHistory as ServiceUser["matchingHistory"]) : [],
 
   } as Partial<ServiceUser>;
 }
@@ -156,6 +157,9 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
       ? [String(raw.assignedUserPhone)]
       : [];
 
+  const serviceEndDateRaw = raw.serviceEndDate ?? raw["서비스종료일"] ?? raw["서비스 종료일"] ?? null;
+  const serviceEndDate = serviceEndDateRaw === null ? null : toYmd(serviceEndDateRaw);
+  const retirementDate = toYmd(raw.retirementDate ?? raw["퇴사일"] ?? raw.resignationDate);
   const resignationDate = toYmd(
     raw.resignationDate ?? raw["퇴사일"] ?? raw.endDate ?? raw["종결일"]
   );
@@ -196,7 +200,9 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     contractStatus: derivedStatus,
     experience: derivedExperience,
     serviceStartDate,
-    resignationDate,
+        serviceEndDate,
+    retirementDate,
+    resignationDate: retirementDate || resignationDate,
   } as Partial<Worker>;
 }
 
@@ -356,3 +362,6 @@ export function buildUserArraysFromIds(
   }
   return { ids, names, phones };
 }
+
+
+

@@ -1,4 +1,4 @@
-﻿export const VOUCHER_HOURS: Record<number, number> = {
+export const VOUCHER_HOURS: Record<number, number> = {
   1: 470, 2: 440, 3: 410, 4: 380, 5: 360, 6: 330, 7: 300,
   8: 270, 9: 240, 10: 210, 11: 180, 12: 150, 13: 120, 14: 90, 15: 60,
 };
@@ -30,6 +30,20 @@ export const TERMINATION_REASONS = [
 export interface WeeklySchedule {
   day: "월" | "화" | "수" | "목" | "금" | "토" | "일";
   slots: number[]; // 0-47 (30분 단위, 00:00 = 0)
+}
+
+export type MatchingHistoryReason = "교체" | "추가" | "종료" | "인계";
+
+export interface DocumentMatchingHistoryEntry {
+  id: string;
+  workerId: string;
+  workerName: string;
+  workerPhone: string;
+  serviceStartDate: string;
+  serviceEndDate: string | null;
+  reason: MatchingHistoryReason;
+  reasonDetail?: string;
+  updatedAt?: string;
 }
 
 export interface ServiceUser {
@@ -84,6 +98,8 @@ export interface ServiceUser {
   /** 담당 활동지원사 연락처 목록 */
   assignedHelperPhones: string[];
   receiptDate: string; // 최초 접수일
+  /** 문서 내부 매칭 이력: 현재 서비스 중은 serviceEndDate=null */
+  matchingHistory?: DocumentMatchingHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -117,6 +133,10 @@ export interface Worker {
   certificateNumber: string;
   contractStatus: "근무중" | "퇴사" | "대기";
   serviceStartDate: string;
+  /** 특정 이용자와의 서비스 종료일 기본값 */
+  serviceEndDate?: string | null;
+  /** 인사 기록용 퇴사일 */
+  retirementDate?: string;
   resignationDate: string;
   notes: string;
   /** 담당 이용자 ID 목록 (N:M) */
@@ -128,6 +148,8 @@ export interface Worker {
   /** 담당 이용자 연락처 목록 */
   assignedUserPhones: string[];
   receiptDate: string; // 최초 접수일
+  /** 문서 내부 매칭 이력: 현재 서비스 중은 serviceEndDate=null */
+  matchingHistory?: DocumentMatchingHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -217,7 +239,12 @@ export interface MatchingHistoryRecord {
   workerPhone: string;
   date: string; // YYYY-MM-DD (시작일 또는 이벤트일)
   endDate?: string; // YYYY-MM-DD (종료일, 해제 시에만)
+  reason?: MatchingHistoryReason;
+  reasonDetail?: string;
   notes?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
+
+
