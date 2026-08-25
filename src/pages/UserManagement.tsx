@@ -1668,123 +1668,172 @@ const UserManagement = () => {
       </div>
 
 
-      <Card className="mb-6 border-primary/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">이용자 현황 요약 대시보드</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <button type="button" onClick={() => openUserSummaryModal("contracts")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">3개월 신규 계약</p>
-              <p className="text-2xl font-bold text-primary">{userSummary.recentContracts}</p>
-            </button>
-            <button type="button" onClick={() => openUserSummaryModal("terminations")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">3개월 서비스 해지</p>
-              <p className="text-2xl font-bold text-destructive">{userSummary.recentTerminations}</p>
-            </button>
-            <button type="button" onClick={() => openUserSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">현재 대기자</p>
-              <p className="text-2xl font-bold">{userSummary.waiting}</p>
-            </button>
-            <button type="button" onClick={() => openUserSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">인계/변경</p>
-              <p className="text-2xl font-bold text-primary">{userSummary.handoverEvents}</p>
-            </button>
-            <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">이용자 상담</p>
-              <p className="text-2xl font-bold">{userSummary.recentCounseling}</p>
-            </button>
-            <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">미처리 상담</p>
-              <p className="text-2xl font-bold text-destructive">{userSummary.unresolvedCounseling}</p>
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-      <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
+        <section className="space-y-4 xl:col-span-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">전체 이용자 명단 ({filtered.length}명)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <Input placeholder="이름·연락처 또는 담당 활동지원사로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
-              <TabsList>
-                <TabsTrigger value="all">전체</TabsTrigger>
-                <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
-                <TabsTrigger value="대기">대기</TabsTrigger>
-                <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
+                <TabsList className="min-w-max">
+                  <TabsTrigger value="all">전체</TabsTrigger>
+                  <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
+                  <TabsTrigger value="대기">대기</TabsTrigger>
+                  <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {filtered.length === 0 ? (
+              <Card className="md:col-span-2">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">검색된 이용자가 없습니다.</CardContent>
+              </Card>
+            ) : (
+              filtered.map((user) => (
+                <Card key={user.id} className="stat-card group">
+                  <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(user as any)}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <span className="font-bold text-lg">{user.name}</span>
+                        <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
+                          {effectiveUserStatus(user)}
+                        </Badge>
+
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}
+                          className="text-primary hover:text-primary/90"
+                          aria-label="수정"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(user as any); }}
+                          className="text-destructive hover:text-destructive/90"
+                          aria-label="삭제"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <p>
+                        <span className="text-muted-foreground">연락처:</span>{" "}
+                        <a 
+                          href={`tel:${user.phone}`} 
+                          className="text-primary hover:underline inline-flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <PhoneCall className="w-3 h-3" />
+                          {user.phone}
+                        </a>
+                      </p>
+                      <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
+                      <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
+                      <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelper(user) || "없음"}</p>
+                      {(user.assignedHelperIds?.length || 0) > 1 && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="mt-2 h-8"
+                          onClick={(e) => { e.stopPropagation(); openCleanupDialog(user as ServiceUser & { id: string }); }}
+                        >
+                          ⚠️ 1:다 매칭 정돈
+                        </Button>
+                      )}
+                      {user.contractStatus === "계약해지" && user.resignationDate && (
+                        <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((user) => (
-          <Card key={user.id} className="stat-card group">
-            <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(user as any)}>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <span className="font-bold text-lg">{user.name}</span>
-                  <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
-                    {effectiveUserStatus(user)}
-                  </Badge>
-
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}
-                    className="text-primary hover:text-primary/90"
-                    aria-label="수정"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(user as any); }}
-                    className="text-destructive hover:text-destructive/90"
-                    aria-label="삭제"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <span className="text-muted-foreground">연락처:</span>{" "}
-                  <a 
-                    href={`tel:${user.phone}`} 
-                    className="text-primary hover:underline inline-flex items-center gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <PhoneCall className="w-3 h-3" />
-                    {user.phone}
-                  </a>
-                </p>
-                <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
-                <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
-                <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelper(user) || "없음"}</p>
-                {(user.assignedHelperIds?.length || 0) > 1 && (
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    className="mt-2 h-8"
-                    onClick={(e) => { e.stopPropagation(); openCleanupDialog(user as ServiceUser & { id: string }); }}
-                  >
-                    ⚠️ 1:다 매칭 정돈
-                  </Button>
-                )}
-                {user.contractStatus === "계약해지" && user.resignationDate && (
-                  <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
-                )}
+        <aside className="space-y-4 xl:col-span-2 xl:sticky xl:top-32">
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">이용자 현황 요약 대시보드</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <button type="button" onClick={() => openUserSummaryModal("contracts")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 신규 계약</p>
+                  <p className="text-2xl font-bold text-primary">{userSummary.recentContracts}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("terminations")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 서비스 해지</p>
+                  <p className="text-2xl font-bold text-destructive">{userSummary.recentTerminations}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">현재 대기자</p>
+                  <p className="text-2xl font-bold">{userSummary.waiting}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">인계/변경</p>
+                  <p className="text-2xl font-bold text-primary">{userSummary.handoverEvents}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">이용자 상담</p>
+                  <p className="text-2xl font-bold">{userSummary.recentCounseling}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">미처리 상담</p>
+                  <p className="text-2xl font-bold text-destructive">{userSummary.unresolvedCounseling}</p>
+                </button>
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{summaryModal?.title || "선택된 현황 상세 명단"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!summaryModal ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">상단 현황 카드를 선택하면 조건별 명단이 표시됩니다.</p>
+              ) : summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <div className="max-h-[520px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3">이름</th>
+                        <th className="py-2 pr-3">주요 일자</th>
+                        <th className="py-2 pr-3">상태</th>
+                        <th className="py-2 pr-3">비고/사유</th>
+                        <th className="py-2 text-right">바로가기</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summaryModal.rows.map((row) => (
+                        <tr key={row.id} className="border-b hover:bg-muted/40 cursor-pointer" onClick={() => openSummaryUser(row.userId)}>
+                          <td className="py-2 pr-3 font-medium">{row.name}</td>
+                          <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                          <td className="py-2 pr-3"><Badge variant={row.status.includes("해지") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                          <td className="py-2 pr-3 max-w-[260px] truncate">{row.note || "-"}</td>
+                          <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openSummaryUser(row.userId); }}>상세</Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1899,90 +1948,6 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!summaryModal} onOpenChange={(open) => !open && setSummaryModal(null)}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{summaryModal?.title || "대상자 상세 명단"}</DialogTitle>
-          </DialogHeader>
-          {summaryModal && (
-            <div className="overflow-x-auto">
-              {summaryModal.rows.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-2 pr-3">이름</th>
-                      <th className="py-2 pr-3">주요 날짜</th>
-                      <th className="py-2 pr-3">상태</th>
-                      <th className="py-2 pr-3">비고/사유</th>
-                      <th className="py-2 text-right">바로가기</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summaryModal.rows.map((row) => (
-                      <tr key={row.id} className="border-b hover:bg-muted/40">
-                        <td className="py-2 pr-3 font-medium">{row.name}</td>
-                        <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
-                        <td className="py-2 pr-3"><Badge variant={row.status.includes("해지") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
-                        <td className="py-2 pr-3 max-w-[360px] truncate">{row.note || "-"}</td>
-                        <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={() => openSummaryUser(row.userId)}>상세</Button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!serviceCloseTarget} onOpenChange={(open) => !open && setServiceCloseTarget(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>서비스 종료/교체</DialogTitle>
-          </DialogHeader>
-          {serviceCloseTarget && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                {serviceCloseTarget.user.name} 이용자의 {serviceCloseTarget.entry.workerName} 활동지원사를 현재 담당에서 제외합니다.
-              </p>
-              <div className="space-y-2">
-                <Label>서비스 종료일</Label>
-                <Input type="date" value={serviceCloseForm.endDate} onChange={(e) => setServiceCloseForm((prev) => ({ ...prev, endDate: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>종료 후 지원사 상태</Label>
-                <Select value={serviceCloseForm.workerStatus} onValueChange={(v) => setServiceCloseForm((prev) => ({ ...prev, workerStatus: v as "대기" | "퇴사" }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="대기">대기</SelectItem>
-                    <SelectItem value="퇴사">퇴사</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-2">
-                  <Label>변경 사유</Label>
-                  <Select value={serviceCloseForm.reason} onValueChange={(v) => setServiceCloseForm((prev) => ({ ...prev, reason: v as MatchingHistoryReason }))}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {MATCH_REASON_OPTIONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>상세 사유(선택)</Label>
-                  <Input value={serviceCloseForm.reasonDetail} onChange={(e) => setServiceCloseForm((prev) => ({ ...prev, reasonDetail: e.target.value }))} placeholder="필요 시 간단히 입력" />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setServiceCloseTarget(null)}>취소</Button>
-                <Button onClick={finalizeServiceClose}>종료 등록</Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
       <Dialog open={!!cleanupTarget} onOpenChange={(open) => !open && setCleanupTarget(null)}>
         <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
@@ -2306,6 +2271,7 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
 
 
 

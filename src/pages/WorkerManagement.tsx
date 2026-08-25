@@ -915,142 +915,191 @@ const WorkerManagement = () => {
       </div>
 
 
-      <Card className="border-primary/20">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">활동지원사 현황 요약 대시보드</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-            <button type="button" onClick={() => openWorkerSummaryModal("joined")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">3개월 신규 입사</p>
-              <p className="text-2xl font-bold text-primary">{workerSummary.recentJoined}</p>
-            </button>
-            <button type="button" onClick={() => openWorkerSummaryModal("resigned")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">3개월 퇴사</p>
-              <p className="text-2xl font-bold text-destructive">{workerSummary.recentResigned}</p>
-            </button>
-            <button type="button" onClick={() => openWorkerSummaryModal("working")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">현재 근무 중</p>
-              <p className="text-2xl font-bold">{workerSummary.working}</p>
-            </button>
-            <button type="button" onClick={() => openWorkerSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">현재 대기</p>
-              <p className="text-2xl font-bold">{workerSummary.waiting}</p>
-            </button>
-            <button type="button" onClick={() => openWorkerSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">인계/변경</p>
-              <p className="text-2xl font-bold text-primary">{workerSummary.handoverEvents}</p>
-            </button>
-            <button type="button" onClick={() => openWorkerSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
-              <p className="text-xs text-muted-foreground">상담/보고</p>
-              <p className="text-2xl font-bold">{workerSummary.counselingIssues}</p>
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-      <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
+        <section className="space-y-4 xl:col-span-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">전체 활동지원사 명단 ({filtered.length}명)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <Input placeholder="이름·연락처 또는 담당 이용자로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <div className="flex flex-wrap gap-4 w-full md:w-auto">
-              <div className="flex flex-col gap-1.5 min-w-[120px]">
-                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">상태 필터</Label>
-                <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
-                  <TabsList className="grid grid-cols-4 h-9">
-                    <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
-                    <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
-                    <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
-                    <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">지원 가능 종류 필터</Label>
-                <Tabs value={supportFilter} onValueChange={setSupportFilter} className="w-full">
-                  <TabsList className="grid grid-cols-4 h-9">
-                    <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
-                    {SUPPORT_TYPES.map(t => (
-                      <TabsTrigger key={t} value={t} className="text-xs">{t}</TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((w) => (
-          <Card key={w.id} className="stat-card group">
-            <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(w as any)}>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <span className="font-bold text-lg">{w.name}</span>
-                  <div className="flex flex-wrap gap-2 text-sm text-muted-foreground mt-1">
-                    <span>{w.gender} · {w.age}세</span>
-                    {w.isForeigner && <Badge variant="secondary">외국인</Badge>}
-                    {w.hasF4 && <Badge variant="outline">F4</Badge>}
-                    {w.hasF5 && <Badge variant="outline">F5</Badge>}
-                  </div>
+              <div className="flex flex-col gap-4 md:flex-row md:items-end">
+                <div className="flex-1 space-y-1.5">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">상태 필터</Label>
+                  <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
+                    <TabsList className="min-w-max">
+                      <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                      <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
+                      <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
+                      <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
-                    {effectiveWorkerStatus(w)}
-                  </Badge>
-
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
-                    className="text-primary hover:text-primary/90"
-                    aria-label="수정"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(w as any); }}
-                    className="text-destructive hover:text-destructive/90"
-                    aria-label="삭제"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                <div className="flex-1 space-y-1.5">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">지원 가능 종류 필터</Label>
+                  <Tabs value={supportFilter} onValueChange={setSupportFilter} className="w-full overflow-x-auto">
+                    <TabsList className="min-w-max">
+                      <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                      {SUPPORT_TYPES.map(t => (
+                        <TabsTrigger key={t} value={t} className="text-xs">{t}</TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
                 </div>
-              </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <span className="text-muted-foreground">연락처:</span>{" "}
-                  <a
-                    href={`tel:${w.phone}`}
-                    className="text-primary hover:underline inline-flex items-center gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <PhoneCall className="w-3 h-3" />
-                    {w.phone}
-                  </a>
-                </p>
-                <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
-                {w.supportTypes && w.supportTypes.length > 0 && (
-                  <div className="flex flex-wrap gap-1 py-0.5">
-                    <span className="text-muted-foreground">지원가능:</span>
-                    {w.supportTypes.map(t => (
-                      <Badge key={t} variant="outline" className="text-[10px] px-1 h-4 bg-blue-50/30">{t}</Badge>
-                    ))}
-                  </div>
-                )}
-                <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
-                <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
-                {w.contractStatus === "퇴사" && w.resignationDate && (
-                  <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
-                )}
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {filtered.length === 0 ? (
+              <Card className="md:col-span-2">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">검색된 활동지원사가 없습니다.</CardContent>
+              </Card>
+            ) : (
+              filtered.map((w) => (
+                <Card key={w.id} className="stat-card group">
+                  <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(w as any)}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <span className="font-bold text-lg">{w.name}</span>
+                        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground mt-1">
+                          <span>{w.gender} · {w.age}세</span>
+                          {w.isForeigner && <Badge variant="secondary">외국인</Badge>}
+                          {w.hasF4 && <Badge variant="outline">F4</Badge>}
+                          {w.hasF5 && <Badge variant="outline">F5</Badge>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
+                          {effectiveWorkerStatus(w)}
+                        </Badge>
+
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
+                          className="text-primary hover:text-primary/90"
+                          aria-label="수정"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(w as any); }}
+                          className="text-destructive hover:text-destructive/90"
+                          aria-label="삭제"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <p>
+                        <span className="text-muted-foreground">연락처:</span>{" "}
+                        <a
+                          href={`tel:${w.phone}`}
+                          className="text-primary hover:underline inline-flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <PhoneCall className="w-3 h-3" />
+                          {w.phone}
+                        </a>
+                      </p>
+                      <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
+                      {w.supportTypes && w.supportTypes.length > 0 && (
+                        <div className="flex flex-wrap gap-1 py-0.5">
+                          <span className="text-muted-foreground">지원가능:</span>
+                          {w.supportTypes.map(t => (
+                            <Badge key={t} variant="outline" className="text-[10px] px-1 h-4 bg-blue-50/30">{t}</Badge>
+                          ))}
+                        </div>
+                      )}
+                      <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
+                      <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
+                      {w.contractStatus === "퇴사" && w.resignationDate && (
+                        <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </section>
+
+        <aside className="space-y-4 xl:col-span-2 xl:sticky xl:top-32">
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">활동지원사 현황 요약 대시보드</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <button type="button" onClick={() => openWorkerSummaryModal("joined")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 신규 입사</p>
+                  <p className="text-2xl font-bold text-primary">{workerSummary.recentJoined}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("resigned")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 퇴사</p>
+                  <p className="text-2xl font-bold text-destructive">{workerSummary.recentResigned}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("working")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">현재 근무 중</p>
+                  <p className="text-2xl font-bold">{workerSummary.working}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">현재 대기</p>
+                  <p className="text-2xl font-bold">{workerSummary.waiting}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">인계/변경</p>
+                  <p className="text-2xl font-bold text-primary">{workerSummary.handoverEvents}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">상담/보고</p>
+                  <p className="text-2xl font-bold">{workerSummary.counselingIssues}</p>
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{summaryModal?.title || "선택된 현황 상세 명단"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!summaryModal ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">상단 현황 카드를 선택하면 조건별 명단이 표시됩니다.</p>
+              ) : summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <div className="max-h-[520px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3">이름</th>
+                        <th className="py-2 pr-3">주요 일자</th>
+                        <th className="py-2 pr-3">상태</th>
+                        <th className="py-2 pr-3">비고/사유</th>
+                        <th className="py-2 text-right">바로가기</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summaryModal.rows.map((row) => (
+                        <tr key={row.id} className="border-b hover:bg-muted/40 cursor-pointer" onClick={() => openSummaryWorker(row.workerId)}>
+                          <td className="py-2 pr-3 font-medium">{row.name}</td>
+                          <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                          <td className="py-2 pr-3"><Badge variant={row.status.includes("퇴사") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                          <td className="py-2 pr-3 max-w-[260px] truncate">{row.note || "-"}</td>
+                          <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openSummaryWorker(row.workerId); }}>상세</Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1066,43 +1115,6 @@ const WorkerManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={!!summaryModal} onOpenChange={(open) => !open && setSummaryModal(null)}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{summaryModal?.title || "대상자 상세 명단"}</DialogTitle>
-          </DialogHeader>
-          {summaryModal && (
-            <div className="overflow-x-auto">
-              {summaryModal.rows.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
-              ) : (
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="py-2 pr-3">이름</th>
-                      <th className="py-2 pr-3">주요 날짜</th>
-                      <th className="py-2 pr-3">상태</th>
-                      <th className="py-2 pr-3">비고/사유</th>
-                      <th className="py-2 text-right">바로가기</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {summaryModal.rows.map((row) => (
-                      <tr key={row.id} className="border-b hover:bg-muted/40">
-                        <td className="py-2 pr-3 font-medium">{row.name}</td>
-                        <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
-                        <td className="py-2 pr-3"><Badge variant={row.status.includes("퇴사") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
-                        <td className="py-2 pr-3 max-w-[360px] truncate">{row.note || "-"}</td>
-                        <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={() => openSummaryWorker(row.workerId)}>상세</Button></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
       <AlertDialog open={!!cascadeTarget} onOpenChange={(open) => !open && setCascadeTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1366,6 +1378,7 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
 
 
 
