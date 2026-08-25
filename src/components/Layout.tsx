@@ -12,6 +12,7 @@ const navItems = [
   { path: "/counseling", label: "상담기록", icon: "📝" },
   { path: "/terminations", label: "종결확인서", icon: "📄" },
   { path: "/handovers", label: "인계·인수서", icon: "🔁" },
+  { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
 ];
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
@@ -88,4 +89,5 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default Layout;
+
 
