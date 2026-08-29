@@ -12,6 +12,7 @@ interface WorkerPeriodEditorProps {
   /** Callback after successful save, can be used to refresh parent data */
   onSaved?: () => void;
 }
+
 /**
  * UI for editing a single worker's service period.
  * - Allows setting serviceStartDate.
@@ -77,3 +78,4 @@ export const WorkerPeriodEditor: React.FC<WorkerPeriodEditorProps> = ({ worker, 
     </div>
   );
 };
+

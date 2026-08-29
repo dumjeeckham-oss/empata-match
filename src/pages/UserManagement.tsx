@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
@@ -16,12 +16,12 @@ import {
 } from "@/lib/bulkUpload";
 import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION, COUNSELING_COLLECTION } from "@/lib/collectionNames";
 import { cascadeUserProfile } from "@/lib/cascadeSync";
+import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import {
   buildHelperArraysFromIds,
   formatHelperList,
   syncUserToWorkers,
 } from "@/lib/assignments";
-import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,8 +47,8 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-
 import { getComparableDateValue } from "@/lib/utils";
+import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
 /** 화면 표시용 계약상태: 계약해지일 또는 중단사유가 있으면 항상 "계약해지" 목록으로 이동 */
@@ -81,9 +81,25 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   wantsWeekendSupport: false,
   femaleOnly: false,
   maleOnly: false,
-  receiptDate: "",
+  receiptDate: "", matchingHistory: [],
 };
 
+type MultiMatchCleanupAction = {
+  mode: "end" | "handover";
+  endDate: string;
+  workerStatus: "대기" | "퇴사";
+};
+
+type MatchingPeriodDraft = {
+  serviceStartDate: string;
+  serviceEndDate: string;
+  isCurrent: boolean;
+  workerStatus: "대기" | "퇴사";
+  reason: MatchingHistoryReason;
+  reasonDetail: string;
+};
+
+const MATCH_REASON_OPTIONS: MatchingHistoryReason[] = ["교체", "추가", "종료", "인계"];
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -117,7 +133,7 @@ const UserManagement = () => {
   const [detailTarget, setDetailTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -157,12 +173,31 @@ const UserManagement = () => {
     userId: string;
     userName: string;
     prevWorkerNames: string;
-    prevWorkerId?: string;
     nextWorkerId: string;
     nextWorkerName: string;
+    payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">;
+    prevHelperIds: string[];
+    addedHelperIds: string[];
   } | null>(null);
-  const [serviceActionTarget, setServiceActionTarget] = useState<(ServiceUser & { id: string }) | null>(null);
-  const [workerHistorySearch, setWorkerHistorySearch] = useState("");
+  const [handoverMode, setHandoverMode] = useState<"end" | "handover">("end");
+  const [handoverEndDate, setHandoverEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [handoverNote, setHandoverNote] = useState("");
+  const [handoverWorkerStatus, setHandoverWorkerStatus] = useState<"대기" | "퇴사">("대기");
+  const [cleanupTarget, setCleanupTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [cleanupActions, setCleanupActions] = useState<Record<string, MultiMatchCleanupAction>>({});
+  const [matchingPeriodDrafts, setMatchingPeriodDrafts] = useState<Record<string, MatchingPeriodDraft>>({});
+  const [workerServiceEndMigrationDone, setWorkerServiceEndMigrationDone] = useState(false);
+  const [serviceCloseTarget, setServiceCloseTarget] = useState<{ user: ServiceUser & { id: string }; entry: DocumentMatchingHistoryEntry } | null>(null);
+  const [serviceCloseForm, setServiceCloseForm] = useState<{ endDate: string; workerStatus: "대기" | "퇴사"; reason: MatchingHistoryReason; reasonDetail: string }>({
+    endDate: new Date().toISOString().slice(0, 10),
+    workerStatus: "대기",
+    reason: "종료",
+    reasonDetail: "",
+  });
+  const [summaryModal, setSummaryModal] = useState<{
+    title: string;
+    rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string }>;
+  } | null>(null);
 
 
   const applyCascade = async () => {
@@ -341,33 +376,22 @@ const UserManagement = () => {
     if (editingId) {
       const removed = prevHelperIds.filter((id) => !arrays.ids.includes(id));
       const added = arrays.ids.filter((id) => !prevHelperIds.includes(id));
-      if (removed.length > 0 && added.length > 0) {
+      if (prevHelperIds.length > 0 && added.length > 0) {
         const nextWorker = workers.find((w) => w.id === added[0]);
+        setHandoverMode("end");
+        setHandoverEndDate(new Date().toISOString().slice(0, 10));
+        setHandoverNote("");
         setHandoverGate({
           userId: editingId,
           userName: form.name,
-          prevWorkerId: removed[0],
-          prevWorkerNames: removed
+          prevWorkerNames: prevHelperIds
             .map((id) => workers.find((w) => w.id === id)?.name || id)
             .join(", "),
           nextWorkerId: added[0],
           nextWorkerName: nextWorker?.name || "",
-        });
-        return;
-      }
-      const existingUser = users.find((user) => user.id === editingId);
-      const lastReleasedMatch = [...matchingLogs]
-        .filter((record) => record.userId === editingId && record.type === "해제" && record.workerId)
-        .sort((a, b) => (b.endDate || b.date || "").localeCompare(a.endDate || a.date || ""))[0];
-      if (added.length > 0 && prevHelperIds.length === 0 && existingUser?.contractStatus === "대기" && lastReleasedMatch) {
-        const nextWorker = workers.find((worker) => worker.id === added[0]);
-        setHandoverGate({
-          userId: editingId,
-          userName: form.name,
-          prevWorkerId: lastReleasedMatch.workerId,
-          prevWorkerNames: lastReleasedMatch.workerName,
-          nextWorkerId: added[0],
-          nextWorkerName: nextWorker?.name || "",
+          payload,
+          prevHelperIds,
+          addedHelperIds: added,
         });
         return;
       }
@@ -389,7 +413,6 @@ const UserManagement = () => {
 
     if (editingId) {
       await update(editingId, payload);
-      toast({ title: "수정 완료" });
       await cascadeUserProfile(editingId, {
         name: payload.name,
         phone: payload.phone,
@@ -397,6 +420,7 @@ const UserManagement = () => {
         voucherTier: payload.voucherTier,
         disabilityType: payload.disabilityType,
       });
+      toast({ title: "수정 완료" });
     } else {
       const key = makeUniqueKey(form.name, form.phone, getIdentityFallbackContext(form));
       const existing = users.find((u) => makeUniqueKey(u.name, u.phone, getIdentityFallbackContext(u as any)) === key);
@@ -469,6 +493,183 @@ const UserManagement = () => {
     setDialogOpen(false);
   };
 
+  const finalizeHandoverSave = async () => {
+    if (!handoverGate) return;
+    if (!handoverEndDate) {
+      toast({ title: "기존 지원사의 서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    if (handoverMode === "handover" && !handoverNote.trim()) {
+      toast({ title: "인계인수서 내용을 입력해주세요", variant: "destructive" });
+      return;
+    }
+
+    const activeAddedIds = handoverGate.addedHelperIds.slice(-1);
+    const arrays = buildHelperArraysFromIds(activeAddedIds, workers);
+    const handoverUser = users.find((u) => u.id === handoverGate.userId);
+    const handoverBaseHistory = handoverUser ? getDocumentMatchingEntries(handoverUser) : [];
+    const startDateForHandover = handoverGate.payload.serviceStartDate || new Date().toISOString().slice(0, 10);
+    const handoverHistoryByWorker = new Map<string, DocumentMatchingHistoryEntry>();
+    for (const entry of handoverBaseHistory) {
+      handoverHistoryByWorker.set(entry.workerId, {
+        ...entry,
+        serviceEndDate: handoverGate.prevHelperIds.includes(entry.workerId) ? handoverEndDate : entry.serviceEndDate,
+        reason: handoverGate.prevHelperIds.includes(entry.workerId) ? (handoverMode === "handover" ? "인계" : "종료") : entry.reason,
+        reasonDetail: handoverGate.prevHelperIds.includes(entry.workerId) ? handoverNote : entry.reasonDetail,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    for (const workerId of activeAddedIds) {
+      const worker = workers.find((w) => w.id === workerId);
+      if (!worker) continue;
+      handoverHistoryByWorker.set(workerId, {
+        id: handoverHistoryByWorker.get(workerId)?.id || `${workerId}-${Date.now()}`,
+        workerId,
+        workerName: worker.name,
+        workerPhone: worker.phone,
+        serviceStartDate: startDateForHandover,
+        serviceEndDate: null,
+        reason: handoverMode === "handover" ? "인계" : "교체",
+        reasonDetail: handoverNote,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+    const finalPayload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
+      ...handoverGate.payload,
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+      matchingHistory: Array.from(handoverHistoryByWorker.values()),
+    };
+
+    await update(handoverGate.userId, finalPayload);
+    await syncUserToWorkers(handoverGate.userId, finalPayload, workers, handoverGate.prevHelperIds, updateWorker);
+
+    if (handoverMode === "end") {
+      for (const workerId of handoverGate.prevHelperIds) {
+        if (handoverGate.addedHelperIds.includes(workerId)) continue;
+        await updateWorker(workerId, {
+          contractStatus: handoverWorkerStatus,
+          serviceEndDate: handoverEndDate,
+          retirementDate: handoverWorkerStatus === "퇴사" ? handoverEndDate : "",
+          resignationDate: handoverWorkerStatus === "퇴사" ? handoverEndDate : "",
+        });
+      }
+    }
+
+    for (const workerId of activeAddedIds) {
+      const worker = workers.find((w) => w.id === workerId);
+      if (!worker) continue;
+      await updateWorker(workerId, { contractStatus: "근무중", serviceStartDate: startDateForHandover, serviceEndDate: null, retirementDate: "", resignationDate: "" });
+      await addMatchingHistory({
+        type: "매칭",
+        userId: handoverGate.userId,
+        userName: finalPayload.name,
+        userPhone: finalPayload.phone,
+        workerId: worker.id,
+        workerName: worker.name,
+        workerPhone: worker.phone,
+        date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
+        notes: handoverMode === "handover" ? `인계인수 교체: ${handoverNote}` : "기존 지원사 종료 후 신규 매칭",
+      } as any);
+    }
+
+    for (const workerId of handoverGate.prevHelperIds) {
+      if (activeAddedIds.includes(workerId)) continue;
+      const worker = workers.find((w) => w.id === workerId);
+      if (!worker) continue;
+      await addMatchingHistory({
+        type: "해제",
+        userId: handoverGate.userId,
+        userName: finalPayload.name,
+        userPhone: finalPayload.phone,
+        workerId: worker.id,
+        workerName: worker.name,
+        workerPhone: worker.phone,
+        date: finalPayload.serviceStartDate || new Date().toISOString().slice(0, 10),
+        endDate: handoverEndDate,
+        notes: handoverMode === "handover" ? `인계인수 교체 종료: ${handoverNote}` : `기존 지원사 종료 처리 (${handoverWorkerStatus})`,
+      } as any);
+    }
+
+    toast({ title: handoverMode === "handover" ? "인계인수 교체 완료" : "기존 지원사 종료 후 매칭 완료" });
+    setHandoverGate(null);
+    setHandoverNote("");
+    setHandoverWorkerStatus("대기");
+    setForm(emptyUser);
+    setAgeInput("");
+    setEditingId(null);
+    setDialogOpen(false);
+  };
+
+  const openCleanupDialog = (user: ServiceUser & { id: string }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const actions = Object.fromEntries(
+      (user.assignedHelperIds || []).map((workerId) => [workerId, { mode: "end" as const, endDate: today, workerStatus: "대기" as const }])
+    );
+    setCleanupTarget(user);
+    setCleanupActions(actions);
+  };
+
+  const updateCleanupAction = (workerId: string, patch: Partial<MultiMatchCleanupAction>) => {
+    setCleanupActions((prev) => ({
+      ...prev,
+      [workerId]: { ...(prev[workerId] || { mode: "end", endDate: new Date().toISOString().slice(0, 10), workerStatus: "대기" }), ...patch },
+    }));
+  };
+
+  const cleanupWorkerAssignment = async (workerId: string) => {
+    if (!cleanupTarget) return;
+    const action = cleanupActions[workerId];
+    const worker = workers.find((w) => w.id === workerId);
+    if (!worker || !action) return;
+
+    if (action.mode === "handover") {
+      setCleanupTarget(null);
+      navigate(`/handovers?${new URLSearchParams({ userId: cleanupTarget.id, prevWorkerId: worker.id }).toString()}`);
+      return;
+    }
+
+    if (!action.endDate) {
+      toast({ title: "서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+
+    const nextIds = (cleanupTarget.assignedHelperIds || []).filter((id) => id !== workerId);
+    const arrays = buildHelperArraysFromIds(nextIds, workers);
+    const payload: Partial<ServiceUser> = {
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+    };
+    await update(cleanupTarget.id, payload);
+    await syncUserToWorkers(cleanupTarget.id, { ...cleanupTarget, ...payload }, workers, cleanupTarget.assignedHelperIds || [], updateWorker);
+    await updateWorker(workerId, {
+      contractStatus: action.workerStatus,
+      serviceEndDate: action.endDate,
+      retirementDate: action.workerStatus === "퇴사" ? action.endDate : "",
+      resignationDate: action.workerStatus === "퇴사" ? action.endDate : "",
+    });
+    await addMatchingHistory({
+      type: "해제",
+      userId: cleanupTarget.id,
+      userName: cleanupTarget.name,
+      userPhone: cleanupTarget.phone,
+      workerId: worker.id,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: cleanupTarget.serviceStartDate || new Date().toISOString().slice(0, 10),
+      endDate: action.endDate,
+      notes: `1:다 매칭 정돈 - 종료 처리 (${action.workerStatus})`,
+    } as any);
+
+    const updatedTarget = { ...cleanupTarget, ...payload } as ServiceUser & { id: string };
+    setCleanupTarget(updatedTarget.assignedHelperIds.length > 1 ? updatedTarget : null);
+    if (detailTarget?.id === cleanupTarget.id) setDetailTarget(updatedTarget);
+    toast({ title: "1:다 매칭 정돈 완료", description: `${worker.name} 지원사를 담당 목록에서 제외했습니다.` });
+  };
   const confirmPendingOverwrite = async (proceed: boolean) => {
     if (!pendingOverwrite) return;
     const { existingId, payload } = pendingOverwrite;
@@ -634,6 +835,372 @@ const UserManagement = () => {
     return String(map[key] ?? "");
   };
 
+  const getDocumentMatchingEntries = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry[] => {
+    const byWorker = new Map<string, DocumentMatchingHistoryEntry>();
+    const today = new Date().toISOString().slice(0, 10);
+
+    for (const entry of user.matchingHistory || []) {
+      if (!entry.workerId) continue;
+      const worker = workers.find((w) => w.id === entry.workerId);
+      byWorker.set(entry.workerId, {
+        id: entry.id || `${entry.workerId}-${entry.serviceStartDate || today}`,
+        workerId: entry.workerId,
+        workerName: entry.workerName || worker?.name || "",
+        workerPhone: entry.workerPhone || worker?.phone || "",
+        serviceStartDate: entry.serviceStartDate || user.serviceStartDate || today,
+        serviceEndDate: entry.serviceEndDate ?? null,
+        reason: entry.reason || "추가",
+        reasonDetail: entry.reasonDetail || "",
+        updatedAt: entry.updatedAt,
+      });
+    }
+
+    for (const workerId of user.assignedHelperIds || []) {
+      const worker = workers.find((w) => w.id === workerId);
+      const existing = byWorker.get(workerId);
+      const existingEnded = existing && existing.serviceEndDate !== null && existing.serviceEndDate !== "";
+      byWorker.set(workerId, {
+        id: existing?.id || `${workerId}-${user.serviceStartDate || today}`,
+        workerId,
+        workerName: existing?.workerName || worker?.name || user.assignedHelperNames?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
+        workerPhone: existing?.workerPhone || worker?.phone || user.assignedHelperPhones?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
+        serviceStartDate: existing?.serviceStartDate || user.serviceStartDate || today,
+        serviceEndDate: existingEnded ? existing.serviceEndDate : null,
+        reason: existing?.reason || "추가",
+        reasonDetail: existing?.reasonDetail || "",
+        updatedAt: existing?.updatedAt,
+      });
+    }
+
+    for (const log of matchingLogs.filter((record) => record.userId === user.id)) {
+      if (!log.workerId || byWorker.has(log.workerId)) continue;
+      byWorker.set(log.workerId, {
+        id: log.id || `${log.workerId}-${log.date || today}`,
+        workerId: log.workerId,
+        workerName: log.workerName,
+        workerPhone: log.workerPhone,
+        serviceStartDate: log.date || today,
+        serviceEndDate: log.endDate || (log.type === "해제" ? today : null),
+        reason: log.reason || (log.type === "해제" ? "종료" : "추가"),
+        reasonDetail: log.reasonDetail || log.notes || "",
+        updatedAt: undefined,
+      });
+    }
+
+    return Array.from(byWorker.values()).sort((a, b) => {
+      const activeDiff = Number(a.serviceEndDate !== null) - Number(b.serviceEndDate !== null);
+      if (activeDiff !== 0) return activeDiff;
+      return getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate));
+    });
+  };
+
+
+  const getCurrentMatchingEntry = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry | null => {
+    const active = getDocumentMatchingEntries(user)
+      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
+    return active[0] || null;
+  };
+
+  const formatCurrentHelper = (user: ServiceUser & { id: string }): string => {
+    const current = getCurrentMatchingEntry(user);
+    if (!current) return "";
+    const last4 = String(current.workerPhone || "").replace(/\D/g, "").slice(-4);
+    return last4 ? `${current.workerName}(${last4})` : current.workerName;
+  };
+  const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
+    const next = Object.fromEntries(
+      getDocumentMatchingEntries(user).map((entry) => [
+        entry.workerId,
+        {
+          serviceStartDate: entry.serviceStartDate || "",
+          serviceEndDate: entry.serviceEndDate || "",
+          isCurrent: entry.serviceEndDate === null || entry.serviceEndDate === "",
+          workerStatus: "대기" as const,
+          reason: entry.reason || "추가",
+          reasonDetail: entry.reasonDetail || "",
+        },
+      ])
+    );
+    setMatchingPeriodDrafts(next);
+  };
+
+  const updateMatchingPeriodDraft = (workerId: string, patch: Partial<MatchingPeriodDraft>) => {
+    setMatchingPeriodDrafts((prev) => ({
+      ...prev,
+      [workerId]: {
+        ...(prev[workerId] || { serviceStartDate: "", serviceEndDate: "", isCurrent: true, workerStatus: "대기", reason: "추가", reasonDetail: "" }),
+        ...patch,
+      },
+    }));
+  };
+
+  const saveMatchingPeriod = async (user: ServiceUser & { id: string }, workerId: string) => {
+    const draft = matchingPeriodDrafts[workerId];
+    const worker = workers.find((w) => w.id === workerId);
+    if (!draft || !worker) return;
+    if (!draft.serviceStartDate) {
+      toast({ title: "서비스 시작일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    if (!draft.isCurrent && !draft.serviceEndDate) {
+      toast({ title: "종료 처리하려면 서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const existingEntries = getDocumentMatchingEntries(user);
+    const nextEntry: DocumentMatchingHistoryEntry = {
+      id: existingEntries.find((entry) => entry.workerId === workerId)?.id || `${workerId}-${Date.now()}`,
+      workerId,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      serviceStartDate: draft.serviceStartDate,
+      serviceEndDate: draft.isCurrent ? null : draft.serviceEndDate,
+      reason: draft.reason,
+      reasonDetail: draft.reasonDetail,
+      updatedAt: now,
+    };
+    const nextHistory = [
+      ...existingEntries.filter((entry) => entry.workerId !== workerId),
+      nextEntry,
+    ];
+    const activeEntries = nextHistory
+      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
+    const activeIds = draft.isCurrent
+      ? [workerId]
+      : activeEntries.filter((entry) => entry.workerId !== workerId).slice(0, 1).map((entry) => entry.workerId);
+    const arrays = buildHelperArraysFromIds(activeIds, workers);
+    const nextStatus = user.contractStatus === "계약해지" || user.contractStatus === "타기관 계약" || user.contractStatus === "보류"
+      ? user.contractStatus
+      : arrays.ids.length > 0
+        ? "서비스중"
+        : "대기";
+    const payload: Partial<ServiceUser> = {
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+      matchingHistory: nextHistory,
+      contractStatus: nextStatus,
+    };
+
+    await update(user.id, payload);
+    await syncUserToWorkers(user.id, { ...user, ...payload }, workers, user.assignedHelperIds || [], updateWorker);
+    if (draft.isCurrent) {
+      await updateWorker(workerId, { contractStatus: "근무중", serviceStartDate: draft.serviceStartDate, serviceEndDate: null, retirementDate: "", resignationDate: "" });
+    } else {
+      await updateWorker(workerId, {
+        contractStatus: draft.workerStatus,
+        serviceEndDate: draft.serviceEndDate,
+        retirementDate: draft.workerStatus === "퇴사" ? draft.serviceEndDate : "",
+        resignationDate: draft.workerStatus === "퇴사" ? draft.serviceEndDate : "",
+      });
+    }
+    await addMatchingHistory({
+      type: draft.isCurrent ? "매칭" : "해제",
+      userId: user.id,
+      userName: user.name,
+      userPhone: user.phone,
+      workerId,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: draft.serviceStartDate,
+      endDate: draft.isCurrent ? undefined : draft.serviceEndDate,
+      reason: draft.reason,
+      reasonDetail: draft.reasonDetail,
+      notes: draft.reasonDetail || draft.reason,
+    } as any);
+
+    const updatedUser = { ...user, ...payload } as ServiceUser & { id: string };
+    if (detailTarget?.id === user.id) setDetailTarget(updatedUser);
+    if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
+    resetMatchingPeriodDrafts(updatedUser);
+    toast({ title: draft.isCurrent ? "현재 담당으로 저장했습니다" : "종료 이력으로 전환했습니다" });
+  };
+
+  const openServiceCloseDialog = (user: ServiceUser & { id: string }, entry: DocumentMatchingHistoryEntry) => {
+    const draft = matchingPeriodDrafts[entry.workerId];
+    setServiceCloseTarget({ user, entry });
+    setServiceCloseForm({
+      endDate: draft?.serviceEndDate || entry.serviceEndDate || new Date().toISOString().slice(0, 10),
+      workerStatus: draft?.workerStatus || "대기",
+      reason: "종료",
+      reasonDetail: draft?.reasonDetail || "",
+    });
+  };
+
+  const finalizeServiceClose = async () => {
+    if (!serviceCloseTarget) return;
+    if (!serviceCloseForm.endDate) {
+      toast({ title: "서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    const { user, entry } = serviceCloseTarget;
+    const worker = workers.find((w) => w.id === entry.workerId);
+    if (!worker) return;
+
+    const existingEntries = getDocumentMatchingEntries(user);
+    const closedEntry: DocumentMatchingHistoryEntry = {
+      ...entry,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      serviceStartDate: entry.serviceStartDate || user.serviceStartDate || new Date().toISOString().slice(0, 10),
+      serviceEndDate: serviceCloseForm.endDate,
+      reason: serviceCloseForm.reason,
+      reasonDetail: serviceCloseForm.reasonDetail,
+      updatedAt: new Date().toISOString(),
+    };
+    const nextHistory = [
+      ...existingEntries.filter((item) => item.workerId !== entry.workerId),
+      closedEntry,
+    ];
+    const nextActiveIds = nextHistory
+      .filter((item) => item.workerId !== entry.workerId && (item.serviceEndDate === null || item.serviceEndDate === ""))
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)))
+      .slice(0, 1)
+      .map((item) => item.workerId);
+    const arrays = buildHelperArraysFromIds(nextActiveIds, workers);
+    const payload: Partial<ServiceUser> = {
+      assignedHelperIds: arrays.ids,
+      assigned_workers: arrays.ids,
+      assignedHelperNames: arrays.names,
+      assignedHelperPhones: arrays.phones,
+      matchingHistory: nextHistory,
+      contractStatus: user.contractStatus === "계약해지" || user.contractStatus === "타기관 계약" || user.contractStatus === "보류"
+        ? user.contractStatus
+        : arrays.ids.length > 0
+          ? "서비스중"
+          : "대기",
+    };
+
+    await update(user.id, payload);
+    await syncUserToWorkers(user.id, { ...user, ...payload }, workers, user.assignedHelperIds || [], updateWorker);
+    await updateWorker(entry.workerId, {
+      contractStatus: serviceCloseForm.workerStatus,
+      serviceEndDate: serviceCloseForm.endDate,
+      retirementDate: serviceCloseForm.workerStatus === "퇴사" ? serviceCloseForm.endDate : "",
+      resignationDate: serviceCloseForm.workerStatus === "퇴사" ? serviceCloseForm.endDate : "",
+    });
+    await addMatchingHistory({
+      type: "해제",
+      userId: user.id,
+      userName: user.name,
+      userPhone: user.phone,
+      workerId: entry.workerId,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: closedEntry.serviceStartDate,
+      endDate: serviceCloseForm.endDate,
+      reason: serviceCloseForm.reason,
+      reasonDetail: serviceCloseForm.reasonDetail,
+      notes: serviceCloseForm.reasonDetail || serviceCloseForm.reason,
+    } as any);
+
+    const updatedUser = { ...user, ...payload } as ServiceUser & { id: string };
+    if (detailTarget?.id === user.id) setDetailTarget(updatedUser);
+    if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
+    resetMatchingPeriodDrafts(updatedUser);
+    setServiceCloseTarget(null);
+    toast({ title: "서비스 종료/교체 처리 완료", description: `${worker.name} 지원사를 현재 담당에서 제외했습니다.` });
+  };
+  const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
+    const entries = getDocumentMatchingEntries(user);
+    const currentCount = entries.filter((entry) => {
+      const draft = matchingPeriodDrafts[entry.workerId];
+      return draft ? draft.isCurrent : entry.serviceEndDate === null || entry.serviceEndDate === "";
+    }).length;
+
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground">연결된 활동지원사가 없습니다.</p>;
+    }
+
+    return (
+      <div className="space-y-3">
+        {currentCount > 1 && (
+          <Alert variant="destructive">
+            <AlertTitle>현재 서비스 중인 지원사가 2명 이상입니다.</AlertTitle>
+            <AlertDescription>실제 담당자 1명만 '서비스 중'으로 유지하거나 기간을 정리해 주세요.</AlertDescription>
+          </Alert>
+        )}
+        {entries.map((entry) => {
+          const draft = matchingPeriodDrafts[entry.workerId] || {
+            serviceStartDate: entry.serviceStartDate || "",
+            serviceEndDate: entry.serviceEndDate || "",
+            isCurrent: entry.serviceEndDate === null || entry.serviceEndDate === "",
+            workerStatus: "대기" as const,
+            reason: entry.reason || "추가",
+            reasonDetail: entry.reasonDetail || "",
+          };
+          return (
+            <div key={entry.workerId} className="border rounded-lg p-3 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium">{entry.workerName || entry.workerId}</p>
+                  <p className="text-xs text-muted-foreground">{entry.workerPhone || "연락처 없음"}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge variant={draft.isCurrent ? "default" : "secondary"}>{draft.isCurrent ? "서비스 중" : "종료(이력)"}</Badge>
+                  <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="space-y-2">
+                  <Label>서비스 시작일</Label>
+                  <Input type="date" value={draft.serviceStartDate} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { serviceStartDate: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>현재 서비스 중</Label>
+                  <div className="h-10 flex items-center gap-2">
+                    <Checkbox
+                      checked={draft.isCurrent}
+                      onCheckedChange={(checked) => updateMatchingPeriodDraft(entry.workerId, { isCurrent: checked === true, serviceEndDate: checked === true ? "" : draft.serviceEndDate })}
+                    />
+                    <span className="text-sm">서비스 중</span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>서비스 종료일</Label>
+                  <Input type="date" disabled={draft.isCurrent} value={draft.serviceEndDate} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { serviceEndDate: e.target.value })} />
+                </div>
+                {!draft.isCurrent && (
+                  <div className="space-y-2">
+                    <Label>종료 후 지원사 상태</Label>
+                    <Select value={draft.workerStatus} onValueChange={(v) => updateMatchingPeriodDraft(entry.workerId, { workerStatus: v as "대기" | "퇴사" })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="대기">대기</SelectItem>
+                        <SelectItem value="퇴사">퇴사</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-2">
+                  <Label>변경 사유</Label>
+                  <Select value={draft.reason} onValueChange={(v) => updateMatchingPeriodDraft(entry.workerId, { reason: v as MatchingHistoryReason })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {MATCH_REASON_OPTIONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label>상세 사유(선택)</Label>
+                  <Input value={draft.reasonDetail} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { reasonDetail: e.target.value })} placeholder="필요 시 간단히 입력" />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => saveMatchingPeriod(user, entry.workerId)}>기간 저장</Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
   const openDetail = (user: ServiceUser & { id: string }) => {
     setDetailTarget(user);
     setExpandedCounselId(null);
@@ -653,6 +1220,70 @@ const UserManagement = () => {
     setDialogOpen(true);
   };
 
+
+  const openUserSummaryModal = (kind: "contracts" | "terminations" | "waiting" | "handover" | "counseling") => {
+    const helperText = (user: ServiceUser & { id: string }) => formatCurrentHelper(user) || formatHelperList(user) || "담당자 없음";
+    const makeUserRow = (user: ServiceUser & { id: string }, date: string, note: string) => ({
+      id: `${kind}-${user.id}`,
+      name: user.name,
+      date,
+      status: effectiveUserStatus(user),
+      note,
+      userId: user.id,
+    });
+
+    let title = "";
+    let rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string }> = [];
+
+    if (kind === "contracts") {
+      rows = users
+        .filter((user) => isWithinRecentMonths(user.serviceStartDate || user.receiptDate))
+        .map((user) => makeUserRow(user, user.serviceStartDate || user.receiptDate || "미등록", `담당: ${helperText(user)}`));
+      title = `최근 3개월 신규 계약/접수 명단 (총 ${rows.length}명)`;
+    } else if (kind === "terminations") {
+      rows = users
+        .filter((user) => effectiveUserStatus(user) === "계약해지" || isWithinRecentMonths(user.resignationDate))
+        .map((user) => makeUserRow(user, user.resignationDate || "미등록", user.terminationReason || user.txtUMemostop || "해지 사유 미등록"));
+      title = `해지/종결 이용자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "waiting") {
+      rows = users
+        .filter((user) => effectiveUserStatus(user) === "대기" || !(user.assignedHelperIds || []).length)
+        .map((user) => makeUserRow(user, user.receiptDate || "미등록", [user.requiredDays, user.requiredHours, user.preferredWorkerTraits].filter(Boolean).join(" · ") || "희망 조건 미등록"));
+      title = `현재 대기 이용자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "handover") {
+      rows = matchingLogs
+        .filter((log) => isWithinRecentMonths(log.date) && (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체")))
+        .map((log) => ({
+          id: `handover-${log.id || log.userId}-${log.workerId}`,
+          name: log.userName,
+          date: log.date,
+          status: log.reason || log.type,
+          note: `${log.workerName || "지원사 미등록"} · ${log.notes || log.reasonDetail || "상세 없음"}`,
+          userId: log.userId,
+        }));
+      title = `최근 3개월 인계인수/변경 명단 (총 ${rows.length}건)`;
+    } else {
+      rows = counselingLogs
+        .filter((record) => record.targetType === "이용자" && isWithinRecentMonths(record.date))
+        .map((record) => ({
+          id: `counsel-${record.id || record.targetId}-${record.date}`,
+          name: record.targetName,
+          date: record.date,
+          status: record.result || record.category || "상담",
+          note: record.content || "상담 내용 없음",
+          userId: record.targetId,
+        }));
+      title = `최근 이용자/보호자 상담 기록 (총 ${rows.length}건)`;
+    }
+
+    setSummaryModal({ title, rows });
+  };
+
+  const openSummaryUser = (userId?: string) => {
+    if (!userId) return;
+    const target = users.find((user) => user.id === userId);
+    if (target) openDetail(target);
+  };
   const downloadExcel = () => {
     const filtered = getFilteredUsers();
     const data = filtered.map((u) => ({
@@ -729,6 +1360,22 @@ const UserManagement = () => {
   const terminatedCount = users.filter((u) => effectiveUserStatus(u) === "계약해지").length;
   const activeCount = users.filter((u) => effectiveUserStatus(u) === "서비스중").length;
 
+  const userSummary = useMemo(() => {
+    const recentContracts = users.filter((u) => isWithinRecentMonths(u.serviceStartDate)).length;
+    const recentTerminations = users.filter((u) => isWithinRecentMonths(u.resignationDate)).length;
+    const waiting = users.filter((u) => effectiveUserStatus(u) === "대기" || !(u.assignedHelperIds || []).length).length;
+    const handoverEvents = matchingLogs.filter((log) =>
+      isWithinRecentMonths(log.date) &&
+      (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체"))
+    ).length;
+    const recentCounseling = counselingLogs.filter((record) => record.targetType === "이용자" && isWithinRecentMonths(record.date)).length;
+    const unresolvedCounseling = counselingLogs.filter((record) =>
+      record.targetType === "이용자" &&
+      isWithinRecentMonths(record.date) &&
+      (!record.result || String(record.result).includes("미처리"))
+    ).length;
+    return { recentContracts, recentTerminations, waiting, handoverEvents, recentCounseling, unresolvedCounseling };
+  }, [users, matchingLogs, counselingLogs]);
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
@@ -1010,6 +1657,15 @@ const UserManagement = () => {
                       placeholder="지원사 선택..."
                     />
                   </div>
+                  {editingId && (
+                    <div className="col-span-2 space-y-3">
+                      <div>
+                        <Label>활동지원사별 서비스 기간</Label>
+                        <p className="text-xs text-muted-foreground mt-1">지원사별 시작일/종료일을 저장하면 현재 담당과 과거 이력이 자동으로 분리됩니다.</p>
+                      </div>
+                      {renderMatchingPeriodEditor({ ...form, id: editingId })}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-6 flex justify-end gap-2">
@@ -1021,80 +1677,173 @@ const UserManagement = () => {
         </div>
       </div>
 
-      <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
+        <section className="space-y-4 xl:col-span-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">전체 이용자 명단 ({filtered.length}명)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <Input placeholder="이름·연락처 또는 담당 활동지원사로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full md:w-auto">
-              <TabsList>
-                <TabsTrigger value="all">전체</TabsTrigger>
-                <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
-                <TabsTrigger value="대기">대기</TabsTrigger>
-                <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
+                <TabsList className="min-w-max">
+                  <TabsTrigger value="all">전체</TabsTrigger>
+                  <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
+                  <TabsTrigger value="대기">대기</TabsTrigger>
+                  <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {filtered.length === 0 ? (
+              <Card className="md:col-span-2">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">검색된 이용자가 없습니다.</CardContent>
+              </Card>
+            ) : (
+              filtered.map((user) => (
+                <Card key={user.id} className="stat-card group">
+                  <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(user as any)}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <span className="font-bold text-lg">{user.name}</span>
+                        <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
+                          {effectiveUserStatus(user)}
+                        </Badge>
+
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}
+                          className="text-primary hover:text-primary/90"
+                          aria-label="수정"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(user as any); }}
+                          className="text-destructive hover:text-destructive/90"
+                          aria-label="삭제"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <p>
+                        <span className="text-muted-foreground">연락처:</span>{" "}
+                        <a 
+                          href={`tel:${user.phone}`} 
+                          className="text-primary hover:underline inline-flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <PhoneCall className="w-3 h-3" />
+                          {user.phone}
+                        </a>
+                      </p>
+                      <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
+                      <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
+                      <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelper(user) || "없음"}</p>
+                      {(user.assignedHelperIds?.length || 0) > 1 && (
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="mt-2 h-8"
+                          onClick={(e) => { e.stopPropagation(); openCleanupDialog(user as ServiceUser & { id: string }); }}
+                        >
+                          ⚠️ 1:다 매칭 정돈
+                        </Button>
+                      )}
+                      {user.contractStatus === "계약해지" && user.resignationDate && (
+                        <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((user) => (
-          <Card key={user.id} className="stat-card group">
-            <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(user as any)}>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <span className="font-bold text-lg">{user.name}</span>
-                  <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
-                    {effectiveUserStatus(user)}
-                  </Badge>
-
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); startEdit(user as any); }}
-                    className="text-primary hover:text-primary/90"
-                    aria-label="수정"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(user as any); }}
-                    className="text-destructive hover:text-destructive/90"
-                    aria-label="삭제"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <span className="text-muted-foreground">연락처:</span>{" "}
-                  <a 
-                    href={`tel:${user.phone}`} 
-                    className="text-primary hover:underline inline-flex items-center gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <PhoneCall className="w-3 h-3" />
-                    {user.phone}
-                  </a>
-                </p>
-                <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
-                <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
-                <p><span className="text-muted-foreground">담당지원사:</span> {formatHelperList(user)}</p>
-                {user.contractStatus === "계약해지" && user.resignationDate && (
-                  <p className="text-destructive"><span className="text-muted-foreground">해지일:</span> {user.resignationDate}</p>
-                )}
+        <aside className="space-y-4 xl:col-span-2 xl:sticky xl:top-32">
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">이용자 현황 요약 대시보드</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <button type="button" onClick={() => openUserSummaryModal("contracts")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 신규 계약</p>
+                  <p className="text-2xl font-bold text-primary">{userSummary.recentContracts}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("terminations")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 서비스 해지</p>
+                  <p className="text-2xl font-bold text-destructive">{userSummary.recentTerminations}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">현재 대기자</p>
+                  <p className="text-2xl font-bold">{userSummary.waiting}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">인계/변경</p>
+                  <p className="text-2xl font-bold text-primary">{userSummary.handoverEvents}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">이용자 상담</p>
+                  <p className="text-2xl font-bold">{userSummary.recentCounseling}</p>
+                </button>
+                <button type="button" onClick={() => openUserSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">미처리 상담</p>
+                  <p className="text-2xl font-bold text-destructive">{userSummary.unresolvedCounseling}</p>
+                </button>
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{summaryModal?.title || "선택된 현황 상세 명단"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!summaryModal ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">상단 현황 카드를 선택하면 조건별 명단이 표시됩니다.</p>
+              ) : summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <div className="max-h-[520px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3">이름</th>
+                        <th className="py-2 pr-3">주요 일자</th>
+                        <th className="py-2 pr-3">상태</th>
+                        <th className="py-2 pr-3">비고/사유</th>
+                        <th className="py-2 text-right">바로가기</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summaryModal.rows.map((row) => (
+                        <tr key={row.id} className="border-b hover:bg-muted/40 cursor-pointer" onClick={() => openSummaryUser(row.userId)}>
+                          <td className="py-2 pr-3 font-medium">{row.name}</td>
+                          <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                          <td className="py-2 pr-3"><Badge variant={row.status.includes("해지") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                          <td className="py-2 pr-3 max-w-[260px] truncate">{row.note || "-"}</td>
+                          <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openSummaryUser(row.userId); }}>상세</Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1209,33 +1958,128 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
 
+      <Dialog open={!!cleanupTarget} onOpenChange={(open) => !open && setCleanupTarget(null)}>
+        <DialogContent className="max-w-3xl w-[95vw] max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>⚠️ 1:다 매칭 정돈</DialogTitle>
+          </DialogHeader>
+          {cleanupTarget && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                {cleanupTarget.name} 이용자에게 활동지원사가 {cleanupTarget.assignedHelperIds.length}명 연결되어 있습니다.
+                각 지원사를 종료 처리하거나 인계인수 교체로 넘겨 정돈하세요.
+              </p>
+              <div className="space-y-3">
+                {(cleanupTarget.assignedHelperIds || []).map((workerId) => {
+                  const worker = workers.find((w) => w.id === workerId);
+                  const action = cleanupActions[workerId] || { mode: "end", endDate: new Date().toISOString().slice(0, 10), workerStatus: "대기" };
+                  if (!worker) return null;
+                  return (
+                    <div key={workerId} className="border rounded-lg p-3 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">{worker.name}</p>
+                          <p className="text-xs text-muted-foreground">{worker.phone || "연락처 없음"}</p>
+                        </div>
+                        <Badge variant={worker.contractStatus === "퇴사" ? "destructive" : worker.contractStatus === "근무중" ? "default" : "secondary"}>
+                          {worker.contractStatus}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div className="space-y-2">
+                          <Label>처리 방식</Label>
+                          <Select value={action.mode} onValueChange={(v) => updateCleanupAction(workerId, { mode: v as "end" | "handover" })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="end">종료 처리</SelectItem>
+                              <SelectItem value="handover">인계인수로 교체</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        {action.mode === "end" ? (
+                          <>
+                            <div className="space-y-2">
+                              <Label>서비스 종료일</Label>
+                              <Input type="date" value={action.endDate} onChange={(e) => updateCleanupAction(workerId, { endDate: e.target.value })} />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>지원사 상태</Label>
+                              <Select value={action.workerStatus} onValueChange={(v) => updateCleanupAction(workerId, { workerStatus: v as "대기" | "퇴사" })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="대기">대기</SelectItem>
+                                  <SelectItem value="퇴사">퇴사</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="md:col-span-2 text-sm text-muted-foreground flex items-end">
+                            이 지원사를 전임자(인계자)로 지정하여 인계인수서 작성 화면으로 이동합니다.
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex justify-end">
+                        <Button size="sm" onClick={() => cleanupWorkerAssignment(workerId)}>
+                          {action.mode === "handover" ? "인계인수서 작성" : "종료 처리 적용"}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       <AlertDialog open={!!handoverGate} onOpenChange={(open) => !open && setHandoverGate(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>인계·인수서 작성이 필요합니다</AlertDialogTitle>
+            <AlertDialogTitle>담당자 변경을 위해서는 인계인수서 작성이 필요합니다</AlertDialogTitle>
             <AlertDialogDescription>
-              {handoverGate?.userName} 이용자의 담당 활동지원사를 {handoverGate?.prevWorkerNames} →{" "}
-              {handoverGate?.nextWorkerName || "신규 담당자"}(으)로 변경하려고 합니다. 인계·인수서를
-              작성하시겠습니까?
+              {handoverGate?.userName} 이용자에게 이미 담당 활동지원사({handoverGate?.prevWorkerNames})가 있습니다.
+              기존 지원사를 종료 처리할지, 인계인수 교체로 진행할지 선택해야 변경이 반영됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>변경 방식</Label>
+              <Select value={handoverMode} onValueChange={(v) => setHandoverMode(v as "end" | "handover")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="end">기존 지원사 종료</SelectItem>
+                  <SelectItem value="handover">인계인수 교체</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>기존 지원사 서비스 종료일</Label>
+              <Input type="date" value={handoverEndDate} onChange={(e) => setHandoverEndDate(e.target.value)} />
+            </div>
+            {handoverMode === "end" && (
+              <div className="space-y-2">
+                <Label>종료 후 기존 지원사 상태</Label>
+                <Select value={handoverWorkerStatus} onValueChange={(v) => setHandoverWorkerStatus(v as "대기" | "퇴사")}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="대기">대기</SelectItem>
+                    <SelectItem value="퇴사">퇴사</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>{handoverMode === "handover" ? "인계인수서 내용" : "처리 메모"}</Label>
+              <Textarea
+                value={handoverNote}
+                onChange={(e) => setHandoverNote(e.target.value)}
+                placeholder="변경 사유, 인계할 서비스 내용, 특이사항을 입력하세요."
+              />
+            </div>
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setHandoverGate(null)}>취소</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (!handoverGate) return;
-                const params = new URLSearchParams({
-                  userId: handoverGate.userId,
-                  nextWorkerId: handoverGate.nextWorkerId,
-                });
-                setHandoverGate(null);
-                setDialogOpen(false);
-                if (handoverGate.prevWorkerId) params.set("prevWorkerId", handoverGate.prevWorkerId);
-                navigate(`/handovers?${params.toString()}`);
-              }}
-            >
-              인계·인수서 작성으로 이동
-            </AlertDialogAction>
+            <AlertDialogAction onClick={finalizeHandoverSave}>선택 내용 저장 후 변경</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -1265,9 +2109,23 @@ const UserManagement = () => {
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 활동지원사</p>
-                  <p className="font-medium">{formatHelperList(detailTarget) || "없음"}</p>
+                  <p className="font-medium">{formatCurrentHelper(detailTarget) || "없음"}</p>
+                  {(detailTarget.assignedHelperIds?.length || 0) > 1 && (
+                    <Button size="sm" variant="destructive" className="mt-2" onClick={() => openCleanupDialog(detailTarget)}>
+                      ⚠️ 1:다 매칭 정돈
+                    </Button>
+                  )}
                 </div>
               </div>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">활동지원사별 서비스 기간</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {renderMatchingPeriodEditor(detailTarget)}
+                </CardContent>
+              </Card>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
@@ -1300,7 +2158,7 @@ const UserManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", notes: ""});
+                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", reason: "추가", reasonDetail: "", notes: ""});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -1317,7 +2175,7 @@ const UserManagement = () => {
                               <p className="text-sm text-muted-foreground">{match.workerName} · {match.workerPhone}</p>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>🗑️</Button>}
                             </div>
                           </div>
@@ -1332,9 +2190,6 @@ const UserManagement = () => {
               </div>
 
               <div className="flex justify-end gap-2">
-                <Button variant="destructive" onClick={() => detailTarget && setServiceActionTarget(detailTarget)}>
-                  서비스 종료/교체
-                </Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
               </div>
@@ -1362,7 +2217,6 @@ const UserManagement = () => {
                   </div>
                   <div>
                     <label className="text-sm font-medium">활동지원사</label>
-                    <Input className="mb-2" value={workerHistorySearch} onChange={(event) => setWorkerHistorySearch(event.target.value)} placeholder="활동지원사 이름 또는 연락처 검색" />
                     <Select value={matchHistoryForm?.workerId || ""} onValueChange={(v) => {
                       if (!matchHistoryForm) return;
                       const w = workers.find(x => x.id === v);
@@ -1370,7 +2224,7 @@ const UserManagement = () => {
                     }}>
                       <SelectTrigger><SelectValue placeholder="활동지원사 선택" /></SelectTrigger>
                       <SelectContent>
-                        {workers.filter((w) => !workerHistorySearch.trim() || `${w.name} ${w.phone || ""}`.includes(workerHistorySearch.trim())).map(w => <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone || "연락처 없음"})</SelectItem>)}
+                        {workers.map(w => <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone || "연락처 없음"})</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1422,26 +2276,36 @@ const UserManagement = () => {
               </DialogContent>
             </Dialog>
 </Dialog>
-      <AlertDialog open={!!serviceActionTarget} onOpenChange={(open) => !open && setServiceActionTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>서비스 종료/교체 처리</AlertDialogTitle>
-            <AlertDialogDescription>{serviceActionTarget?.name} 이용자는 현재 담당 활동지원사가 {serviceActionTarget?.assignedHelperIds?.length || 0}명입니다. 처리 방법을 선택하세요.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="sm:justify-between">
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <Button variant="outline" onClick={async () => {
-              if (!serviceActionTarget) return;
-              await update(serviceActionTarget.id, { contractStatus: "대기", resignationDate: "", terminationReason: "", txtUMemostop: "" });
-              setDetailTarget(null); setServiceActionTarget(null); setStatusFilter("대기");
-              toast({ title: "매칭 대기 상태로 전환했습니다." });
-            }}>매칭 대기 상태 전환</Button>
-            <AlertDialogAction onClick={() => serviceActionTarget && navigate(`/terminations?userId=${encodeURIComponent(serviceActionTarget.id)}`)}>종결승인서 작성</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };
 
 export default UserManagement;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

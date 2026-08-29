@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, no-irregular-whitespace */
-﻿import { useMemo, useState, useEffect } from "react";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -19,11 +19,11 @@ import {
   formatUserList,
   syncWorkerToUsers,
 } from "@/lib/assignments";
+import { cascadeWorkerProfile } from "@/lib/cascadeSync";
+import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cascadeWorkerProfile } from "@/lib/cascadeSync";
 import { Label } from "@/components/ui/label";
-import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -47,13 +47,14 @@ import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { getComparableDateValue } from "@/lib/utils";
+import { isWithinRecentMonths } from "@/lib/dashboardStats";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   isForeigner: false, hasF4: false, hasF5: false,
-  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", resignationDate: "", notes: "",
+  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
   supportTypes: [],
   certificates: [],
@@ -118,14 +119,14 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
 /** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
 function effectiveWorkerStatus(worker: Worker): string {
   const raw = String(worker.contractStatus || "");
-  if (raw === "퇴사" || String(worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  if (raw === "퇴사" || String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "") return "퇴사";
   return raw;
 }
 
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
 
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
-  const hasResignationDate = String(worker.resignationDate ?? "").trim() !== "";
+  const hasResignationDate = String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "";
   const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
 
   return {
@@ -171,6 +172,10 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [summaryModal, setSummaryModal] = useState<{
+    title: string;
+    rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }>;
+  } | null>(null);
   // 퇴사 시 매칭된 이용자 상태 후속 처리
   const [cascadeTarget, setCascadeTarget] = useState<{
     workerName: string;
@@ -512,6 +517,73 @@ const WorkerManagement = () => {
     setDialogOpen(true);
   };
 
+
+  const openWorkerSummaryModal = (kind: "joined" | "resigned" | "working" | "waiting" | "handover" | "counseling") => {
+    const makeWorkerRow = (worker: Worker & { id: string }, date: string, note: string) => ({
+      id: `${kind}-${worker.id}`,
+      name: worker.name,
+      date,
+      status: effectiveWorkerStatus(worker),
+      note,
+      workerId: worker.id,
+    });
+    let title = "";
+    let rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }> = [];
+
+    if (kind === "joined") {
+      rows = displayWorkers
+        .filter((worker) => isWithinRecentMonths(worker.serviceStartDate))
+        .map((worker) => makeWorkerRow(worker, worker.serviceStartDate || "미등록", worker.phone || "연락처 없음"));
+      title = `최근 3개월 입사자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "resigned") {
+      rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "퇴사" || isWithinRecentMonths(worker.retirementDate || worker.resignationDate))
+        .map((worker) => makeWorkerRow(worker, worker.retirementDate || worker.resignationDate || "미등록", worker.notes || "퇴사 사유 미등록"));
+      title = `퇴사자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "working") {
+      rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "근무중")
+        .map((worker) => makeWorkerRow(worker, worker.serviceStartDate || "미등록", `담당: ${(worker.assignedUserNames || []).join(", ") || "담당 이용자 없음"}`));
+      title = `현재 근무 중 활동지원사 명단 (총 ${rows.length}명)`;
+    } else if (kind === "waiting") {
+      rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "대기" && !(worker.assignedUserIds || []).length)
+        .map((worker) => makeWorkerRow(worker, worker.receiptDate || worker.serviceEndDate || "미등록", worker.preferredArea || "희망지역 미등록"));
+      title = `현재 매칭 대기 활동지원사 명단 (총 ${rows.length}명)`;
+    } else if (kind === "handover") {
+      rows = matchingLogs
+        .filter((log) => isWithinRecentMonths(log.date) && (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체")))
+        .map((log) => ({
+          id: `handover-${log.id || log.workerId}-${log.userId}`,
+          name: log.workerName,
+          date: log.date,
+          status: log.reason || log.type,
+          note: `${log.userName || "이용자 미등록"} · ${log.notes || log.reasonDetail || "상세 없음"}`,
+          workerId: log.workerId,
+        }));
+      title = `최근 지원사 기준 인계인수 명단 (총 ${rows.length}건)`;
+    } else {
+      rows = counselingLogs
+        .filter((record) => record.targetType === "활동지원사" && isWithinRecentMonths(record.date))
+        .map((record) => ({
+          id: `counsel-${record.id || record.targetId}-${record.date}`,
+          name: record.targetName,
+          date: record.date,
+          status: record.result || record.category || "상담",
+          note: record.content || "상담/보고 내용 없음",
+          workerId: record.targetId,
+        }));
+      title = `최근 상담/고충/보고 명단 (총 ${rows.length}건)`;
+    }
+
+    setSummaryModal({ title, rows });
+  };
+
+  const openSummaryWorker = (workerId?: string) => {
+    if (!workerId) return;
+    const target = displayWorkers.find((worker) => worker.id === workerId);
+    if (target) openDetail(target);
+  };
   const downloadExcel = () => {
     const data = getFiltered().map((w) => ({
       이름: w.name, 나이: w.age, 성별: w.gender, 연락처: w.phone,
@@ -521,7 +593,7 @@ const WorkerManagement = () => {
       운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
       이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
       담당이용자: w.assignedUserNames?.join(", "), 최초접수일: w.receiptDate,
-      최초근무일: w.serviceStartDate, 퇴사일: w.resignationDate, 비고: w.notes,
+      최초근무일: w.serviceStartDate, 퇴사일: w.retirementDate || w.resignationDate, 서비스종료일: w.serviceEndDate || "", 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -584,6 +656,22 @@ const WorkerManagement = () => {
   const resignedCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "퇴사").length;
   const workingCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
 
+  const workerSummary = useMemo(() => {
+    const recentJoined = displayWorkers.filter((w) => isWithinRecentMonths(w.serviceStartDate)).length;
+    const recentResigned = displayWorkers.filter((w) => isWithinRecentMonths(w.retirementDate || w.resignationDate)).length;
+    const waiting = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "대기").length;
+    const working = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
+    const handoverEvents = matchingLogs.filter((log) =>
+      isWithinRecentMonths(log.date) &&
+      (log.reason === "인계" || String(log.notes || log.reasonDetail || "").includes("인계") || String(log.notes || log.reasonDetail || "").includes("교체"))
+    ).length;
+    const counselingIssues = counselingLogs.filter((record) =>
+      record.targetType === "활동지원사" &&
+      isWithinRecentMonths(record.date) &&
+      (["고충", "보고", "모니터링"].some((word) => String(record.category || record.content || "").includes(word)) || true)
+    ).length;
+    return { recentJoined, recentResigned, waiting, working, handoverEvents, counselingIssues };
+  }, [displayWorkers, matchingLogs, counselingLogs]);
 
   // ── 로딩 가드: 데이터가 완전히 로드될 때까지 안전하게 대기 ──
   if (loading) {
@@ -805,7 +893,7 @@ const WorkerManagement = () => {
                   {form.contractStatus === "퇴사" && (
                     <div>
                       <Label>퇴사일</Label>
-                      <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                      <Input type="date" value={form.retirementDate || form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, retirementDate: e.target.value, resignationDate: e.target.value }))} />
                     </div>
                   )}
 
@@ -830,109 +918,192 @@ const WorkerManagement = () => {
         </div>
       </div>
 
-      <div className="sticky top-16 z-20 bg-background/90 backdrop-blur-sm py-3 mb-6">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
+        <section className="space-y-4 xl:col-span-3">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">전체 활동지원사 명단 ({filtered.length}명)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <Input placeholder="이름·연락처 또는 담당 이용자로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <div className="flex flex-wrap gap-4 w-full md:w-auto">
-              <div className="flex flex-col gap-1.5 min-w-[120px]">
-                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">상태 필터</Label>
-                <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full">
-                  <TabsList className="grid grid-cols-4 h-9">
-                    <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
-                    <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
-                    <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
-                    <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-              </div>
-              <div className="flex flex-col gap-1.5 min-w-[200px]">
-                <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">지원 가능 종류 필터</Label>
-                <Tabs value={supportFilter} onValueChange={setSupportFilter} className="w-full">
-                  <TabsList className="grid grid-cols-4 h-9">
-                    <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
-                    {SUPPORT_TYPES.map(t => (
-                      <TabsTrigger key={t} value={t} className="text-xs">{t}</TabsTrigger>
-                    ))}
-                  </TabsList>
-                </Tabs>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((w) => (
-          <Card key={w.id} className="stat-card group">
-            <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(w as any)}>
-              <div className="flex justify-between items-start mb-2">
-                <div>
-                  <span className="font-bold text-lg">{w.name}</span>
-                  <div className="flex flex-wrap gap-2 text-sm text-muted-foreground mt-1">
-                    <span>{w.gender} · {w.age}세</span>
-                    {w.isForeigner && <Badge variant="secondary">외국인</Badge>}
-                    {w.hasF4 && <Badge variant="outline">F4</Badge>}
-                    {w.hasF5 && <Badge variant="outline">F5</Badge>}
-                  </div>
+              <div className="flex flex-col gap-4 md:flex-row md:items-end">
+                <div className="flex-1 space-y-1.5">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">상태 필터</Label>
+                  <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
+                    <TabsList className="min-w-max">
+                      <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                      <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
+                      <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
+                      <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
-                    {effectiveWorkerStatus(w)}
-                  </Badge>
-
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
-                    className="text-primary hover:text-primary/90"
-                    aria-label="수정"
-                  >
-                    <Edit3 className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeleteTarget(w as any); }}
-                    className="text-destructive hover:text-destructive/90"
-                    aria-label="삭제"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                <div className="flex-1 space-y-1.5">
+                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">지원 가능 종류 필터</Label>
+                  <Tabs value={supportFilter} onValueChange={setSupportFilter} className="w-full overflow-x-auto">
+                    <TabsList className="min-w-max">
+                      <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                      {SUPPORT_TYPES.map(t => (
+                        <TabsTrigger key={t} value={t} className="text-xs">{t}</TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
                 </div>
-              </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <span className="text-muted-foreground">연락처:</span>{" "}
-                  <a
-                    href={`tel:${w.phone}`}
-                    className="text-primary hover:underline inline-flex items-center gap-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <PhoneCall className="w-3 h-3" />
-                    {w.phone}
-                  </a>
-                </p>
-                <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
-                {w.supportTypes && w.supportTypes.length > 0 && (
-                  <div className="flex flex-wrap gap-1 py-0.5">
-                    <span className="text-muted-foreground">지원가능:</span>
-                    {w.supportTypes.map(t => (
-                      <Badge key={t} variant="outline" className="text-[10px] px-1 h-4 bg-blue-50/30">{t}</Badge>
-                    ))}
-                  </div>
-                )}
-                <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
-                <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
-                {w.contractStatus === "퇴사" && w.resignationDate && (
-                  <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
-                )}
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {filtered.length === 0 ? (
+              <Card className="md:col-span-2">
+                <CardContent className="py-10 text-center text-sm text-muted-foreground">검색된 활동지원사가 없습니다.</CardContent>
+              </Card>
+            ) : (
+              filtered.map((w) => (
+                <Card key={w.id} className="stat-card group">
+                  <CardContent className="p-4 cursor-pointer" onClick={() => openDetail(w as any)}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div>
+                        <span className="font-bold text-lg">{w.name}</span>
+                        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground mt-1">
+                          <span>{w.gender} · {w.age}세</span>
+                          {w.isForeigner && <Badge variant="secondary">외국인</Badge>}
+                          {w.hasF4 && <Badge variant="outline">F4</Badge>}
+                          {w.hasF5 && <Badge variant="outline">F5</Badge>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
+                          {effectiveWorkerStatus(w)}
+                        </Badge>
+
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); startEdit(w as any); }}
+                          className="text-primary hover:text-primary/90"
+                          aria-label="수정"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(w as any); }}
+                          className="text-destructive hover:text-destructive/90"
+                          aria-label="삭제"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <p>
+                        <span className="text-muted-foreground">연락처:</span>{" "}
+                        <a
+                          href={`tel:${w.phone}`}
+                          className="text-primary hover:underline inline-flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <PhoneCall className="w-3 h-3" />
+                          {w.phone}
+                        </a>
+                      </p>
+                      <p><span className="text-muted-foreground">경력:</span> {w.experience}</p>
+                      {w.supportTypes && w.supportTypes.length > 0 && (
+                        <div className="flex flex-wrap gap-1 py-0.5">
+                          <span className="text-muted-foreground">지원가능:</span>
+                          {w.supportTypes.map(t => (
+                            <Badge key={t} variant="outline" className="text-[10px] px-1 h-4 bg-blue-50/30">{t}</Badge>
+                          ))}
+                        </div>
+                      )}
+                      <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
+                      <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
+                      {w.contractStatus === "퇴사" && w.resignationDate && (
+                        <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </section>
+
+        <aside className="space-y-4 xl:col-span-2 xl:sticky xl:top-32">
+          <Card className="border-primary/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">활동지원사 현황 요약 대시보드</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+                <button type="button" onClick={() => openWorkerSummaryModal("joined")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 신규 입사</p>
+                  <p className="text-2xl font-bold text-primary">{workerSummary.recentJoined}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("resigned")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">3개월 퇴사</p>
+                  <p className="text-2xl font-bold text-destructive">{workerSummary.recentResigned}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("working")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">현재 근무 중</p>
+                  <p className="text-2xl font-bold">{workerSummary.working}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("waiting")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">현재 대기</p>
+                  <p className="text-2xl font-bold">{workerSummary.waiting}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("handover")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">인계/변경</p>
+                  <p className="text-2xl font-bold text-primary">{workerSummary.handoverEvents}</p>
+                </button>
+                <button type="button" onClick={() => openWorkerSummaryModal("counseling")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+                  <p className="text-xs text-muted-foreground">상담/보고</p>
+                  <p className="text-2xl font-bold">{workerSummary.counselingIssues}</p>
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">{summaryModal?.title || "선택된 현황 상세 명단"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!summaryModal ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">상단 현황 카드를 선택하면 조건별 명단이 표시됩니다.</p>
+              ) : summaryModal.rows.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
+              ) : (
+                <div className="max-h-[520px] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="py-2 pr-3">이름</th>
+                        <th className="py-2 pr-3">주요 일자</th>
+                        <th className="py-2 pr-3">상태</th>
+                        <th className="py-2 pr-3">비고/사유</th>
+                        <th className="py-2 text-right">바로가기</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {summaryModal.rows.map((row) => (
+                        <tr key={row.id} className="border-b hover:bg-muted/40 cursor-pointer" onClick={() => openSummaryWorker(row.workerId)}>
+                          <td className="py-2 pr-3 font-medium">{row.name}</td>
+                          <td className="py-2 pr-3 whitespace-nowrap">{row.date || "미등록"}</td>
+                          <td className="py-2 pr-3"><Badge variant={row.status.includes("퇴사") ? "destructive" : row.status.includes("대기") ? "secondary" : "default"}>{row.status}</Badge></td>
+                          <td className="py-2 pr-3 max-w-[260px] truncate">{row.note || "-"}</td>
+                          <td className="py-2 text-right"><Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openSummaryWorker(row.workerId); }}>상세</Button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </aside>
+      </div>
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1211,3 +1382,8 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
+
+
+

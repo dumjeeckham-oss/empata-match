@@ -13,6 +13,7 @@ import Matching from "@/pages/Matching";
 import Counseling from "@/pages/Counseling";
 import Terminations from "@/pages/Terminations";
 import Handovers from "@/pages/Handovers";
+import Manual from "@/pages/Manual";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -45,6 +46,7 @@ const AuthenticatedApp = () => {
             <Route path="/counseling" element={<ErrorBoundary><Counseling /></ErrorBoundary>} />
             <Route path="/terminations" element={<ErrorBoundary><Terminations /></ErrorBoundary>} />
             <Route path="/handovers" element={<ErrorBoundary><Handovers /></ErrorBoundary>} />
+            <Route path="/manual" element={<ErrorBoundary><Manual /></ErrorBoundary>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </ErrorBoundary>
@@ -63,3 +65,4 @@ const App = () => (
 );
 
 export default App;
+

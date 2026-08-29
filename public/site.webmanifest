@@ -1,0 +1,20 @@
+{
+  "name": "동백 장애인활동지원센터 매칭 프로그램",
+  "short_name": "동백",
+  "description": "동백 장애인활동지원센터 이용자-활동지원사 매칭 관리 시스템",
+  "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#f7f3ef",
+  "background_color": "#f7f3ef",
+  "display": "standalone"
+}
