@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, no-irregular-whitespace */
 ﻿import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
@@ -20,7 +21,9 @@ import {
 } from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cascadeWorkerProfile } from "@/lib/cascadeSync";
 import { Label } from "@/components/ui/label";
+import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -323,6 +326,7 @@ const WorkerManagement = () => {
 
     if (editingId) {
       await update(editingId, payload);
+      await cascadeWorkerProfile(editingId, { name: payload.name, phone: payload.phone });
       toast({ title: "수정 완료" });
     } else {
       const ref = await add(payload as Omit<Worker, "id">);
@@ -1102,7 +1106,7 @@ const WorkerManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); removeMatchingHistory(match.id); }}>🗑️</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>🗑️</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (

@@ -12,11 +12,6 @@ interface WorkerPeriodEditorProps {
   /** Callback after successful save, can be used to refresh parent data */
   onSaved?: () => void;
 }
-  worker: Worker;
-  /** Callback after successful save, can be used to refresh parent data */
-  onSaved?: () => void;
-}
-
 /**
  * UI for editing a single worker's service period.
  * - Allows setting serviceStartDate.
@@ -24,15 +19,15 @@ interface WorkerPeriodEditorProps {
  * - When unchecked, a serviceEndDate picker is shown.
  * - Saves changes via the provided `updateWorker` function (passed via context).
  */
-export const WorkerPeriodEditor: React.FC<WorkerPeriodEditorProps> = ({ worker, onSaved }) => {
+export const WorkerPeriodEditor: React.FC<WorkerPeriodEditorProps> = ({ worker, updateWorker, onSaved }) => {
   const [serviceStartDate, setServiceStartDate] = useState<string>(worker.serviceStartDate ?? '');
-  const [serviceEndDate, setServiceEndDate] = useState<string>(worker.serviceEndDate ?? '');
-  const [isActive, setIsActive] = useState<boolean>(!worker.serviceEndDate);
+  const [serviceEndDate, setServiceEndDate] = useState<string>(worker.resignationDate ?? '');
+  const [isActive, setIsActive] = useState<boolean>(!worker.resignationDate);
 
   // Update active flag when end date changes externally
   useEffect(() => {
-    setIsActive(!worker.serviceEndDate);
-    setServiceEndDate(worker.serviceEndDate ?? '');
+    setIsActive(!worker.resignationDate);
+    setServiceEndDate(worker.resignationDate ?? '');
     setServiceStartDate(worker.serviceStartDate ?? '');
   }, [worker]);
 
@@ -48,15 +43,11 @@ export const WorkerPeriodEditor: React.FC<WorkerPeriodEditorProps> = ({ worker, 
     }
     // Determine contractStatus based on end date presence.
     const contractStatus = isActive ? '근무중' : '퇴사';
-    // Assume there is a global `updateWorker` helper available via context or passed.
-    // For simplicity we import from assignments sync function later.
-    // The parent component passes a function via closure; we will call a global method.
-    // Here we use a placeholder `window.updateWorker` (to be bound in parent).
     try {
-      // @ts-ignore – runtime will provide this function via prop or context.
-      await (window as any).updateWorker(worker.id, {
+      if (!worker.id) throw new Error('활동지원사 ID가 없습니다.');
+      await updateWorker(worker.id, {
         serviceStartDate,
-        serviceEndDate: isActive ? '' : serviceEndDate,
+        resignationDate: isActive ? '' : serviceEndDate,
         contractStatus,
       });
       toast({ title: '근무 기간이 저장되었습니다' });

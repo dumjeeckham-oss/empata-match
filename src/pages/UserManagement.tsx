@@ -1,6 +1,6 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { WorkerTerminationDialog } from "@/components/WorkerTerminationDialog";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -14,12 +14,14 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
-import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
+import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION, COUNSELING_COLLECTION } from "@/lib/collectionNames";
+import { cascadeUserProfile } from "@/lib/cascadeSync";
 import {
   buildHelperArraysFromIds,
   formatHelperList,
   syncUserToWorkers,
 } from "@/lib/assignments";
+import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,8 +48,6 @@ import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
-  const [terminationTarget, setTerminationTarget] = useState<Worker | null>(null);
-  const [terminationDialogOpen, setTerminationDialogOpen] = useState(false);
 import { getComparableDateValue } from "@/lib/utils";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
@@ -101,7 +101,7 @@ const UserManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
+  const { data: counselingRecords } = useCollection<CounselingRecord>(COUNSELING_COLLECTION);
   const { data: matchingHistory, add: addMatchingHistory, update: updateMatchingHistory, remove: removeMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
 
   // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
@@ -157,9 +157,12 @@ const UserManagement = () => {
     userId: string;
     userName: string;
     prevWorkerNames: string;
+    prevWorkerId?: string;
     nextWorkerId: string;
     nextWorkerName: string;
   } | null>(null);
+  const [serviceActionTarget, setServiceActionTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [workerHistorySearch, setWorkerHistorySearch] = useState("");
 
 
   const applyCascade = async () => {
@@ -343,9 +346,26 @@ const UserManagement = () => {
         setHandoverGate({
           userId: editingId,
           userName: form.name,
+          prevWorkerId: removed[0],
           prevWorkerNames: removed
             .map((id) => workers.find((w) => w.id === id)?.name || id)
             .join(", "),
+          nextWorkerId: added[0],
+          nextWorkerName: nextWorker?.name || "",
+        });
+        return;
+      }
+      const existingUser = users.find((user) => user.id === editingId);
+      const lastReleasedMatch = [...matchingLogs]
+        .filter((record) => record.userId === editingId && record.type === "해제" && record.workerId)
+        .sort((a, b) => (b.endDate || b.date || "").localeCompare(a.endDate || a.date || ""))[0];
+      if (added.length > 0 && prevHelperIds.length === 0 && existingUser?.contractStatus === "대기" && lastReleasedMatch) {
+        const nextWorker = workers.find((worker) => worker.id === added[0]);
+        setHandoverGate({
+          userId: editingId,
+          userName: form.name,
+          prevWorkerId: lastReleasedMatch.workerId,
+          prevWorkerNames: lastReleasedMatch.workerName,
           nextWorkerId: added[0],
           nextWorkerName: nextWorker?.name || "",
         });
@@ -370,6 +390,13 @@ const UserManagement = () => {
     if (editingId) {
       await update(editingId, payload);
       toast({ title: "수정 완료" });
+      await cascadeUserProfile(editingId, {
+        name: payload.name,
+        phone: payload.phone,
+        address: payload.address,
+        voucherTier: payload.voucherTier,
+        disabilityType: payload.disabilityType,
+      });
     } else {
       const key = makeUniqueKey(form.name, form.phone, getIdentityFallbackContext(form));
       const existing = users.find((u) => makeUniqueKey(u.name, u.phone, getIdentityFallbackContext(u as any)) === key);
@@ -1188,8 +1215,8 @@ const UserManagement = () => {
             <AlertDialogTitle>인계·인수서 작성이 필요합니다</AlertDialogTitle>
             <AlertDialogDescription>
               {handoverGate?.userName} 이용자의 담당 활동지원사를 {handoverGate?.prevWorkerNames} →{" "}
-              {handoverGate?.nextWorkerName || "신규 담당자"}(으)로 변경하려고 합니다. 인계·인수서를 먼저
-              작성해야 담당자 변경이 저장됩니다.
+              {handoverGate?.nextWorkerName || "신규 담당자"}(으)로 변경하려고 합니다. 인계·인수서를
+              작성하시겠습니까?
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1203,6 +1230,7 @@ const UserManagement = () => {
                 });
                 setHandoverGate(null);
                 setDialogOpen(false);
+                if (handoverGate.prevWorkerId) params.set("prevWorkerId", handoverGate.prevWorkerId);
                 navigate(`/handovers?${params.toString()}`);
               }}
             >
@@ -1290,7 +1318,7 @@ const UserManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); removeMatchingHistory(match.id); }}>🗑️</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>🗑️</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
@@ -1304,6 +1332,9 @@ const UserManagement = () => {
               </div>
 
               <div className="flex justify-end gap-2">
+                <Button variant="destructive" onClick={() => detailTarget && setServiceActionTarget(detailTarget)}>
+                  서비스 종료/교체
+                </Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
               </div>
@@ -1331,6 +1362,7 @@ const UserManagement = () => {
                   </div>
                   <div>
                     <label className="text-sm font-medium">활동지원사</label>
+                    <Input className="mb-2" value={workerHistorySearch} onChange={(event) => setWorkerHistorySearch(event.target.value)} placeholder="활동지원사 이름 또는 연락처 검색" />
                     <Select value={matchHistoryForm?.workerId || ""} onValueChange={(v) => {
                       if (!matchHistoryForm) return;
                       const w = workers.find(x => x.id === v);
@@ -1338,7 +1370,7 @@ const UserManagement = () => {
                     }}>
                       <SelectTrigger><SelectValue placeholder="활동지원사 선택" /></SelectTrigger>
                       <SelectContent>
-                        {workers.map(w => <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone || "연락처 없음"})</SelectItem>)}
+                        {workers.filter((w) => !workerHistorySearch.trim() || `${w.name} ${w.phone || ""}`.includes(workerHistorySearch.trim())).map(w => <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone || "연락처 없음"})</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1390,6 +1422,24 @@ const UserManagement = () => {
               </DialogContent>
             </Dialog>
 </Dialog>
+      <AlertDialog open={!!serviceActionTarget} onOpenChange={(open) => !open && setServiceActionTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>서비스 종료/교체 처리</AlertDialogTitle>
+            <AlertDialogDescription>{serviceActionTarget?.name} 이용자는 현재 담당 활동지원사가 {serviceActionTarget?.assignedHelperIds?.length || 0}명입니다. 처리 방법을 선택하세요.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="sm:justify-between">
+            <AlertDialogCancel>취소</AlertDialogCancel>
+            <Button variant="outline" onClick={async () => {
+              if (!serviceActionTarget) return;
+              await update(serviceActionTarget.id, { contractStatus: "대기", resignationDate: "", terminationReason: "", txtUMemostop: "" });
+              setDetailTarget(null); setServiceActionTarget(null); setStatusFilter("대기");
+              toast({ title: "매칭 대기 상태로 전환했습니다." });
+            }}>매칭 대기 상태 전환</Button>
+            <AlertDialogAction onClick={() => serviceActionTarget && navigate(`/terminations?userId=${encodeURIComponent(serviceActionTarget.id)}`)}>종결승인서 작성</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

@@ -7,6 +7,7 @@ export const WORKERS_COLLECTION = "workers" as const;
 export const TERMINATIONS_COLLECTION = "terminations" as const;
 export const HANDOVERS_COLLECTION = "handovers" as const;
 export const MATCHING_HISTORY_COLLECTION = "matchingHistory" as const;
+export const COUNSELING_COLLECTION = "counseling" as const;
 
 export type CoreCollectionName =
   | typeof USERS_COLLECTION
