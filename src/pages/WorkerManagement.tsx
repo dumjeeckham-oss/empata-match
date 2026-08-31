@@ -172,6 +172,11 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [pendingProfileSync, setPendingProfileSync] = useState<{
+    id: string;
+    changedFields: string[];
+    snapshot: { name: string; phone: string; address: string };
+  } | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     title: string;
     rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }>;
@@ -330,8 +335,20 @@ const WorkerManagement = () => {
     }
 
     if (editingId) {
+      const previous = workers.find((w) => w.id === editingId);
+      const changedFields = [
+        previous?.name !== payload.name ? "이름" : "",
+        previous?.phone !== payload.phone ? "전화번호" : "",
+        previous?.address !== payload.address ? "주소" : "",
+      ].filter(Boolean);
       await update(editingId, payload);
-      await cascadeWorkerProfile(editingId, { name: payload.name, phone: payload.phone });
+      if (changedFields.length > 0) {
+        setPendingProfileSync({
+          id: editingId,
+          changedFields,
+          snapshot: { name: payload.name, phone: payload.phone, address: payload.address },
+        });
+      }
       toast({ title: "수정 완료" });
     } else {
       const ref = await add(payload as Omit<Worker, "id">);
@@ -395,8 +412,8 @@ const WorkerManagement = () => {
             target.contractStatus = "서비스중";
           }
         } else if (!(target.assignedHelperIds ?? []).length && target.contractStatus === "서비스중") {
-          await updateUser(userId, { contractStatus: "대기" });
-          target.contractStatus = "대기";
+          await updateUser(userId, { contractStatus: "작성중" });
+          target.contractStatus = "작성중";
         }
       }
     }
@@ -1104,6 +1121,28 @@ const WorkerManagement = () => {
           </Card>
         </aside>
       </div>
+      <AlertDialog open={!!pendingProfileSync} onOpenChange={(open) => !open && setPendingProfileSync(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>연관 데이터 일괄 업데이트</AlertDialogTitle>
+            <AlertDialogDescription>
+              정보 변경({pendingProfileSync?.changedFields.join(", ")})이 감지되었습니다. 변경된 내용을 이 활동지원사와 연결된 모든 매칭 이력, 인계인수서, 종결확인서, 상담기록에도 일괄 반영하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingProfileSync(null)}>아니요</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => {
+              if (!pendingProfileSync) return;
+              await cascadeWorkerProfile(pendingProfileSync.id, pendingProfileSync.snapshot);
+              setPendingProfileSync(null);
+              toast({ title: "연관 데이터 업데이트 완료", description: "연결된 모든 문서에 변경 내용을 반영했습니다." });
+            }}>
+              확인/승인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

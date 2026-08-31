@@ -111,10 +111,12 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
       ? (contractStatusRaw as ServiceUser["contractStatus"])
       : terminationReason.trim() || userResignationDate
         ? "계약해지"
-        : contractStatusRaw === "서비스중" || contractStatusRaw === "대기"
-          ? (contractStatusRaw as ServiceUser["contractStatus"])
+        : ids.length === 0 && contractStatusRaw === "서비스중"
+          ? "작성중"
+          : contractStatusRaw === "서비스중" || contractStatusRaw === "대기" || contractStatusRaw === "작성중"
+            ? (contractStatusRaw as ServiceUser["contractStatus"])
           : serviceStartDate
-            ? "서비스중"
+            ? (ids.length > 0 ? "서비스중" : "작성중")
             : "대기";
 
 

@@ -58,6 +58,8 @@ function effectiveUserStatus(user: ServiceUser): string {
   const hasResign = String(user.resignationDate ?? "").trim() !== "";
   const hasReason = String(user.terminationReason ?? user.txtUMemostop ?? "").trim() !== "";
   if (raw === "계약해지" || hasResign || hasReason) return "계약해지";
+  const helperCount = (user.assignedHelperIds ?? user.assigned_workers ?? []).filter(Boolean).length;
+  if (raw === "서비스중" && helperCount === 0) return "작성중";
   // 최초서비스제공일이 입력되면 서비스중, 공란이면 대기로 표시
   const hasServiceStart = String(user.serviceStartDate ?? "").trim() !== "";
   if (hasServiceStart) return "서비스중";
@@ -141,6 +143,11 @@ const UserManagement = () => {
   const [geocoding, setGeocoding] = useState(false);
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [pendingProfileSync, setPendingProfileSync] = useState<{
+    id: string;
+    changedFields: string[];
+    snapshot: { name: string; phone: string; address: string; voucherTier: number; disabilityType: string };
+  } | null>(null);
   const [pendingOverwrite, setPendingOverwrite] = useState<{
     existingId: string;
     payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">;
@@ -363,8 +370,16 @@ const UserManagement = () => {
       payload.resignationDate = payload.resignationDate || new Date().toISOString().slice(0, 10);
     } else {
       payload.resignationDate = "";
-      // 최초 서비스제공일이 입력되면 "서비스중", 공란이면 "대기"로 자동 전환
-      payload.contractStatus = payload.serviceStartDate?.trim() ? "서비스중" : "대기";
+      const attemptedService = payload.contractStatus === "서비스중" || !!payload.serviceStartDate?.trim();
+      if (arrays.ids.length === 0 && attemptedService) {
+        payload.contractStatus = "작성중";
+        toast({
+          title: "상태가 작성중으로 변경됩니다",
+          description: "담당 활동지원사가 없는 경우 서비스중 상태로 설정할 수 없습니다. '작성중' 상태로 전환됩니다.",
+        });
+      } else {
+        payload.contractStatus = payload.serviceStartDate?.trim() && arrays.ids.length > 0 ? "서비스중" : payload.contractStatus === "작성중" ? "작성중" : "대기";
+      }
     }
 
 
@@ -412,14 +427,26 @@ const UserManagement = () => {
     }
 
     if (editingId) {
+      const previous = users.find((u) => u.id === editingId);
+      const changedFields = [
+        previous?.name !== payload.name ? "이름" : "",
+        previous?.phone !== payload.phone ? "전화번호" : "",
+        previous?.address !== payload.address ? "주소" : "",
+      ].filter(Boolean);
       await update(editingId, payload);
-      await cascadeUserProfile(editingId, {
-        name: payload.name,
-        phone: payload.phone,
-        address: payload.address,
-        voucherTier: payload.voucherTier,
-        disabilityType: payload.disabilityType,
-      });
+      if (changedFields.length > 0) {
+        setPendingProfileSync({
+          id: editingId,
+          changedFields,
+          snapshot: {
+            name: payload.name,
+            phone: payload.phone,
+            address: payload.address,
+            voucherTier: payload.voucherTier,
+            disabilityType: payload.disabilityType,
+          },
+        });
+      }
       toast({ title: "수정 완료" });
     } else {
       const key = makeUniqueKey(form.name, form.phone, getIdentityFallbackContext(form));
@@ -1072,7 +1099,7 @@ const UserManagement = () => {
         ? user.contractStatus
         : arrays.ids.length > 0
           ? "서비스중"
-          : "대기",
+          : "작성중",
     };
 
     await update(user.id, payload);
@@ -1599,6 +1626,7 @@ const UserManagement = () => {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="서비스중">서비스중</SelectItem>
+                        <SelectItem value="작성중">작성중</SelectItem>
                         <SelectItem value="대기">대기</SelectItem>
                         <SelectItem value="계약해지">계약해지</SelectItem>
                         <SelectItem value="타기관 계약">타기관 계약</SelectItem>
@@ -1844,6 +1872,28 @@ const UserManagement = () => {
           </Card>
         </aside>
       </div>
+      <AlertDialog open={!!pendingProfileSync} onOpenChange={(open) => !open && setPendingProfileSync(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>연관 데이터 일괄 업데이트</AlertDialogTitle>
+            <AlertDialogDescription>
+              정보 변경({pendingProfileSync?.changedFields.join(", ")})이 감지되었습니다. 변경된 내용을 이 이용자와 연결된 모든 매칭 이력, 인계인수서, 종결확인서, 상담기록에도 일괄 반영하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingProfileSync(null)}>아니요</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => {
+              if (!pendingProfileSync) return;
+              await cascadeUserProfile(pendingProfileSync.id, pendingProfileSync.snapshot);
+              setPendingProfileSync(null);
+              toast({ title: "연관 데이터 업데이트 완료", description: "연결된 모든 문서에 변경 내용을 반영했습니다." });
+            }}>
+              확인/승인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

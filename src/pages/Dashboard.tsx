@@ -7,6 +7,7 @@ import { matchUserWithWorkers } from "@/lib/matching";
 import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, HANDOVERS_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { isWithinRecentMonths, parseDateValue } from "@/lib/dashboardStats";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -35,15 +36,20 @@ const Dashboard = () => {
   // ── 이 지점부터 users/workers는 []이거나 정상 데이터 ──
 
   const recentUsers = [...users]
-    .filter((u) => u.createdAt)
-    .sort((a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime())
-    .slice(0, 5);
+    .filter((u) => isWithinRecentMonths(u.receiptDate || u.serviceStartDate || u.createdAt, 3))
+    .sort((a, b) =>
+      (parseDateValue(b.receiptDate || b.serviceStartDate || b.createdAt)?.getTime() ?? 0) -
+      (parseDateValue(a.receiptDate || a.serviceStartDate || a.createdAt)?.getTime() ?? 0));
   const recentWorkers = [...workers]
-    .filter((w) => w.createdAt)
-    .sort((a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime())
-    .slice(0, 5);
+    .filter((w) => isWithinRecentMonths(w.receiptDate || w.serviceStartDate || w.createdAt, 3))
+    .sort((a, b) =>
+      (parseDateValue(b.receiptDate || b.serviceStartDate || b.createdAt)?.getTime() ?? 0) -
+      (parseDateValue(a.receiptDate || a.serviceStartDate || a.createdAt)?.getTime() ?? 0));
 
-  const activeUsers = users.filter((u) => u.contractStatus === "서비스중");
+  const activeUsers = users.filter(
+    (u) => u.contractStatus === "서비스중" &&
+      (u.assignedHelperIds ?? u.assigned_workers ?? []).filter(Boolean).length > 0,
+  );
   const waitingUsers = users.filter(
     (u) =>
       u.contractStatus === "대기" &&
@@ -187,15 +193,15 @@ const Dashboard = () => {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">👤 최근 신규 등록 이용자</CardTitle>
-            <Badge variant="secondary" className="font-normal">최근 5건</Badge>
+            <Badge variant="secondary" className="font-normal">최근 3개월 · {recentUsers.length}명</Badge>
           </CardHeader>
           <CardContent>
             {recentUsers.length === 0 ? (
               <p className="text-muted-foreground text-sm py-4 text-center">신규 등록 이용자가 없습니다.</p>
             ) : (
-              <div className="divide-y max-h-[250px] overflow-y-auto pr-2">
+              <div className="divide-y max-h-[300px] overflow-x-auto overflow-y-auto pr-2">
                 {recentUsers.map((u) => (
-                  <div key={u.id} className="py-3 flex justify-between items-center">
+                  <div key={u.id} className="py-3 flex min-w-[520px] justify-between items-center">
                     <div>
                       <span className="font-medium">{u.name}</span>
                       <span className="text-muted-foreground ml-2 text-xs">{u.gender} · {u.disabilityType}</span>
@@ -214,15 +220,15 @@ const Dashboard = () => {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="text-lg flex items-center gap-2">🧑‍💼 최근 신규 등록 활동지원사</CardTitle>
-            <Badge variant="secondary" className="font-normal">최근 5건</Badge>
+            <Badge variant="secondary" className="font-normal">최근 3개월 · {recentWorkers.length}명</Badge>
           </CardHeader>
           <CardContent>
             {recentWorkers.length === 0 ? (
               <p className="text-muted-foreground text-sm py-4 text-center">신규 등록 활동지원사가 없습니다.</p>
             ) : (
-              <div className="divide-y max-h-[250px] overflow-y-auto pr-2">
+              <div className="divide-y max-h-[300px] overflow-x-auto overflow-y-auto pr-2">
                 {recentWorkers.map((w) => (
-                  <div key={w.id} className="py-3 flex justify-between items-center">
+                  <div key={w.id} className="py-3 flex min-w-[520px] justify-between items-center">
                     <div>
                       <span className="font-medium">{w.name}</span>
                       <span className="text-muted-foreground ml-2 text-xs">{w.gender} · {w.experience}</span>
