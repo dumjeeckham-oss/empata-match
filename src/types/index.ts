@@ -131,7 +131,7 @@ export interface Worker {
   hasF5?: boolean;
   certificates: string[]; // 보유 자격증
   certificateNumber: string;
-  contractStatus: "근무중" | "퇴사" | "대기";
+  contractStatus: "근무중" | "퇴사" | "대기" | "변경";
   serviceStartDate: string;
   /** 특정 이용자와의 서비스 종료일 기본값 */
   serviceEndDate?: string | null;
@@ -245,6 +245,7 @@ export interface MatchingHistoryRecord {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
 
 
 

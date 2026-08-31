@@ -133,7 +133,9 @@ function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string
     // 직접 "퇴사"로 지정한 경우는 자동으로 "근무중"으로 되돌리지 않음
     contractStatus: isResigned
       ? "퇴사"
-      : hasServiceStartDate
+      : worker.contractStatus === "변경"
+        ? "변경"
+        : hasServiceStartDate
         ? "근무중"
         : worker.contractStatus,
     experience: hasServiceStartDate
@@ -946,7 +948,7 @@ const WorkerManagement = () => {
                       }
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
+                      <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
@@ -1466,6 +1468,8 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
 
 
 

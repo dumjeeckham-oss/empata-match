@@ -2,8 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type TerminationDocument, TERMINATION_REASONS } from "@/types";
-import { USERS_COLLECTION, TERMINATIONS_COLLECTION } from "@/lib/collectionNames";
+import { type ServiceUser, type TerminationDocument, type Worker, TERMINATION_REASONS } from "@/types";
+import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION } from "@/lib/collectionNames";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
@@ -38,13 +39,16 @@ function safeMsg(e: unknown): string {
 export default function Terminations() {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: docsRaw, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
   const users = usersRaw || [];
+  const workers = workersRaw || [];
   const docs = docsRaw || [];
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [printDoc, setPrintDoc] = useState<TerminationDocument | null>(null);
+  const [workerAfterStatus, setWorkerAfterStatus] = useState<"대기" | "퇴사" | "변경">("대기");
 
   const [form, setForm] = useState<Omit<TerminationDocument, "id" | "createdAt" | "updatedAt">>({
     userId: "",
@@ -66,10 +70,41 @@ export default function Terminations() {
     () => users.find((u) => u.id === form.userId),
     [users, form.userId]
   );
+  const getLinkedWorkersForUser = (user: ServiceUser | undefined) => {
+    if (!user) return [];
+    const ids = new Set((user.assignedHelperIds || user.assigned_workers || []).filter(Boolean));
+    const names = new Set((user.assignedHelperNames || []).map((name) => String(name || "").trim()).filter(Boolean));
+    return workers.filter((worker) => {
+      if (worker.id && ids.has(worker.id)) return true;
+      return names.has(String(worker.name || "").trim());
+    });
+  };
+
+  const getAssignedWorkerNames = (user: ServiceUser | undefined) => {
+    const linked = getLinkedWorkersForUser(user).map((worker) => worker.name).filter(Boolean);
+    const fallback = (user?.assignedHelperNames || []).map((name) => String(name || "").trim()).filter(Boolean);
+    return Array.from(new Set(linked.length > 0 ? linked : fallback));
+  };
+
+  const applyLinkedWorkerTerminationStatus = async (user: ServiceUser | undefined, endDate: string) => {
+    const linkedWorkers = getLinkedWorkersForUser(user);
+    for (const worker of linkedWorkers) {
+      if (!worker.id) continue;
+      const payload: Partial<Worker> = {
+        contractStatus: workerAfterStatus,
+        serviceEndDate: endDate,
+        retirementDate: workerAfterStatus === "퇴사" ? endDate : "",
+        resignationDate: workerAfterStatus === "퇴사" ? endDate : "",
+        notes: [worker.notes, `종결승인서 후속 처리: ${workerAfterStatus}`].filter(Boolean).join("\n"),
+      };
+      await updateWorker(worker.id, payload);
+    }
+    return linkedWorkers.length;
+  };
 
   const handleSelectUser = (u: ServiceUser) => {
     // 선택한 이용자의 담당 활동지원사를 자동으로 찾아 채움
-    const workerName = u.assignedHelperNames?.[0] || "";
+    const workerName = getAssignedWorkerNames(u).join(", ");
     setForm((f) => ({
       ...f,
       userId: u.id || "",
@@ -155,6 +190,11 @@ export default function Terminations() {
         toast({ title: "종결확인서 저장 완료", description: "이용자 상태가 '계약해지'로 자동 전환되고, 계약해지 날짜가 저장되었습니다." });
       }
 
+      const affectedWorkerCount = await applyLinkedWorkerTerminationStatus(selectedUser, form.date);
+      if (affectedWorkerCount > 0) {
+        toast({ title: "연결 활동지원사 상태 업데이트", description: `${affectedWorkerCount}명 상태를 ${workerAfterStatus}(으)로 반영했습니다.` });
+      }
+
       resetForm();
     } catch (e) {
       console.error("Termination save failed:", e);
@@ -163,12 +203,12 @@ export default function Terminations() {
   };
 
   const handleEdit = (doc: TerminationDocument) => {
-    setEditingId(doc.id);
+    setEditingId(doc.id || null);
     setForm({
-      userId: doc.userId,
-      userName: doc.userName,
-      userPhone: doc.userPhone,
-      date: doc.date,
+      userId: doc.userId || "",
+      userName: doc.userName || "",
+      userPhone: doc.userPhone || "",
+      date: doc.date || new Date().toISOString().slice(0, 10),
       reasons: doc.reasons || [],
       reasonDetail: doc.reasonDetail || "",
       handoverNote: doc.handoverNote || "",
@@ -177,11 +217,17 @@ export default function Terminations() {
       projectName: doc.projectName || "동백 장애인활동지원센터",
       residentNumber: doc.residentNumber || "",
       approvalDate: doc.approvalDate || doc.date || new Date().toISOString().slice(0, 10),
-      assignedWorkerName: doc.assignedWorkerName || "",
+      assignedWorkerName: doc.assignedWorkerName || getAssignedWorkerNames(users.find((u) => u.id === doc.userId)).join(", "),
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  useEffect(() => {
+    const docId = searchParams.get("docId") || searchParams.get("id");
+    if (!docId || editingId) return;
+    const targetDoc = docs.find((item) => item.id === docId);
+    if (targetDoc) handleEdit(targetDoc);
+  }, [searchParams, docs, editingId]);
   const handleDelete = async (id: string) => {
     if (!confirm("정말 삭제하시겠습니까?")) return;
     try {
@@ -209,6 +255,7 @@ export default function Terminations() {
       approvalDate: new Date().toISOString().slice(0, 10),
       assignedWorkerName: "",
     });
+    setWorkerAfterStatus("대기");
   };
 
   const handlePrint = (doc: TerminationDocument) => {
@@ -297,26 +344,26 @@ export default function Terminations() {
               <tbody>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", width: "18%", textAlign: "center" }}>사 업 명</th>
-                  <td style={{ width: "32%" }}>{printDoc.projectName || "동백 장애인활동지원센터"}</td>
+                  <td style={{ width: "32%" }}>{printDoc?.projectName || "동백 장애인활동지원센터"}</td>
                   <th style={{ backgroundColor: "#f5f5f5", width: "18%", textAlign: "center" }}>담당 활동지원사</th>
-                  <td style={{ width: "32%" }}>{printDoc.assignedWorkerName || users.find(u => u.id === printDoc.userId)?.assignedHelperNames?.[0] || ""}</td>
+                  <td style={{ width: "32%" }}>{printDoc?.assignedWorkerName || getAssignedWorkerNames(users.find(u => u.id === printDoc?.userId)).join(", ") || "—"}</td>
                 </tr>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>이용 종결자</th>
-                  <td style={{ fontWeight: 700 }}>{printDoc.userName}</td>
+                  <td style={{ fontWeight: 700 }}>{printDoc?.userName || "—"}</td>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>종결사유</th>
-                  <td>{printDoc.reasons?.join(", ") || "—"}</td>
+                  <td>{(printDoc?.reasons || []).join(", ") || "—"}</td>
                 </tr>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>주민등록번호</th>
                   <td>{printDoc.residentNumber || "—"}</td>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>종결 일시</th>
-                  <td>{printDoc.date}</td>
+                  <td>{printDoc?.date || "—"}</td>
                 </tr>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>주 소</th>
                   <td colSpan={3}>
-                    {users.find(u => u.id === printDoc.userId)?.address
+                    {users.find(u => u.id === printDoc?.userId)?.address
                       || selectedUser?.address || "—"}
                   </td>
                 </tr>
@@ -349,14 +396,14 @@ export default function Terminations() {
                           fontWeight: 700,
                           flexShrink: 0,
                         }}>
-                          {printDoc.reasons.includes(r) ? "✓" : ""}
+                          {(printDoc?.reasons || []).includes(r) ? "✓" : ""}
                         </span>
                         <span>{r}</span>
                       </div>
                     ))}
                   </td>
                   <td style={{ verticalAlign: "top", padding: "2mm", fontSize: "8.5px", lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
-                    {printDoc.reasonDetail || ""}
+                    {printDoc?.reasonDetail || ""}
                   </td>
                 </tr>
               </tbody>
@@ -460,6 +507,17 @@ export default function Terminations() {
             <div>
               <Label>담당 활동지원사 (자동 채움)</Label>
               <Input value={form.assignedWorkerName || ""} onChange={(e) => setForm((f) => ({ ...f, assignedWorkerName: e.target.value }))} placeholder="이용자 선택 시 자동 채움" />
+            </div>
+            <div>
+              <Label>종결 후 활동지원사 상태</Label>
+              <Select value={workerAfterStatus} onValueChange={(value) => setWorkerAfterStatus(value as "대기" | "퇴사" | "변경")}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="대기">대기</SelectItem>
+                  <SelectItem value="퇴사">퇴사</SelectItem>
+                  <SelectItem value="변경">변경</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -569,7 +627,7 @@ export default function Terminations() {
                     <Button variant="outline" size="sm" onClick={() => handleEdit(d)}>
                       <Edit2 className="w-4 h-4 mr-1" /> 수정
                     </Button>
-                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => handleDelete(d.id)}>
+                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" disabled={!d.id} onClick={() => d.id && handleDelete(d.id)}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
@@ -582,6 +640,14 @@ export default function Terminations() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 
 
 

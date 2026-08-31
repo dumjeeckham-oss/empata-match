@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
@@ -14,7 +14,7 @@ import {
   type FieldKey,
   type ParsedSheet,
 } from "@/lib/bulkUpload";
-import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION, COUNSELING_COLLECTION } from "@/lib/collectionNames";
+import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION, COUNSELING_COLLECTION, HANDOVERS_COLLECTION } from "@/lib/collectionNames";
 import { cascadeUserProfile } from "@/lib/cascadeSync";
 import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import {
@@ -143,12 +143,14 @@ const UserManagement = () => {
   const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>(COUNSELING_COLLECTION);
   const { data: matchingHistory, add: addMatchingHistory, update: updateMatchingHistory, remove: removeMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: handoverDocsRaw } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
 
   // undefined 방어벽 — 데이터가 준비되지 않았을 때도 filter/map/find 에러 방지
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingLogs = counselingRecords || [];
   const matchingLogs = matchingHistory || [];
+  const handoverDocs = handoverDocsRaw || [];
 
   const [form, setForm] = useState(emptyUser);
   const [ageInput, setAgeInput] = useState("");
@@ -228,6 +230,7 @@ const UserManagement = () => {
     userId: string;
     workerId: string;
     endDate: string;
+    nextWorkerId?: string;
   } | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     title: string;
@@ -970,15 +973,53 @@ const UserManagement = () => {
       .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
   };
 
+  const getUniqueEntriesByWorker = (entries: DocumentMatchingHistoryEntry[]) => {
+    const byWorker = new Map<string, DocumentMatchingHistoryEntry>();
+    for (const entry of entries) {
+      if (!entry.workerId) continue;
+      const previous = byWorker.get(entry.workerId);
+      if (!previous || getComparableDateValue(entry.serviceStartDate).localeCompare(getComparableDateValue(previous.serviceStartDate)) >= 0) {
+        byWorker.set(entry.workerId, entry);
+      }
+    }
+    return Array.from(byWorker.values());
+  };
+
+  const periodsOverlap = (a: DocumentMatchingHistoryEntry, b: DocumentMatchingHistoryEntry) => {
+    const aStart = getComparableDateValue(a.serviceStartDate);
+    const bStart = getComparableDateValue(b.serviceStartDate);
+    const aEnd = getComparableDateValue(a.serviceEndDate || "9999-12-31");
+    const bEnd = getComparableDateValue(b.serviceEndDate || "9999-12-31");
+    return aStart <= bEnd && bStart <= aEnd;
+  };
+
+  const getOverlappingHelperNames = (entries: DocumentMatchingHistoryEntry[]) => {
+    const unique = getUniqueEntriesByWorker(entries);
+    for (let i = 0; i < unique.length; i += 1) {
+      const overlapping = unique.filter((entry, index) => index !== i && periodsOverlap(unique[i], entry));
+      if (overlapping.length > 0) {
+        return Array.from(new Set([unique[i], ...overlapping].map((entry) => entry.workerName || entry.workerId).filter(Boolean)));
+      }
+    }
+    return [];
+  };
+
   const formatCurrentHelperPreview = (user: ServiceUser & { id: string }): string => {
+    const entries = getUniqueEntriesByWorker(getDocumentMatchingEntries(user));
+    const overlappingNames = getOverlappingHelperNames(entries);
+    if (overlappingNames.length > 1) return `1:다 (${overlappingNames.join(", ")})`;
+
+    const chronologicalNames = Array.from(new Set(
+      entries
+        .filter((entry) => entry.workerName || entry.workerId)
+        .sort((a, b) => getComparableDateValue(a.serviceStartDate).localeCompare(getComparableDateValue(b.serviceStartDate)))
+        .map((entry) => entry.workerName || entry.workerId)
+    ));
+    if (chronologicalNames.length > 1) return chronologicalNames.join(" → ");
+
     const activeEntries = getActiveMatchingEntries(user);
-    if (activeEntries.length > 1) {
-      const names = activeEntries.map((entry) => entry.workerName || entry.workerId).filter(Boolean);
-      return `${activeEntries.length}명(1:다: ${names.join(", ")})`;
-    }
-    if (activeEntries.length === 1) {
-      return activeEntries[0].workerName || activeEntries[0].workerId;
-    }
+    if (activeEntries.length === 1) return activeEntries[0].workerName || activeEntries[0].workerId;
+    if (chronologicalNames.length === 1) return chronologicalNames[0];
     return formatHelperList(user);
   };
   const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string => {
@@ -1439,6 +1480,27 @@ const UserManagement = () => {
       .filter((record) => record.userId === detailTarget.id)
       .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
   }, [matchingLogs, detailTarget]);
+  const selectedHandoverDocs = useMemo(() => {
+    if (!detailTarget) return [];
+    return handoverDocs.filter((doc) => doc.userId === detailTarget.id);
+  }, [handoverDocs, detailTarget]);
+
+  const getHandoverForMatch = (match: MatchingHistoryRecord) => {
+    return selectedHandoverDocs.find((doc) =>
+      doc.userId === match.userId &&
+      (doc.prevWorkerId === match.workerId || doc.nextWorkerId === match.workerId) &&
+      (!match.endDate || doc.handoverDate === match.endDate || doc.takeoverDate === match.endDate || doc.handoverDate === match.date || doc.takeoverDate === match.date)
+    );
+  };
+
+  const openHandoverFromMatch = (match: MatchingHistoryRecord) => {
+    const params = new URLSearchParams({
+      userId: match.userId,
+      oldWorkerId: match.workerId,
+      endDate: match.endDate || match.date,
+    });
+    navigate(`/handovers?${params.toString()}`);
+  };
 
   const selectedMatchHistoryWorker = useMemo(() => {
     if (!matchHistoryForm?.workerId) return null;
@@ -1871,6 +1933,7 @@ const UserManagement = () => {
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
+                      <p><span className="text-muted-foreground">바우처 시간:</span> 월 {VOUCHER_HOURS[user.voucherTier] || 0}시간 ({user.voucherTier || "-"}구간)</p>
                       <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
                       <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? `총 ${getFormattedDuration(user.serviceStartDate)}째 서비스 중` : "미등록"}</p>
                       <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelperPreview(user as ServiceUser & { id: string }) || "없음"}</p>
@@ -2006,7 +2069,7 @@ const UserManagement = () => {
               if (!postServiceEndTarget) return;
               const target = postServiceEndTarget;
               setPostServiceEndTarget(null);
-              navigate(`/handover/new?userId=${encodeURIComponent(target.userId)}&oldWorkerId=${encodeURIComponent(target.workerId)}&endDate=${encodeURIComponent(target.endDate)}`);
+              navigate(`/handover/new?userId=${encodeURIComponent(target.userId)}&oldWorkerId=${encodeURIComponent(target.workerId)}${target.nextWorkerId ? `&nextWorkerId=${encodeURIComponent(target.nextWorkerId)}` : ""}&endDate=${encodeURIComponent(target.endDate)}`);
             }}>
               🔄 인계인수서 작성
             </Button>
@@ -2362,12 +2425,20 @@ const UserManagement = () => {
                     {selectedMatchingLogs.length === 0 ? (
                       <p className="text-sm text-muted-foreground">기록된 매칭 이력이 없습니다.</p>
                     ) : (
-                      selectedMatchingLogs.map((match) => (
+                      selectedMatchingLogs.map((match) => {
+                        const handoverDoc = getHandoverForMatch(match);
+                        return (
                         <div key={match.id || [match.date, match.workerId].join("-")} className="border rounded-lg p-3 hover:bg-muted">
                           <div className="flex justify-between items-start gap-3">
                             <div className="cursor-pointer flex-1" onClick={() => setExpandedMatchId(expandedMatchId === match.id ? null : match.id)}>
                               <p className="font-semibold">{match.date}{match.endDate ? ` ~ ${match.endDate}` : ""} · {match.type}</p>
                               <p className="text-sm text-muted-foreground">{match.workerName} · {match.workerPhone}</p>
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                <Badge variant={handoverDoc ? "default" : "secondary"}>{handoverDoc ? "인계인수서 작성완료" : "인계인수서 미작성"}</Badge>
+                                {!handoverDoc && (match.type === "해제" || match.reason === "인계" || match.reason === "교체" || match.endDate) && (
+                                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openHandoverFromMatch(match); }}>작성하기</Button>
+                                )}
+                              </div>
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
@@ -2378,7 +2449,8 @@ const UserManagement = () => {
                             <div className="mt-3 text-sm whitespace-pre-wrap">{match.notes || "상세 없음"}</div>
                           )}
                         </div>
-                      ))
+                        );
+                      })
                     )}
                   </CardContent>
                 </Card>
@@ -2453,12 +2525,25 @@ const UserManagement = () => {
                       <label className="text-sm font-medium">시작일</label>
                       <Input type="date" value={matchHistoryForm?.date || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, date: e.target.value})} />
                     </div>
-                    {matchHistoryForm?.type === "해제" && (
-                      <div>
-                        <label className="text-sm font-medium">종료일</label>
-                        <Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value})} />
-                      </div>
-                    )}
+                    <div>
+                      <label className="text-sm font-medium">종료일</label>
+                      <Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value, type: e.target.value ? "해제" : matchHistoryForm.type})} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-sm font-medium">변경 사유</label>
+                      <Select value={matchHistoryForm?.reason || "추가"} onValueChange={(v) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, reason: v as MatchingHistoryReason})}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {MATCH_REASON_OPTIONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium">상세 사유</label>
+                      <Input placeholder="상세 사유 입력" value={matchHistoryForm?.reasonDetail || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, reasonDetail: e.target.value})} />
+                    </div>
                   </div>
                   <div>
                     <label className="text-sm font-medium">비고</label>
@@ -2470,17 +2555,22 @@ const UserManagement = () => {
                   <Button disabled={!matchHistoryForm?.workerId || !matchHistoryForm?.date} onClick={async () => {
                     if (!matchHistoryForm || !detailTarget) return;
                     const w = workers.find(x => x.id === matchHistoryForm.workerId);
+                    if (!w?.id) return;
+                    const existingCurrent = getCurrentMatchingEntry(detailTarget);
+                    const isEnded = !!matchHistoryForm.endDate || matchHistoryForm.type === "해제";
                     const payload: any = {
-                      type: matchHistoryForm.type,
+                      type: isEnded ? "해제" : matchHistoryForm.type,
                       userId: detailTarget.id,
                       userName: detailTarget.name,
                       userPhone: detailTarget.phone,
                       workerId: matchHistoryForm.workerId,
-                      workerName: w?.name || "",
-                      workerPhone: w?.phone || "",
+                      workerName: w.name || "",
+                      workerPhone: w.phone || "",
                       date: matchHistoryForm.date,
                       endDate: matchHistoryForm.endDate || undefined,
-                      notes: matchHistoryForm.notes || undefined,
+                      reason: matchHistoryForm.reason || (isEnded ? "종료" : "추가"),
+                      reasonDetail: matchHistoryForm.reasonDetail || undefined,
+                      notes: matchHistoryForm.notes || matchHistoryForm.reasonDetail || undefined,
                     };
                     if (editingMatchHistoryId) {
                       await updateMatchingHistory(editingMatchHistoryId, payload);
@@ -2489,8 +2579,56 @@ const UserManagement = () => {
                       await addMatchingHistory(payload);
                       toast({ title: "매칭 이력 추가 완료" });
                     }
+
+                    const existingEntries = getDocumentMatchingEntries(detailTarget).filter((entry) => entry.workerId !== matchHistoryForm.workerId);
+                    const nextEntry: DocumentMatchingHistoryEntry = {
+                      id: editingMatchHistoryId || `${matchHistoryForm.workerId}-${matchHistoryForm.date}`,
+                      workerId: matchHistoryForm.workerId,
+                      workerName: w.name || "",
+                      workerPhone: w.phone || "",
+                      serviceStartDate: matchHistoryForm.date,
+                      serviceEndDate: matchHistoryForm.endDate || (isEnded ? matchHistoryForm.date : null),
+                      reason: payload.reason,
+                      reasonDetail: matchHistoryForm.reasonDetail || matchHistoryForm.notes || "",
+                      updatedAt: new Date().toISOString(),
+                    };
+                    const nextHistory = [...existingEntries, nextEntry];
+                    const activeIds = nextHistory
+                      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
+                      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)))
+                      .map((entry) => entry.workerId);
+                    const arrays = buildHelperArraysFromIds(Array.from(new Set(activeIds)), workers);
+                    const userPayload: Partial<ServiceUser> = {
+                      matchingHistory: nextHistory,
+                      assignedHelperIds: arrays.ids,
+                      assigned_workers: arrays.ids,
+                      assignedHelperNames: arrays.names,
+                      assignedHelperPhones: arrays.phones,
+                      contractStatus: detailTarget.contractStatus === "계약해지" || detailTarget.contractStatus === "타기관 계약" || detailTarget.contractStatus === "보류"
+                        ? detailTarget.contractStatus
+                        : arrays.ids.length > 0 ? "서비스중" : "대기",
+                    };
+                    await update(detailTarget.id, userPayload);
+                    await syncUserToWorkers(detailTarget.id, { ...detailTarget, ...userPayload }, workers, detailTarget.assignedHelperIds || [], updateWorker);
+                    if (!isEnded) {
+                      await updateWorker(matchHistoryForm.workerId, { contractStatus: "근무중", serviceStartDate: matchHistoryForm.date, serviceEndDate: null, retirementDate: "", resignationDate: "" });
+                    } else {
+                      await updateWorker(matchHistoryForm.workerId, { contractStatus: "대기", serviceEndDate: matchHistoryForm.endDate || matchHistoryForm.date });
+                    }
+
+                    const updatedUser = { ...detailTarget, ...userPayload } as ServiceUser & { id: string };
+                    setDetailTarget(updatedUser);
+                    resetMatchingPeriodDrafts(updatedUser);
                     setMatchHistoryDialogOpen(false);
                     setMatchHistoryForm(null);
+                    if (isEnded || (existingCurrent?.workerId && existingCurrent.workerId !== matchHistoryForm.workerId)) {
+                      setPostServiceEndTarget({
+                        userId: detailTarget.id,
+                        workerId: isEnded ? matchHistoryForm.workerId : existingCurrent?.workerId || matchHistoryForm.workerId,
+                        nextWorkerId: isEnded ? undefined : matchHistoryForm.workerId,
+                        endDate: matchHistoryForm.endDate || matchHistoryForm.date,
+                      });
+                    }
                   }}>저장</Button>
                 </div>
               </DialogContent>
@@ -2501,6 +2639,17 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
+
+
+
+
+
+
 
 
 
