@@ -108,6 +108,8 @@ const filteredWorkers = useMemo(() => {
 - [ ] `useMemo` 의존성 배열에 모든 관련 데이터 포함
 - [ ] `if (!data || !data2)` 같은 무의미한 가드 사용 금지
 - [ ] JSX에서 새로 호출한 helper/formatter 함수는 같은 파일 스코프에 정의되어 있거나 import되어 있는지 `rg "함수명"`으로 호출부와 정의부를 함께 확인
+- [ ] 이용자/활동지원사의 이름·전화번호·주소 저장 기능을 수정할 때는 승인 모달과 `cascadeUserProfile`/`cascadeWorkerProfile` 흐름이 함께 동작하는지 확인한다.
+- [ ] 기본정보 변경 동기화는 `users`, `workers`, `matchingHistory`, `handovers`, `terminations`, `counseling`, 문서 내부 `matchingHistory` 배열에 예전 이름/연락처가 남지 않는지 `rg "userName|workerName|targetName|assignedWorkerName|assignedHelperNames|assignedUserNames" src`로 점검한다.
 - [ ] 병합 충돌 해결 후에는 `rg "<<<<<<<|=======|>>>>>>>" src`로 충돌 마커 제거를 확인하고, 충돌 구간에서 사라진 함수/import가 없는지 확인
 - [ ] `npm run build`만으로 미정의 함수가 잡히지 않을 수 있으므로 화면 렌더링 helper를 추가/이동한 경우 `npx tsc --noEmit -p tsconfig.app.json` 또는 `npm run lint` 중 사용 가능한 정적 검사를 추가 실행
 
@@ -424,3 +426,4 @@ When you apply knowledge from a previously evolved rule (AGENTS.md, MEMORY.md, T
 briefly mention it in your response: "（基于之前的经验：<one-line rule summary>）".
 Keep it to one short line at most. Do not echo on every turn — only when an evolved rule directly influenced your approach.
 <!-- /autoclaw:hermes-evolution-guidance -->
+

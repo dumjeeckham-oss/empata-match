@@ -143,8 +143,22 @@ function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string
 }
 
 
-function formatAssignedUsersPreview(worker: Worker): string {
-  const names = Array.from(new Set((worker.assignedUserNames || []).map((name) => String(name || "").trim()).filter(Boolean)));
+function hasActiveWorkerMatching(user: ServiceUser, workerId?: string): boolean {
+  if (!workerId) return false;
+  const history = Array.isArray(user.matchingHistory) ? user.matchingHistory : [];
+  if (history.some((entry) => entry.workerId === workerId && (entry.serviceEndDate === null || entry.serviceEndDate === ""))) {
+    return true;
+  }
+  return (user.assignedHelperIds || []).includes(workerId);
+}
+
+function formatAssignedUsersPreview(worker: Worker, users: Array<ServiceUser & { id: string }>): string {
+  const activeNames = users
+    .filter((user) => hasActiveWorkerMatching(user, worker.id))
+    .map((user) => String(user.name || "").trim())
+    .filter(Boolean);
+  const fallbackNames = (worker.assignedUserNames || []).map((name) => String(name || "").trim()).filter(Boolean);
+  const names = Array.from(new Set(activeNames.length > 0 ? activeNames : fallbackNames));
   if (names.length > 1) return `1:다 (${names.join(", ")})`;
   if (names.length === 1) return names[0];
   return formatUserList(worker);
@@ -181,6 +195,7 @@ const WorkerManagement = () => {
     id: string;
     changedFields: string[];
     snapshot: { name: string; phone: string; address: string };
+    previous: { name: string; phone: string; address: string };
   } | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     title: string;
@@ -352,6 +367,7 @@ const WorkerManagement = () => {
           id: editingId,
           changedFields,
           snapshot: { name: payload.name, phone: payload.phone, address: payload.address },
+          previous: { name: previous?.name || "", phone: previous?.phone || "", address: previous?.address || "" },
         });
       }
       toast({ title: "수정 완료" });
@@ -1063,7 +1079,7 @@ const WorkerManagement = () => {
                       )}
                       <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
                       <p><span className="text-muted-foreground">동백 재직기간:</span> {getFormattedDuration(w.serviceStartDate)}</p>
-                      <p><span className="text-muted-foreground">담당이용자:</span> {formatAssignedUsersPreview(w)}</p>
+                      <p><span className="text-muted-foreground">담당이용자:</span> {formatAssignedUsersPreview(w, users)}</p>
                       <p><span className="text-muted-foreground">담당이용자 이력:</span> {getUserHistoryLabel(w)}</p>
                       {w.contractStatus === "퇴사" && w.resignationDate && (
                         <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
@@ -1162,9 +1178,9 @@ const WorkerManagement = () => {
             <AlertDialogCancel onClick={() => setPendingProfileSync(null)}>아니요</AlertDialogCancel>
             <AlertDialogAction onClick={async () => {
               if (!pendingProfileSync) return;
-              await cascadeWorkerProfile(pendingProfileSync.id, pendingProfileSync.snapshot);
+              const updatedCount = await cascadeWorkerProfile(pendingProfileSync.id, pendingProfileSync.snapshot, pendingProfileSync.previous);
               setPendingProfileSync(null);
-              toast({ title: "연관 데이터 업데이트 완료", description: "연결된 모든 문서에 변경 내용을 반영했습니다." });
+              toast({ title: "연관 데이터 업데이트 완료", description: `${updatedCount}개 연결 문서에 변경 내용을 반영했습니다.` });
             }}>
               확인/승인
             </AlertDialogAction>
@@ -1450,6 +1466,8 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
 
 
 

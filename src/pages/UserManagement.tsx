@@ -2029,9 +2029,9 @@ const UserManagement = () => {
             <AlertDialogCancel onClick={() => setPendingProfileSync(null)}>아니요</AlertDialogCancel>
             <AlertDialogAction onClick={async () => {
               if (!pendingProfileSync) return;
-              await cascadeUserProfile(pendingProfileSync.id, pendingProfileSync.snapshot);
+              const updatedCount = await cascadeUserProfile(pendingProfileSync.id, pendingProfileSync.snapshot);
               setPendingProfileSync(null);
-              toast({ title: "연관 데이터 업데이트 완료", description: "연결된 모든 문서에 변경 내용을 반영했습니다." });
+              toast({ title: "연관 데이터 업데이트 완료", description: `${updatedCount}개 연결 문서에 변경 내용을 반영했습니다.` });
             }}>
               확인/승인
             </AlertDialogAction>
@@ -2501,6 +2501,7 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
 
 
 
