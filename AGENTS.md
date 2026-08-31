@@ -107,6 +107,9 @@ const filteredWorkers = useMemo(() => {
 - [ ] `.reduce()` 대신 `sort + slice` 우선 사용
 - [ ] `useMemo` 의존성 배열에 모든 관련 데이터 포함
 - [ ] `if (!data || !data2)` 같은 무의미한 가드 사용 금지
+- [ ] JSX에서 새로 호출한 helper/formatter 함수는 같은 파일 스코프에 정의되어 있거나 import되어 있는지 `rg "함수명"`으로 호출부와 정의부를 함께 확인
+- [ ] 병합 충돌 해결 후에는 `rg "<<<<<<<|=======|>>>>>>>" src`로 충돌 마커 제거를 확인하고, 충돌 구간에서 사라진 함수/import가 없는지 확인
+- [ ] `npm run build`만으로 미정의 함수가 잡히지 않을 수 있으므로 화면 렌더링 helper를 추가/이동한 경우 `npx tsc --noEmit -p tsconfig.app.json` 또는 `npm run lint` 중 사용 가능한 정적 검사를 추가 실행
 
 ---
 

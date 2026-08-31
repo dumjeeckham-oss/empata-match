@@ -964,6 +964,23 @@ const UserManagement = () => {
     return last4 ? `${current.workerName}(${last4})` : current.workerName;
   };
 
+  const getActiveMatchingEntries = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry[] => {
+    return getDocumentMatchingEntries(user)
+      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
+  };
+
+  const formatCurrentHelperPreview = (user: ServiceUser & { id: string }): string => {
+    const activeEntries = getActiveMatchingEntries(user);
+    if (activeEntries.length > 1) {
+      const names = activeEntries.map((entry) => entry.workerName || entry.workerId).filter(Boolean);
+      return `${activeEntries.length}명(1:다: ${names.join(", ")})`;
+    }
+    if (activeEntries.length === 1) {
+      return activeEntries[0].workerName || activeEntries[0].workerId;
+    }
+    return formatHelperList(user);
+  };
   const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string => {
     const seen = new Set<string>();
     const names: string[] = [];
@@ -2484,6 +2501,8 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
 
 
 
