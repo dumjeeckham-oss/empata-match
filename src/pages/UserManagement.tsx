@@ -47,7 +47,7 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
-import { getComparableDateValue } from "@/lib/utils";
+import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 
@@ -201,6 +201,11 @@ const UserManagement = () => {
     reason: "종료",
     reasonDetail: "",
   });
+  const [postServiceEndTarget, setPostServiceEndTarget] = useState<{
+    userId: string;
+    workerId: string;
+    endDate: string;
+  } | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     title: string;
     rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string }>;
@@ -935,6 +940,29 @@ const UserManagement = () => {
     const last4 = String(current.workerPhone || "").replace(/\D/g, "").slice(-4);
     return last4 ? `${current.workerName}(${last4})` : current.workerName;
   };
+
+  const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    const chronological = matchingLogs
+      .filter((record) => record.userId === user.id && record.type !== "시도" && !!record.workerName)
+      .sort((a, b) => getComparableDateValue((a as any).startDate || a.date).localeCompare(getComparableDateValue((b as any).startDate || b.date)));
+
+    for (const record of chronological) {
+      const key = record.workerId || record.workerName.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      names.push(record.workerName.trim());
+    }
+    (user.assignedHelperNames || []).forEach((name, index) => {
+      const key = user.assignedHelperIds?.[index] || name.trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      names.push(name.trim());
+    });
+    return names.filter(Boolean).join(" → ") || "없음";
+  };
+
   const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
     const next = Object.fromEntries(
       getDocumentMatchingEntries(user).map((entry) => [
@@ -1045,6 +1073,13 @@ const UserManagement = () => {
     if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
     resetMatchingPeriodDrafts(updatedUser);
     toast({ title: draft.isCurrent ? "현재 담당으로 저장했습니다" : "종료 이력으로 전환했습니다" });
+    if (!draft.isCurrent && draft.serviceEndDate) {
+      setPostServiceEndTarget({
+        userId: user.id,
+        workerId,
+        endDate: draft.serviceEndDate,
+      });
+    }
   };
 
   const openServiceCloseDialog = (user: ServiceUser & { id: string }, entry: DocumentMatchingHistoryEntry) => {
@@ -1130,6 +1165,11 @@ const UserManagement = () => {
     if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
     resetMatchingPeriodDrafts(updatedUser);
     setServiceCloseTarget(null);
+    setPostServiceEndTarget({
+      userId: user.id,
+      workerId: entry.workerId,
+      endDate: serviceCloseForm.endDate,
+    });
     toast({ title: "서비스 종료/교체 처리 완료", description: `${worker.name} 지원사를 현재 담당에서 제외했습니다.` });
   };
   const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
@@ -1775,8 +1815,8 @@ const UserManagement = () => {
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
-                      <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
-                      <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelper(user) || "없음"}</p>
+                      <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? `총 ${getFormattedDuration(user.serviceStartDate)}째 서비스 중` : "미등록"}</p>
+                      <p><span className="text-muted-foreground">담당지원사 이력:</span> {getHelperHistoryLabel(user)}</p>
                       {(user.assignedHelperIds?.length || 0) > 1 && (
                         <Button
                           size="sm"
@@ -1872,6 +1912,53 @@ const UserManagement = () => {
           </Card>
         </aside>
       </div>
+      <AlertDialog open={!!postServiceEndTarget} onOpenChange={(open) => !open && setPostServiceEndTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>서비스 종료 후 다음 작업을 선택해 주세요</AlertDialogTitle>
+            <AlertDialogDescription>
+              담당 활동지원사의 서비스 종료일이 입력되었습니다. 진행할 후속 절차를 선택하세요.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-3 py-2">
+            <Button variant="outline" className="h-auto justify-start py-3 text-left" onClick={async () => {
+              if (!postServiceEndTarget) return;
+              await update(postServiceEndTarget.userId, { contractStatus: "대기" });
+              if (detailTarget?.id === postServiceEndTarget.userId) {
+                setDetailTarget((prev) => prev ? { ...prev, contractStatus: "대기" } : prev);
+              }
+              setPostServiceEndTarget(null);
+              toast({ title: "대기 상태 전환 완료", description: "이용자를 매칭 대기 상태로 변경했습니다." });
+            }}>
+              ⏳ 대기 상태 전환
+            </Button>
+            <Button variant="outline" className="h-auto justify-start py-3 text-left" onClick={async () => {
+              if (!postServiceEndTarget) return;
+              const target = postServiceEndTarget;
+              await update(target.userId, {
+                contractStatus: "계약해지",
+                resignationDate: target.endDate,
+              });
+              setPostServiceEndTarget(null);
+              navigate(`/termination/new?userId=${encodeURIComponent(target.userId)}&endDate=${encodeURIComponent(target.endDate)}`);
+            }}>
+              📄 종결승인서 작성
+            </Button>
+            <Button variant="outline" className="h-auto justify-start py-3 text-left" onClick={() => {
+              if (!postServiceEndTarget) return;
+              const target = postServiceEndTarget;
+              setPostServiceEndTarget(null);
+              navigate(`/handover/new?userId=${encodeURIComponent(target.userId)}&oldWorkerId=${encodeURIComponent(target.workerId)}&endDate=${encodeURIComponent(target.endDate)}`);
+            }}>
+              🔄 인계인수서 작성
+            </Button>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPostServiceEndTarget(null)}>닫기/취소</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!pendingProfileSync} onOpenChange={(open) => !open && setPendingProfileSync(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

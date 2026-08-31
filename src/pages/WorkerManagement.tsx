@@ -46,7 +46,7 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
-import { getComparableDateValue } from "@/lib/utils";
+import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
@@ -71,7 +71,6 @@ const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "address", label: "주소" },
   { key: "experience", label: "경력" },
   { key: "contractStatus", label: "근무상태" },
-  { key: "receiptDate", label: "최초 접수일" },
   { key: "assignedUserName", label: "담당이용자" },
 ];
 
@@ -618,6 +617,28 @@ const WorkerManagement = () => {
     XLSX.writeFile(wb, `활동지원사목록_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const getUserHistoryLabel = (worker: Worker & { id: string }): string => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    const chronological = matchingLogs
+      .filter((record) => record.workerId === worker.id && record.type !== "시도" && !!record.userName)
+      .sort((a, b) => getComparableDateValue((a as any).startDate || a.date).localeCompare(getComparableDateValue((b as any).startDate || b.date)));
+
+    for (const record of chronological) {
+      const key = record.userId || record.userName.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      names.push(record.userName.trim());
+    }
+    (worker.assignedUserNames || []).forEach((name, index) => {
+      const key = worker.assignedUserIds?.[index] || name.trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      names.push(name.trim());
+    });
+    return names.filter(Boolean).join(" → ") || "없음";
+  };
+
   const downloadTemplate = () => {
     const template = [{
       이름: "", 나이: "", 성별: "여성", 연락처: "", 거주지역: "", 희망지역: "", 주소: "",
@@ -1034,8 +1055,8 @@ const WorkerManagement = () => {
                           ))}
                         </div>
                       )}
-                      <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
-                      <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
+                      <p><span className="text-muted-foreground">동백 재직기간:</span> {getFormattedDuration(w.serviceStartDate)}</p>
+                      <p><span className="text-muted-foreground">담당이용자 이력:</span> {getUserHistoryLabel(w)}</p>
                       {w.contractStatus === "퇴사" && w.resignationDate && (
                         <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
                       )}

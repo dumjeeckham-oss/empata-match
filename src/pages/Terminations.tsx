@@ -80,9 +80,13 @@ export default function Terminations() {
   };
   useEffect(() => {
     const userId = searchParams.get("userId");
+    const endDate = searchParams.get("endDate");
     if (!userId || form.userId) return;
     const user = users.find((item) => item.id === userId);
-    if (user) handleSelectUser(user);
+    if (user) {
+      handleSelectUser(user);
+      if (endDate) setForm((current) => ({ ...current, date: endDate, approvalDate: endDate }));
+    }
   }, [searchParams, users, form.userId]);
 
 

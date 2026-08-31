@@ -46,6 +46,8 @@ const AuthenticatedApp = () => {
             <Route path="/counseling" element={<ErrorBoundary><Counseling /></ErrorBoundary>} />
             <Route path="/terminations" element={<ErrorBoundary><Terminations /></ErrorBoundary>} />
             <Route path="/handovers" element={<ErrorBoundary><Handovers /></ErrorBoundary>} />
+            <Route path="/termination/new" element={<ErrorBoundary><Terminations /></ErrorBoundary>} />
+            <Route path="/handover/new" element={<ErrorBoundary><Handovers /></ErrorBoundary>} />
             <Route path="/manual" element={<ErrorBoundary><Manual /></ErrorBoundary>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
