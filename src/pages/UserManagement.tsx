@@ -41,12 +41,34 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
-import { Trash2, PhoneCall, Edit3 } from "lucide-react";
+import { Trash2, PhoneCall, Edit3, Search } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { getComparableDateValue } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+function normalizePhone(phone: string): string {
+  return (phone || "").replace(/\D/g, "");
+}
+
+function labelWithLast4(name: string, phone?: string): string {
+  const last4 = normalizePhone(phone || "").slice(-4);
+  return last4 ? `${name}(${last4})` : name;
+}
 
 /** 화면 표시용 계약상태: 계약해지일 또는 중단사유가 있으면 항상 "계약해지" 목록으로 이동 */
 function effectiveUserStatus(user: ServiceUser): string {
@@ -133,6 +155,7 @@ const UserManagement = () => {
   const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
+  const [isMatchWorkerSearchOpen, setIsMatchWorkerSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
@@ -1323,6 +1346,22 @@ const UserManagement = () => {
       .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
   }, [matchingLogs, detailTarget]);
 
+  const selectedMatchHistoryWorker = useMemo(() => {
+    if (!matchHistoryForm?.workerId) return null;
+    return workers.find((worker) => worker.id === matchHistoryForm.workerId) || null;
+  }, [workers, matchHistoryForm?.workerId]);
+
+  const selectMatchHistoryWorker = (worker: Worker & { id?: string }) => {
+    if (!matchHistoryForm || !worker.id) return;
+    setMatchHistoryForm({
+      ...matchHistoryForm,
+      workerId: worker.id,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+    });
+    setIsMatchWorkerSearchOpen(false);
+  };
+
   const getFilteredUsers = () => {
     return users.filter((u) => {
       const matchesName = String(u.name || "").includes(search);
@@ -1738,7 +1777,7 @@ const UserManagement = () => {
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
                       <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
-                      <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelper(user) || "없음"}</p>
+                      <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelperPreview(user as ServiceUser & { id: string }) || "없음"}</p>
                       {(user.assignedHelperIds?.length || 0) > 1 && (
                         <Button
                           size="sm"
@@ -2207,16 +2246,41 @@ const UserManagement = () => {
                   </div>
                   <div>
                     <label className="text-sm font-medium">활동지원사</label>
-                    <Select value={matchHistoryForm?.workerId || ""} onValueChange={(v) => {
-                      if (!matchHistoryForm) return;
-                      const w = workers.find(x => x.id === v);
-                      setMatchHistoryForm({...matchHistoryForm, workerId: v, workerName: w?.name || "", workerPhone: w?.phone || ""});
-                    }}>
-                      <SelectTrigger><SelectValue placeholder="활동지원사 선택" /></SelectTrigger>
-                      <SelectContent>
-                        {workers.map(w => <SelectItem key={w.id} value={w.id}>{w.name} ({w.phone || "연락처 없음"})</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <Popover open={isMatchWorkerSearchOpen} onOpenChange={setIsMatchWorkerSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          variant="outline"
+                          role="combobox"
+                          aria-expanded={isMatchWorkerSearchOpen}
+                          className="mt-1 w-full justify-between"
+                        >
+                          {selectedMatchHistoryWorker ? labelWithLast4(selectedMatchHistoryWorker.name, selectedMatchHistoryWorker.phone) : "활동지원사 이름 검색 및 선택"}
+                          <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[min(420px,90vw)] p-0">
+                        <Command>
+                          <CommandInput placeholder="이름 또는 연락처 일부로 검색..." />
+                          <CommandList>
+                            <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
+                            <CommandGroup>
+                              {workers.map((worker) => (
+                                <CommandItem
+                                  key={worker.id}
+                                  value={`${worker.name} ${worker.phone}`}
+                                  onSelect={() => selectMatchHistoryWorker(worker)}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{labelWithLast4(worker.name, worker.phone)}</span>
+                                    <span className="text-xs text-muted-foreground">{worker.contractStatus} · {worker.experience || "경력 미등록"}</span>
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
@@ -2271,6 +2335,7 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
 
 
 

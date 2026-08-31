@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type HandoverDocument, type MatchingHistoryRecord } from "@/types";
+import { type ServiceUser, type Worker, type HandoverDocument, type MatchingHistoryRecord, VOUCHER_HOURS } from "@/types";
 import { HANDOVERS_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
 import { syncUserToWorkers } from "@/lib/assignments";
+import dongbaekLogo from "@/assets/dongbaek-logo.png";
 
 import { Printer, Search, X, Edit2, Trash2 } from "lucide-react";
 import {
@@ -37,15 +38,20 @@ function normalizePhone(phone: string): string {
   return (phone || "").replace(/\D/g, "");
 }
 
+const STAFF_NAMES = ["김광민", "최혜양", "김세미", "조미경"];
+
 function labelWithLast4(name: string, phone: string): string {
   const last4 = normalizePhone(phone).slice(-4);
   return last4 ? `${name}(${last4})` : name;
 }
 
 export default function Handovers() {
-  const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workers, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: docs, add: addHandover, update: updateHandover, remove: removeHandover, loading } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
+  const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: docsRaw, add: addHandover, update: updateHandover, remove: removeHandover, loading } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
+  const users = usersRaw || [];
+  const workers = workersRaw || [];
+  const docs = docsRaw || [];
   const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const [searchParams] = useSearchParams();
 
@@ -304,93 +310,143 @@ export default function Handovers() {
     return [...docs].sort((a, b) => (b.handoverDate || "").localeCompare(a.handoverDate || ""));
   }, [docs]);
 
+  const getUserForDoc = (doc: HandoverDocument) => users.find((u) => u.id === doc.userId);
+
+  const getHandoverSupportSummary = (doc: HandoverDocument) => {
+    const user = getUserForDoc(doc);
+    return user?.supportTypes?.length ? user.supportTypes.join(", ") : "신체, 가사, 사회";
+  };
+
+  const getHandoverVoucherHours = (doc: HandoverDocument) => {
+    const user = getUserForDoc(doc);
+    const tier = user?.voucherTier || doc.voucherTier;
+    return VOUCHER_HOURS[tier] ? `${VOUCHER_HOURS[tier]}시간` : "—";
+  };
+
   return (
     <div className="space-y-6">
       {/* 인쇄용 영역 */}
       {printDoc && (
-        <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-10 overflow-auto">
-          <div className="max-w-[210mm] mx-auto border-2 border-black p-8 min-h-0 flex flex-col">
-            <style>{`
-              @media print {
-                .page-break { break-before: page; }
-                .no-break { break-inside: avoid; }
+        <div className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-auto">
+          <style>{`
+            @page { size: A4; margin: 10mm 12mm; }
+            @media print {
+              html, body { margin: 0 !important; padding: 0 !important; }
+              .handover-print-sheet {
+                width: 100%;
+                min-height: 277mm;
+                color: #000;
+                font-family: 'Malgun Gothic', 'Dotum', sans-serif;
+                font-size: 10px;
+                line-height: 1.25;
               }
-            `}</style>
-            <h1 className="text-3xl font-bold text-center mb-10 underline decoration-double underline-offset-8">업무 인계 · 인수서</h1>
-            
-            <h2 className="text-xl font-bold mb-3">1. 수급자 인적사항</h2>
-            <table className="w-full border-collapse border border-black mb-8 text-sm">
+              .handover-print-sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+              .handover-print-sheet th, .handover-print-sheet td { border: 1px solid #000; padding: 1.4mm 1.8mm; vertical-align: middle; }
+              .handover-print-sheet th { background: #f2f2f2 !important; font-weight: 700; text-align: center; }
+              .handover-print-sheet .print-textbox { min-height: 33mm; white-space: pre-wrap; word-break: keep-all; vertical-align: top; }
+              .handover-print-sheet .print-important { min-height: 22mm; white-space: pre-wrap; word-break: keep-all; vertical-align: top; }
+              .handover-print-sheet > * { page-break-inside: avoid; }
+            }
+          `}</style>
+          <div className="handover-print-sheet p-8">
+            <h1 className="text-2xl font-bold text-center mb-4 underline decoration-double underline-offset-8">업무 인계 · 인수서</h1>
+
+            <h2 className="text-base font-bold mb-2">1. 인적사항</h2>
+            <table className="mb-3">
               <tbody>
                 <tr>
-                  <th className="border border-black bg-gray-100 p-3 w-1/6 text-center">성명</th>
-                  <td className="border border-black p-3 w-2/6 text-center font-bold">{printDoc.userName}</td>
-                  <th className="border border-black bg-gray-100 p-3 w-1/6 text-center">연락처</th>
-                  <td className="border border-black p-3 w-2/6 text-center">{printDoc.userPhone}</td>
-                </tr>
-                <tr className="page-break">
-                  <th className="border border-black bg-gray-100 p-3 text-center">인계 인수 업무사항</th>
-                  <td colSpan={3} className="border border-black p-3 min-h-[60px] whitespace-pre-wrap" style={{ whiteSpace: "pre-wrap" }}>{printDoc.handoverTasks || "—"}</td>
+                  <th>인계자</th>
+                  <td>{printDoc.handoverPersonName}</td>
+                  <th>인계일</th>
+                  <td>{printDoc.handoverDate}</td>
                 </tr>
                 <tr>
-                  <th className="border border-black bg-gray-100 p-3 text-center">장애유형</th>
-                  <td className="border border-black p-3 text-center">{printDoc.disabilityType || "—"}</td>
-                  <th className="border border-black bg-gray-100 p-3 text-center">바우처구간</th>
-                  <td className="border border-black p-3 text-center">{printDoc.voucherTier}구간</td>
+                  <th>인수자</th>
+                  <td>{printDoc.takeoverPersonName}</td>
+                  <th>인수일</th>
+                  <td>{printDoc.takeoverDate}</td>
                 </tr>
                 <tr>
-                  <th className="border border-black bg-gray-100 p-3 text-center">주소</th>
-                  <td colSpan={3} className="border border-black p-3">{printDoc.userAddress || "—"}</td>
+                  <th>인계사유</th>
+                  <td colSpan={3}>{printDoc.reason || "—"}</td>
                 </tr>
               </tbody>
             </table>
 
-            <h2 className="text-xl font-bold mb-3">2. 인계 · 인수 내용</h2>
-            <table className="w-full border-collapse border border-black mb-8 text-sm">
+            <h2 className="text-base font-bold mb-2">수급자(이용자) 정보</h2>
+            <table className="mb-3">
               <tbody>
                 <tr>
-                  <th className="border border-black bg-gray-100 p-3 w-1/4 text-center">인계 사유</th>
-                  <td colSpan={3} className="border border-black p-3 min-h-[60px]">{printDoc.reason}</td>
+                  <th>이름</th>
+                  <td>{printDoc.userName}</td>
+                  <th>성별</th>
+                  <td>{getUserForDoc(printDoc)?.gender || "—"}</td>
+                  <th>나이</th>
+                  <td>{getUserForDoc(printDoc)?.age ? `${getUserForDoc(printDoc)?.age}세` : "—"}</td>
                 </tr>
-              <tr>
-                <th className="border border-black bg-gray-100 p-3 text-center">인계 인수 업무사항</th>
-                <td colSpan={3} className="border border-black p-3 min-h-[60px] whitespace-pre-wrap" style={{ whiteSpace: "pre-wrap" }}>{printDoc.handoverTasks || "—"}</td>
-              </tr>
+                <tr>
+                  <th>연락처</th>
+                  <td>{printDoc.userPhone || "—"}</td>
+                  <th>주소</th>
+                  <td colSpan={3}>{printDoc.userAddress || getUserForDoc(printDoc)?.address || "—"}</td>
+                </tr>
               </tbody>
             </table>
 
-            <h2 className="text-xl font-bold mb-3">3. 인계 및 특이사항</h2>
-            <div className="border border-black p-5 min-h-[200px] mb-8 text-sm whitespace-pre-wrap">
-              {printDoc.notes || "특이사항 없음"}
+            <h2 className="text-base font-bold mb-2">2. 인계 인수 업무사항</h2>
+            <table className="mb-3">
+              <tbody>
+                <tr>
+                  <th>바우처 구간</th>
+                  <td>{printDoc.voucherTier ? `${printDoc.voucherTier}구간` : "—"}</td>
+                  <th>시간</th>
+                  <td>{getHandoverVoucherHours(printDoc)}</td>
+                </tr>
+                <tr>
+                  <th>장애유형</th>
+                  <td>{printDoc.disabilityType || "—"}</td>
+                  <th>급여제공 내용</th>
+                  <td>{getHandoverSupportSummary(printDoc)}</td>
+                </tr>
+                <tr>
+                  <th>서비스 제공시 유의 사항 및 중요 문제점</th>
+                  <td colSpan={3} className="print-important">{printDoc.notes || "—"}</td>
+                </tr>
+                <tr>
+                  <th>인계 인수 업무 내용</th>
+                  <td colSpan={3} className="print-textbox">{printDoc.handoverTasks || "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div className="mt-4 text-center text-sm">
+              위와 같이 업무 인계 · 인수를 확인합니다.
             </div>
-
-            <div className="mt-auto">
-              <p className="text-center text-lg mb-10">위와 같이 업무 인계 · 인수를 확인합니다.</p>
-              <p className="text-center text-xl mb-12">{new Date().getFullYear()}년 {new Date().getMonth() + 1}월 {new Date().getDate()}일</p>
-              
-              <div className="flex justify-around items-end mt-10">
-                <div className="text-center">
-                  <p className="mb-2 text-red-600 font-bold">인계자(전임)</p>
-                  <div className="w-32 h-16 border border-black flex items-center justify-center relative">
-                    <span className="font-bold">{printDoc.handoverPersonName}</span>
-                    <span className="absolute right-2 bottom-1 text-xs">(인)</span>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="mb-2 text-blue-600 font-bold">인수자(후임)</p>
-                  <div className="w-32 h-16 border border-black flex items-center justify-center relative">
-                    <span className="font-bold">{printDoc.takeoverPersonName}</span>
-                    <span className="absolute right-2 bottom-1 text-xs">(인)</span>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="mb-2">확인(기관)</p>
-                  <div className="w-32 h-16 border border-black flex items-center justify-center relative">
-                    <span className="absolute right-2 bottom-1 text-xs">(인)</span>
-                  </div>
+            <div className="mt-3 text-center text-sm">
+              {new Date().getFullYear()}년 {new Date().getMonth() + 1}월 {new Date().getDate()}일
+            </div>
+            <div className="mt-6 grid grid-cols-3 gap-6 text-center text-xs">
+              <div>
+                <p className="mb-2 font-bold">인계자</p>
+                <div className="h-12 border border-black flex items-center justify-center relative">
+                  <span>{printDoc.handoverPersonName}</span><span className="absolute right-2 bottom-1">(인)</span>
                 </div>
               </div>
-              
-              <p className="mt-16 text-center font-bold text-2xl">동백 장애인활동지원센터</p>
+              <div>
+                <p className="mb-2 font-bold">인수자</p>
+                <div className="h-12 border border-black flex items-center justify-center relative">
+                  <span>{printDoc.takeoverPersonName}</span><span className="absolute right-2 bottom-1">(인)</span>
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 font-bold">확인</p>
+                <div className="h-12 border border-black flex items-center justify-center relative">
+                  <span className="absolute right-2 bottom-1">(인)</span>
+                </div>
+              </div>
+            </div>
+            <div className="mt-6 text-center">
+              <img src={dongbaekLogo} alt="동백" className="mx-auto h-12 w-auto object-contain" />
             </div>
           </div>
           <button 
@@ -401,7 +457,6 @@ export default function Handovers() {
           </button>
         </div>
       )}
-
       <div className="flex items-center justify-between no-print">
         <h1 className="page-header mb-0">업무 인계·인수서</h1>
         <Badge variant="secondary">{sortedDocs.length}건</Badge>
@@ -524,18 +579,23 @@ export default function Handovers() {
             </div>
           )}
 
+
+          <datalist id="handover-person-options">
+            {STAFF_NAMES.map((name) => <option key={`staff-${name}`} value={name} />)}
+            {workers.map((worker) => <option key={`worker-${worker.id}`} value={worker.name} />)}
+          </datalist>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>인계자(전임자) 성명 *</Label>
-              <Input value={handoverPersonName} onChange={(e) => setHandoverPersonName(e.target.value)} placeholder="예: 홍길동" />
+              <Label>인계자(전임자/전담인력) 성명 *</Label>
+              <Input list="handover-person-options" value={handoverPersonName} onChange={(e) => setHandoverPersonName(e.target.value)} placeholder="전임자 또는 전담인력 검색/입력" />
             </div>
             <div>
               <Label>인계일 *</Label>
               <Input type="date" value={handoverDate} onChange={(e) => setHandoverDate(e.target.value)} />
             </div>
             <div>
-              <Label>인수자(후임자) 성명 *</Label>
-              <Input value={takeoverPersonName} onChange={(e) => setTakeoverPersonName(e.target.value)} placeholder="예: 김철수" />
+              <Label>인수자(후임자/전담인력) 성명 *</Label>
+              <Input list="handover-person-options" value={takeoverPersonName} onChange={(e) => setTakeoverPersonName(e.target.value)} placeholder="후임자 또는 전담인력 검색/입력" />
             </div>
             <div>
               <Label>인수일 *</Label>
@@ -544,7 +604,7 @@ export default function Handovers() {
           </div>
 
           <div className="flex flex-col">
-            <Label>인계 사유 *</Label>
+            <Label>인계사유 *</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 담당 활동지원사 변경, 개인사정, 기관변경 등" />
           </div>
           <div className="flex flex-col">
@@ -553,7 +613,7 @@ export default function Handovers() {
           </div>
 
           <div>
-            <Label>비고</Label>
+            <Label>서비스 제공시 유의 사항 및 중요 문제점</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
 
@@ -604,3 +664,7 @@ export default function Handovers() {
     </div>
   );
 }
+
+
+
+

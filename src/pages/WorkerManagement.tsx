@@ -141,6 +141,12 @@ function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string
 }
 
 
+function formatAssignedUsersPreview(worker: Worker): string {
+  const names = Array.from(new Set((worker.assignedUserNames || []).map((name) => String(name || "").trim()).filter(Boolean)));
+  if (names.length > 1) return `1:다 (${names.join(", ")})`;
+  if (names.length === 1) return names[0];
+  return formatUserList(worker);
+}
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
@@ -1014,7 +1020,7 @@ const WorkerManagement = () => {
                         </div>
                       )}
                       <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
-                      <p><span className="text-muted-foreground">담당이용자:</span> {formatUserList(w)}</p>
+                      <p><span className="text-muted-foreground">담당이용자:</span> {formatAssignedUsersPreview(w)}</p>
                       {w.contractStatus === "퇴사" && w.resignationDate && (
                         <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
                       )}
@@ -1378,6 +1384,7 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
 
 
 

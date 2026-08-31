@@ -1,4 +1,4 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type TerminationDocument, TERMINATION_REASONS } from "@/types";
 import { USERS_COLLECTION, TERMINATIONS_COLLECTION } from "@/lib/collectionNames";
@@ -34,8 +34,10 @@ function safeMsg(e: unknown): string {
 }
 
 export default function Terminations() {
-  const { data: users, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: docs, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: docsRaw, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const users = usersRaw || [];
+  const docs = docsRaw || [];
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -307,9 +309,9 @@ export default function Terminations() {
                   <td style={{ width: "32%" }}>{printDoc.assignedWorkerName || users.find(u => u.id === printDoc.userId)?.assignedHelperNames?.[0] || ""}</td>
                 </tr>
                 <tr>
-                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>경 로 주</th>
+                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>이용 종결자</th>
                   <td style={{ fontWeight: 700 }}>{printDoc.userName}</td>
-                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>종 결 사</th>
+                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>종결사유</th>
                   <td>{printDoc.reasons?.join(", ") || "—"}</td>
                 </tr>
                 <tr>
@@ -367,35 +369,19 @@ export default function Terminations() {
               </tbody>
             </table>
 
-            {/* ── 하단: 결재일 + 로고 + 기관명 (중앙 정렬, 표 없이) ── */}
-            <div style={{ textAlign: "center", marginTop: "3mm" }}>
-              <p style={{
-                fontSize: "10px",
-                fontWeight: 600,
-                margin: "0 0 1.5mm 0",
-                lineHeight: 1.3,
-              }}>
-                결 재 일 : {printDoc.approvalDate || printDoc.date}
-              </p>
+            {/* ── 하단: 로고만 표시 ── */}
+            <div style={{ textAlign: "center", marginTop: "4mm" }}>
               <img
                 src={dongbaekLogo}
                 alt="동백"
                 style={{
                   display: "block",
-                  margin: "2mm auto 1.5mm auto",
-                  maxWidth: "22mm",
-                  maxHeight: "10mm",
+                  margin: "0 auto",
+                  maxWidth: "28mm",
+                  maxHeight: "13mm",
                   objectFit: "contain",
                 }}
               />
-              <p style={{
-                fontWeight: 700,
-                fontSize: "10px",
-                margin: 0,
-                lineHeight: 1.3,
-              }}>
-                동백 장애인활동지원센터
-              </p>
             </div>
           </div>
 
@@ -434,7 +420,7 @@ export default function Terminations() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label>이용자(경로주) 선택 *</Label>
+              <Label>이용 종결자 선택 *</Label>
               <div className="mt-1">
                 <Popover open={isSearchOpen} onOpenChange={setIsSearchOpen}>
                   <PopoverTrigger asChild>
@@ -486,7 +472,7 @@ export default function Terminations() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <Label>종결사(코드)</Label>
+              <Label>종결사유</Label>
               <Input value={form.reasons.join(", ") || ""} readOnly className="bg-muted" placeholder="하단 사유 선택 시 자동 채움" />
             </div>
             <div>
@@ -603,3 +589,6 @@ export default function Terminations() {
     </div>
   );
 }
+
+
+
