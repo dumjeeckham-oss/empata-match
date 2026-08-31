@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useRef } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, TERMINATION_REASONS } from "@/types";

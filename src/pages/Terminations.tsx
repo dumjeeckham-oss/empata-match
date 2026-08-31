@@ -1,4 +1,6 @@
-import { useMemo, useState } from "react";
+/* eslint-disable @typescript-eslint/no-explicit-any, no-irregular-whitespace */
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type TerminationDocument, TERMINATION_REASONS } from "@/types";
 import { USERS_COLLECTION, TERMINATIONS_COLLECTION } from "@/lib/collectionNames";
@@ -34,6 +36,7 @@ function safeMsg(e: unknown): string {
 }
 
 export default function Terminations() {
+  const [searchParams] = useSearchParams();
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: docsRaw, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
   const users = usersRaw || [];
@@ -76,6 +79,17 @@ export default function Terminations() {
     }));
     setIsSearchOpen(false);
   };
+  useEffect(() => {
+    const userId = searchParams.get("userId");
+    const endDate = searchParams.get("endDate");
+    if (!userId || form.userId) return;
+    const user = users.find((item) => item.id === userId);
+    if (user) {
+      handleSelectUser(user);
+      if (endDate) setForm((current) => ({ ...current, date: endDate, approvalDate: endDate }));
+    }
+  }, [searchParams, users, form.userId]);
+
 
   const toggleReason = (reason: string) => {
     setForm((f) => ({
@@ -217,13 +231,14 @@ export default function Terminations() {
           <style>{`
             @page {
               size: A4;
-              margin: 12mm 14mm;
+              margin: 7mm 8mm;
             }
             @media print {
               html, body { margin: 0 !important; padding: 0 !important; }
               .print-sheet {
                 width: 100%;
                 font-size: 10px;
+                min-height: 283mm;
                 line-height: 1.25;
                 color: #000;
                 font-family: 'Malgun Gothic', 'Dotum', sans-serif;
@@ -252,37 +267,15 @@ export default function Terminations() {
                     border: "1px solid #000",
                     padding: "3mm 0",
                     width: "68%",
-                  }}>
+                  }} rowSpan={2}>
                     종 결 승 인 서
                   </td>
-                  <td style={{
-                    textAlign: "center",
-                    fontSize: "9px",
-                    fontWeight: 600,
-                    border: "1px solid #000",
-                    width: "16%",
-                    lineHeight: 1.3,
-                  }}>
-                    담&nbsp;&nbsp;당
-                    <br />
-                    <span style={{ fontSize: "10px", fontWeight: 700 }}>
-                      {printDoc.approverDandang || ""}
-                    </span>
-                  </td>
-                  <td style={{
-                    textAlign: "center",
-                    fontSize: "9px",
-                    fontWeight: 600,
-                    border: "1px solid #000",
-                    width: "16%",
-                    lineHeight: 1.3,
-                  }}>
-                    센터장
-                    <br />
-                    <span style={{ fontSize: "10px", fontWeight: 700 }}>
-                      {printDoc.approverCenterJang || ""}
-                    </span>
-                  </td>
+                  <th style={{ textAlign: "center", width: "16%", height: "8mm" }}>담당자</th>
+                  <th style={{ textAlign: "center", width: "16%", height: "8mm" }}>센터장</th>
+                </tr>
+                <tr>
+                  <td style={{ height: "16mm" }}></td>
+                  <td style={{ height: "16mm" }}></td>
                 </tr>
               </tbody>
             </table>
@@ -296,7 +289,7 @@ export default function Terminations() {
               marginBottom: "3mm",
               wordBreak: "keep-all",
             }}>
-              부천의료복지사회적협동조합 동백장애인활동지원센터에서 복지서비스를 제공 받았던 수해자를 아래와 같은 사유로 종결하고자 합니다. 검토 후 재가 바랍니다.
+              부천의료복지사회적협동조합 동백장애인활동지원센터에서 장애인활동지원서비스를 제공 받았던 장애인 이용자를 아래와 같은 사유로 종결하고자 합니다. 검토후 재가바랍니다.
             </div>
 
             {/* ── 정보 테이블 ── */}
@@ -589,6 +582,7 @@ export default function Terminations() {
     </div>
   );
 }
+
 
 
 

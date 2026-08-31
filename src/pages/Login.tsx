@@ -19,7 +19,7 @@ const Login = () => {
     setLoading(true);
     try {
       await login(email, password);
-    } catch (err: any) {
+    } catch {
       setError("이메일 또는 비밀번호가 올바르지 않습니다.");
     }
     setLoading(false);

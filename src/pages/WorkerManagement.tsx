@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
@@ -18,6 +19,8 @@ import {
   formatUserList,
   syncWorkerToUsers,
 } from "@/lib/assignments";
+import { cascadeWorkerProfile } from "@/lib/cascadeSync";
+import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,7 +46,7 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
-import { getComparableDateValue } from "@/lib/utils";
+import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
@@ -68,7 +71,6 @@ const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "address", label: "주소" },
   { key: "experience", label: "경력" },
   { key: "contractStatus", label: "근무상태" },
-  { key: "receiptDate", label: "최초 접수일" },
   { key: "assignedUserName", label: "담당이용자" },
 ];
 
@@ -175,6 +177,11 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [pendingProfileSync, setPendingProfileSync] = useState<{
+    id: string;
+    changedFields: string[];
+    snapshot: { name: string; phone: string; address: string };
+  } | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     title: string;
     rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }>;
@@ -333,7 +340,20 @@ const WorkerManagement = () => {
     }
 
     if (editingId) {
+      const previous = workers.find((w) => w.id === editingId);
+      const changedFields = [
+        previous?.name !== payload.name ? "이름" : "",
+        previous?.phone !== payload.phone ? "전화번호" : "",
+        previous?.address !== payload.address ? "주소" : "",
+      ].filter(Boolean);
       await update(editingId, payload);
+      if (changedFields.length > 0) {
+        setPendingProfileSync({
+          id: editingId,
+          changedFields,
+          snapshot: { name: payload.name, phone: payload.phone, address: payload.address },
+        });
+      }
       toast({ title: "수정 완료" });
     } else {
       const ref = await add(payload as Omit<Worker, "id">);
@@ -397,8 +417,8 @@ const WorkerManagement = () => {
             target.contractStatus = "서비스중";
           }
         } else if (!(target.assignedHelperIds ?? []).length && target.contractStatus === "서비스중") {
-          await updateUser(userId, { contractStatus: "대기" });
-          target.contractStatus = "대기";
+          await updateUser(userId, { contractStatus: "작성중" });
+          target.contractStatus = "작성중";
         }
       }
     }
@@ -601,6 +621,28 @@ const WorkerManagement = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "활동지원사목록");
     XLSX.writeFile(wb, `활동지원사목록_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
+  const getUserHistoryLabel = (worker: Worker & { id: string }): string => {
+    const seen = new Set<string>();
+    const names: string[] = [];
+    const chronological = matchingLogs
+      .filter((record) => record.workerId === worker.id && record.type !== "시도" && !!record.userName)
+      .sort((a, b) => getComparableDateValue((a as any).startDate || a.date).localeCompare(getComparableDateValue((b as any).startDate || b.date)));
+
+    for (const record of chronological) {
+      const key = record.userId || record.userName.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      names.push(record.userName.trim());
+    }
+    (worker.assignedUserNames || []).forEach((name, index) => {
+      const key = worker.assignedUserIds?.[index] || name.trim();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      names.push(name.trim());
+    });
+    return names.filter(Boolean).join(" → ") || "없음";
   };
 
   const downloadTemplate = () => {
@@ -1020,7 +1062,9 @@ const WorkerManagement = () => {
                         </div>
                       )}
                       <p><span className="text-muted-foreground">최초접수:</span> {w.receiptDate || "미등록"}</p>
+                      <p><span className="text-muted-foreground">동백 재직기간:</span> {getFormattedDuration(w.serviceStartDate)}</p>
                       <p><span className="text-muted-foreground">담당이용자:</span> {formatAssignedUsersPreview(w)}</p>
+                      <p><span className="text-muted-foreground">담당이용자 이력:</span> {getUserHistoryLabel(w)}</p>
                       {w.contractStatus === "퇴사" && w.resignationDate && (
                         <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
                       )}
@@ -1106,6 +1150,28 @@ const WorkerManagement = () => {
           </Card>
         </aside>
       </div>
+      <AlertDialog open={!!pendingProfileSync} onOpenChange={(open) => !open && setPendingProfileSync(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>연관 데이터 일괄 업데이트</AlertDialogTitle>
+            <AlertDialogDescription>
+              정보 변경({pendingProfileSync?.changedFields.join(", ")})이 감지되었습니다. 변경된 내용을 이 활동지원사와 연결된 모든 매칭 이력, 인계인수서, 종결확인서, 상담기록에도 일괄 반영하시겠습니까?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingProfileSync(null)}>아니요</AlertDialogCancel>
+            <AlertDialogAction onClick={async () => {
+              if (!pendingProfileSync) return;
+              await cascadeWorkerProfile(pendingProfileSync.id, pendingProfileSync.snapshot);
+              setPendingProfileSync(null);
+              toast({ title: "연관 데이터 업데이트 완료", description: "연결된 모든 문서에 변경 내용을 반영했습니다." });
+            }}>
+              확인/승인
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1279,7 +1345,7 @@ const WorkerManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); removeMatchingHistory(match.id); }}>🗑️</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>🗑️</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
@@ -1384,6 +1450,7 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
 
 
 

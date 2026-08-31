@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
@@ -75,7 +76,8 @@ export default function Handovers() {
   const selectedUser = useMemo(() => users.find((u) => u.id === userId), [users, userId]);
   const nextWorker = useMemo(() => workers.find((w) => w.id === nextWorkerId), [workers, nextWorkerId]);
 
-  const prevWorkerId = selectedUser?.assignedHelperIds?.[0] || selectedUser?.assigned_workers?.[0] || "";
+  const requestedOldWorkerId = searchParams.get("oldWorkerId") || "";
+  const prevWorkerId = requestedOldWorkerId || selectedUser?.assignedHelperIds?.[0] || selectedUser?.assigned_workers?.[0] || "";
   const prevWorker = useMemo(() => {
     if (!selectedUser) return undefined;
     if (prevWorkerId) {
@@ -109,8 +111,10 @@ export default function Handovers() {
   useEffect(() => {
     const qUserId = searchParams.get("userId") || "";
     const qNextWorkerId = searchParams.get("nextWorkerId") || "";
+    const qEndDate = searchParams.get("endDate") || "";
     if (qUserId) setUserId(qUserId);
     if (qNextWorkerId) setNextWorkerId(qNextWorkerId);
+    if (qEndDate) setHandoverDate(qEndDate);
     if (qUserId && !reason) setReason("담당 활동지원사 변경");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);

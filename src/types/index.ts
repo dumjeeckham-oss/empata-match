@@ -78,7 +78,7 @@ export interface ServiceUser {
   wantsWeekendSupport?: boolean; // 주말지원 희망
   femaleOnly?: boolean; // 여성만 원함
   maleOnly?: boolean; // 남성만 원함
-  contractStatus: "서비스중" | "계약해지" | "대기" | "타기관 계약" | "보류";
+  contractStatus: "서비스중" | "작성중" | "계약해지" | "대기" | "타기관 계약" | "보류";
   serviceStartDate: string;
   /** 계약해지 날짜 (resignationDate) */
   resignationDate: string;
