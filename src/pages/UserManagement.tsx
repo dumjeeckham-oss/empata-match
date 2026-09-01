@@ -1023,27 +1023,30 @@ const UserManagement = () => {
     return formatHelperList(user);
   };
   const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
     const names: string[] = [];
+    const addNameOnce = (workerId: string | undefined, workerName: string | undefined) => {
+      const idKey = String(workerId || "").trim();
+      const nameKey = String(workerName || "").trim();
+      if (!idKey && !nameKey) return;
+      if ((idKey && seenIds.has(idKey)) || (nameKey && seenNames.has(nameKey))) return;
+      if (idKey) seenIds.add(idKey);
+      if (nameKey) seenNames.add(nameKey);
+      names.push(nameKey || idKey);
+    };
     const chronological = matchingLogs
       .filter((record) => record.userId === user.id && record.type !== "시도" && !!record.workerName)
       .sort((a, b) => getComparableDateValue((a as any).startDate || a.date).localeCompare(getComparableDateValue((b as any).startDate || b.date)));
 
     for (const record of chronological) {
-      const key = record.workerId || record.workerName.trim();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      names.push(record.workerName.trim());
+      addNameOnce(record.workerId, record.workerName);
     }
     (user.assignedHelperNames || []).forEach((name, index) => {
-      const key = user.assignedHelperIds?.[index] || name.trim();
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      names.push(name.trim());
+      addNameOnce(user.assignedHelperIds?.[index], name);
     });
     return names.filter(Boolean).join(" → ") || "없음";
   };
-
   const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
     const next = Object.fromEntries(
       getDocumentMatchingEntries(user).map((entry) => [
@@ -2639,6 +2642,7 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
 
 
 
