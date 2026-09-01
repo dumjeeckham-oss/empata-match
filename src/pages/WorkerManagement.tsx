@@ -165,6 +165,12 @@ function formatAssignedUsersPreview(worker: Worker, users: Array<ServiceUser & {
   if (names.length === 1) return names[0];
   return formatUserList(worker);
 }
+const joinNonEmpty = (items: unknown[], fallback = "미등록") => {
+  const values = items.map((item) => String(item ?? "").trim()).filter(Boolean);
+  return values.length > 0 ? values.join(" · ") : fallback;
+};
+
+const yesNo = (value: unknown) => (value ? "예" : "아니오");
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
@@ -1325,6 +1331,36 @@ const WorkerManagement = () => {
                   <p className="font-medium">{formatUserList(detailTarget) || "없음"}</p>
                 </div>
               </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">입력 정보 상세</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div><p className="text-sm text-muted-foreground">성별 / 나이</p><p className="font-medium">{joinNonEmpty([detailTarget.gender, detailTarget.age ? `${detailTarget.age}세` : ""])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">연락처</p><p className="font-medium">{detailTarget.phone || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">경력</p><p className="font-medium">{detailTarget.experience || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">거주지역</p><p className="font-medium">{detailTarget.residenceArea || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">희망지역</p><p className="font-medium">{detailTarget.preferredArea || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">지원 가능 종류</p><p className="font-medium">{joinNonEmpty(detailTarget.supportTypes || [])}</p></div>
+                    <div className="md:col-span-2"><p className="text-sm text-muted-foreground">주소</p><p className="font-medium">{detailTarget.address || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">운전 / 동물알러지</p><p className="font-medium">운전 {yesNo(detailTarget.canDrive)} · 동물알러지 {yesNo(detailTarget.animalAllergy)}</p></div>
+                    <div><p className="text-sm text-muted-foreground">외국인 / 체류</p><p className="font-medium">{joinNonEmpty([detailTarget.isForeigner ? "외국인" : "", detailTarget.hasF4 ? "F4" : "", detailTarget.hasF5 ? "F5" : ""])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">자격증</p><p className="font-medium">{joinNonEmpty(detailTarget.certificates || [])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">이수증번호</p><p className="font-medium">{detailTarget.certificateNumber || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">근무 시작 / 퇴사일</p><p className="font-medium">{joinNonEmpty([detailTarget.serviceStartDate, detailTarget.retirementDate || detailTarget.resignationDate])}</p></div>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-sm text-muted-foreground">희망 활동 시간 및 요일</p>
+                    <WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">특이사항</p>
+                    <p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.notes || "미등록"}</p>
+                  </div>
+                </CardContent>
+              </Card>
+
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
@@ -1481,6 +1517,7 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
 
 
 

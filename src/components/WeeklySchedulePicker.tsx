@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 interface Props {
   value?: WeeklySchedule[];
   onChange: (value: WeeklySchedule[]) => void;
+  readOnly?: boolean;
 }
 
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"] as const;
@@ -14,7 +15,7 @@ const SLOTS_PER_HOUR = 2; // 30분 단위
 type ScheduleMode = "primary" | "secondary";
 type DragType = "select" | "deselect";
 
-export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange }) => {
+export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, readOnly = false }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<DragType | null>(null);
   const [mode, setMode] = useState<ScheduleMode>("primary");
@@ -72,6 +73,7 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange }) 
   }, [mode, onChange]);
 
   const handlePointerDown = (day: string, slot: number) => {
+    if (readOnly) return;
     setIsDragging(true);
     const target = mode === "primary" ? schedule[day].primary : schedule[day].secondary;
     const type: DragType = target.has(slot) ? "deselect" : "select";
@@ -80,7 +82,7 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange }) 
   };
 
   const handlePointerEnter = (day: string, slot: number) => {
-    if (isDragging && dragType) toggleSlot(day, slot, dragType);
+    if (!readOnly && isDragging && dragType) toggleSlot(day, slot, dragType);
   };
 
   const stopDragging = () => {
@@ -103,8 +105,8 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange }) 
           <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-50 border" /> 주말</div>
         </div>
         <div className="inline-flex rounded-md border bg-background p-1">
-          <button type="button" className={cn("rounded px-3 py-1", mode === "primary" && "bg-red-500 text-white")} onClick={() => setMode("primary")}>1안</button>
-          <button type="button" className={cn("rounded px-3 py-1", mode === "secondary" && "bg-blue-500 text-white")} onClick={() => setMode("secondary")}>2안</button>
+          <button type="button" className={cn("rounded px-3 py-1", mode === "primary" && "bg-red-500 text-white")} disabled={readOnly} onClick={() => setMode("primary")}>1안</button>
+          <button type="button" className={cn("rounded px-3 py-1", mode === "secondary" && "bg-blue-500 text-white")} disabled={readOnly} onClick={() => setMode("secondary")}>2안</button>
         </div>
       </div>
 
@@ -132,7 +134,8 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange }) 
                     onPointerDown={() => handlePointerDown(day, i)}
                     onPointerEnter={() => handlePointerEnter(day, i)}
                     className={cn(
-                      "flex-1 border-r last:border-r-0 cursor-pointer transition-colors min-w-[15px] touch-none",
+                      "flex-1 border-r last:border-r-0 transition-colors min-w-[15px] touch-none",
+                      readOnly ? "cursor-default" : "cursor-pointer",
                       isPrimary ? "bg-red-500 hover:bg-red-600" : isSecondary ? "bg-blue-500 hover:bg-blue-600" : isNight ? "bg-slate-200 hover:bg-slate-300" : isWeekend ? "bg-amber-50 hover:bg-amber-100" : "bg-background hover:bg-muted",
                       i % 2 === 1 ? "border-r-muted-foreground/30" : "border-r-muted/30"
                     )}
@@ -146,3 +149,4 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange }) 
     </div>
   );
 };
+

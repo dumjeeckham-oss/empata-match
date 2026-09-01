@@ -66,77 +66,9 @@
   }
 }
 
-@keyframes notice-bulbs-chase {
-  0% { background-position: 0 0; filter: brightness(0.92) saturate(1.05); }
-  50% { filter: brightness(1.25) saturate(1.35); }
-  100% { background-position: 72px 0; filter: brightness(0.92) saturate(1.05); }
-}
-
-@keyframes notice-lamp-pulse {
-  0%, 100% { background: #fde047; opacity: 0.8; box-shadow: 0 0 6px #fde047; }
-  33% { background: #22d3ee; opacity: 1; box-shadow: 0 0 13px #22d3ee; }
-  66% { background: #f0abfc; opacity: 1; box-shadow: 0 0 13px #f0abfc; }
-}
-
-@layer components {
-  .notice-board {
-    position: relative;
-    width: 100%;
-    overflow: hidden;
-    border-radius: 0.75rem;
-    padding: 3px;
-    background: repeating-linear-gradient(90deg, #ff1744 0 8px, #ffd600 8px 16px, #00e676 16px 24px, #00b0ff 24px 32px, #d500f9 32px 40px, #ffffff 40px 48px);
-    background-size: 72px 100%;
-    animation: notice-bulbs-chase 1.35s steps(6, end) infinite;
-    box-shadow: 0 8px 24px -12px rgba(127, 29, 29, 0.9), 0 0 14px rgba(250, 204, 21, 0.34);
-  }
-
-  .notice-board::before,
-  .notice-board::after {
-    content: "";
-    position: absolute;
-    z-index: 2;
-    top: 50%;
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    transform: translateY(-50%);
-    animation: notice-lamp-pulse 1.8s ease-in-out infinite;
-  }
-
-  .notice-board::before { left: 8px; }
-  .notice-board::after { right: 8px; animation-delay: 0.9s; }
-
-  .notice-board__inner {
-    position: relative;
-    border-radius: calc(0.75rem - 3px);
-    padding: 0.65rem 1.35rem;
-    background: linear-gradient(115deg, #7f1d1d 0%, #b91c1c 48%, #991b1b 100%);
-    color: white;
-  }
-
-  .notice-board__icon {
-    display: inline-flex;
-    height: 2rem;
-    width: 2rem;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9999px;
-    background: rgba(255, 255, 255, 0.16);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
-  }
-
-  .notice-board__label { color: #fef08a; font-size: 0.75rem; letter-spacing: 0.08em; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .notice-board,
-  .notice-board::before,
-  .notice-board::after { animation: none !important; }
-}
 
 @media print {
   .no-print { display: none !important; }
   body { background: white !important; }
 }
+

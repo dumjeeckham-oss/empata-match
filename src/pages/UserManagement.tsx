@@ -126,6 +126,12 @@ type MatchingPeriodDraft = {
 
 const MATCH_REASON_OPTIONS: MatchingHistoryReason[] = ["교체", "추가", "종료", "인계"];
 
+const joinNonEmpty = (items: unknown[], fallback = "미등록") => {
+  const values = items.map((item) => String(item ?? "").trim()).filter(Boolean);
+  return values.length > 0 ? values.join(" · ") : fallback;
+};
+
+const yesNo = (value: unknown) => (value ? "예" : "아니오");
 const BUCHEON_DONG_PATTERN = /(원미|심곡|상|중|송내|소사|역곡|괴안|범박|옥길|도당|약대|춘의|여월|작동|고강|원종|오정|삼정|내동|대장|대산|소사본|심곡본|중동|상동|원미동|심곡동|송내동|역곡동|괴안동|범박동|옥길동|도당동|약대동|춘의동|여월동|작동|고강동|원종동|오정동|삼정동|내동|대장동)$/;
 
 const toNumber = (value: unknown): number => {
@@ -2573,6 +2579,37 @@ const UserManagement = () => {
                   )}
                 </div>
               </div>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">입력 정보 상세</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <div><p className="text-sm text-muted-foreground">성별 / 나이</p><p className="font-medium">{joinNonEmpty([detailTarget.gender, detailTarget.age ? `${detailTarget.age}세` : ""])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">연락처</p><p className="font-medium">{detailTarget.phone || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">장애유형</p><p className="font-medium">{detailTarget.disabilityType || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">지원 종류</p><p className="font-medium">{joinNonEmpty(detailTarget.supportTypes || [])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">바우처 구간</p><p className="font-medium">{detailTarget.voucherTier || "-"}구간</p></div>
+                    <div><p className="text-sm text-muted-foreground">서비스 시작일 / 해지일</p><p className="font-medium">{joinNonEmpty([detailTarget.serviceStartDate, detailTarget.resignationDate])}</p></div>
+                    <div className="md:col-span-2"><p className="text-sm text-muted-foreground">주소</p><p className="font-medium">{detailTarget.address || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">거주자</p><p className="font-medium">{detailTarget.livingWith || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">생활/환경</p><p className="font-medium">{joinNonEmpty([detailTarget.hasPet ? "반려동물" : "", detailTarget.needsVehicle ? "차량 필요" : "", detailTarget.usesDiaper ? "기저귀 사용" : "", detailTarget.needsAftercare ? "배변뒤처리" : "", detailTarget.wantsWeekendSupport ? "주말지원" : "", detailTarget.needsSchoolSupport ? "학교내 지원" : ""])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">성별 선호</p><p className="font-medium">{detailTarget.femaleOnly ? "여성만 원함" : detailTarget.maleOnly ? "남성만 원함" : "상관없음"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">보호자</p><p className="font-medium">{joinNonEmpty([detailTarget.guardianName, detailTarget.guardianRelation, detailTarget.guardianPhone])}</p></div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div><p className="text-sm text-muted-foreground">이동 시 유의점</p><p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.movementNote || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">가사 지원 시 유의점</p><p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.houseworkNote || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">희망 활동지원사</p><p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.preferredWorkerTraits || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">특이사항</p><p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.notes || "미등록"}</p></div>
+                  </div>
+                  <div>
+                    <p className="mb-2 text-sm text-muted-foreground">필요 요일 및 시간</p>
+                    <WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly />
+                  </div>
+                </CardContent>
+              </Card>
+
 
               <Card>
                 <CardHeader>
@@ -2838,6 +2875,7 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
 
 
 
