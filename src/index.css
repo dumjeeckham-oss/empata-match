@@ -66,15 +66,16 @@
   }
 }
 
-@keyframes notice-border-glow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+@keyframes notice-bulbs-chase {
+  0% { background-position: 0 0; filter: brightness(0.92) saturate(1.05); }
+  50% { filter: brightness(1.25) saturate(1.35); }
+  100% { background-position: 72px 0; filter: brightness(0.92) saturate(1.05); }
 }
 
 @keyframes notice-lamp-pulse {
-  0%, 100% { opacity: 0.72; box-shadow: 0 0 5px rgba(254, 240, 138, 0.8); }
-  50% { opacity: 1; box-shadow: 0 0 12px rgba(255, 255, 255, 1); }
+  0%, 100% { background: #fde047; opacity: 0.8; box-shadow: 0 0 6px #fde047; }
+  33% { background: #22d3ee; opacity: 1; box-shadow: 0 0 13px #22d3ee; }
+  66% { background: #f0abfc; opacity: 1; box-shadow: 0 0 13px #f0abfc; }
 }
 
 @layer components {
@@ -84,10 +85,10 @@
     overflow: hidden;
     border-radius: 0.75rem;
     padding: 3px;
-    background: linear-gradient(110deg, #fef08a, #ffffff, #f59e0b, #ffffff, #fef08a);
-    background-size: 300% 300%;
-    animation: notice-border-glow 3.5s linear infinite;
-    box-shadow: 0 8px 22px -12px rgba(127, 29, 29, 0.85), 0 0 0 1px rgba(127, 29, 29, 0.25);
+    background: repeating-linear-gradient(90deg, #ff1744 0 8px, #ffd600 8px 16px, #00e676 16px 24px, #00b0ff 24px 32px, #d500f9 32px 40px, #ffffff 40px 48px);
+    background-size: 72px 100%;
+    animation: notice-bulbs-chase 1.35s steps(6, end) infinite;
+    box-shadow: 0 8px 24px -12px rgba(127, 29, 29, 0.9), 0 0 14px rgba(250, 204, 21, 0.34);
   }
 
   .notice-board::before,
@@ -99,7 +100,6 @@
     width: 6px;
     height: 6px;
     border-radius: 9999px;
-    background: #fef9c3;
     transform: translateY(-50%);
     animation: notice-lamp-pulse 1.8s ease-in-out infinite;
   }
