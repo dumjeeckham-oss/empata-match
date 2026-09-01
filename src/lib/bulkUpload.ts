@@ -32,6 +32,8 @@ export type FieldKey =
   | "age"
   | "disabilityType"
   | "voucherTier"
+  | "voucherHours"
+  | "additionalHours"
   | "requiredDays"
   | "requiredHours"
   | "supportTypes"
@@ -70,7 +72,9 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "phone", patterns: [/연락처/, /전화/, /휴대폰/, /^hp$/i, /^phone$/i, /txtUPhone/i, /txtHPhone/i, /핸드폰/, /휴대전화/] },
   { field: "age", patterns: [/나이/, /연령/, /^age$/i, /출생/] },
   { field: "disabilityType", patterns: [/장애/, /장애유형/] },
-  { field: "voucherTier", patterns: [/바우처/, /구간/] },
+  { field: "voucherTier", patterns: [/바우처.*구간/, /구간/] },
+  { field: "voucherHours", patterns: [/바우처.*시간/, /월바우처시간/, /기본시간/] },
+  { field: "additionalHours", patterns: [/추가시간/, /추가.*시간/] },
   { field: "requiredDays", patterns: [/필요요일/, /서비스요일/, /이용요일/] },
   { field: "requiredHours", patterns: [/필요시간/, /서비스시간/, /이용시간/] },
   { field: "supportTypes", patterns: [/지원유형/, /지원형태/] },
@@ -356,6 +360,8 @@ export function rowToServiceUser(
     phone: getCell(row, headerMap, "phone"),
     disabilityType: getCell(row, headerMap, "disabilityType"),
     voucherTier: Number(getCell(row, headerMap, "voucherTier")) || 1,
+    voucherHours: Number(getCell(row, headerMap, "voucherHours")) || undefined,
+    additionalHours: Number(getCell(row, headerMap, "additionalHours")) || 0,
     requiredDays: getCell(row, headerMap, "requiredDays"),
     requiredHours: getCell(row, headerMap, "requiredHours"),
     supportTypes: splitList(getCell(row, headerMap, "supportTypes")),
@@ -387,6 +393,7 @@ export function rowToServiceUser(
     livingWith: "",
     needsVehicle: false,
     usesDiaper: false,
+    needsSchoolSupport: false,
     resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
     receiptDate: normalizeDateCell(getCell(row, headerMap, "receiptDate")),
   };
@@ -806,3 +813,10 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
+
+
+
+
+
+
+

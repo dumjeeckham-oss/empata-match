@@ -30,6 +30,7 @@ export const TERMINATION_REASONS = [
 export interface WeeklySchedule {
   day: "월" | "화" | "수" | "목" | "금" | "토" | "일";
   slots: number[]; // 0-47 (30분 단위, 00:00 = 0)
+  alternativeSlots?: number[]; // 2안 필요시간
 }
 
 export type MatchingHistoryReason = "교체" | "추가" | "종료" | "인계";
@@ -56,6 +57,8 @@ export interface ServiceUser {
   phone: string;
   disabilityType: string;
   voucherTier: number;
+  voucherHours?: number;
+  additionalHours?: number;
   requiredDays: string;
   requiredHours: string;
   weeklySchedule?: WeeklySchedule[];
@@ -76,6 +79,7 @@ export interface ServiceUser {
   notes: string;
   needsAftercare?: boolean; // 배변뒤처리 필요
   wantsWeekendSupport?: boolean; // 주말지원 희망
+  needsSchoolSupport?: boolean; // 학교내 지원
   femaleOnly?: boolean; // 여성만 원함
   maleOnly?: boolean; // 남성만 원함
   contractStatus: "서비스중" | "작성중" | "계약해지" | "대기" | "타기관 계약" | "보류";
@@ -245,6 +249,9 @@ export interface MatchingHistoryRecord {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
+
+
 
 
 

@@ -126,6 +126,9 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     assigned_workers: ids.filter(Boolean),
     assignedHelperNames: names,
     assignedHelperPhones: phones,
+    voucherHours: Number(raw.voucherHours ?? raw["바우처시간"] ?? raw["월바우처시간"] ?? 0) || undefined,
+    additionalHours: Number(raw.additionalHours ?? raw["추가시간"] ?? 0) || 0,
+    needsSchoolSupport: Boolean(raw.needsSchoolSupport ?? raw["학교내지원"] ?? false),
     gender: String(raw.gender ?? raw.txtUSex ?? ""),
     txtUSex: String(raw.txtUSex ?? raw.gender ?? ""),
     terminationReason,
@@ -364,6 +367,9 @@ export function buildUserArraysFromIds(
   }
   return { ids, names, phones };
 }
+
+
+
 
 
 

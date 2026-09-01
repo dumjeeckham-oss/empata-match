@@ -92,7 +92,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
 
-  name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1,
+  name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1, voucherHours: VOUCHER_HOURS[1], additionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
@@ -103,6 +103,7 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   usesDiaper: false,
   needsAftercare: false,
   wantsWeekendSupport: false,
+  needsSchoolSupport: false,
   femaleOnly: false,
   maleOnly: false,
   receiptDate: "", matchingHistory: [],
@@ -124,6 +125,35 @@ type MatchingPeriodDraft = {
 };
 
 const MATCH_REASON_OPTIONS: MatchingHistoryReason[] = ["교체", "추가", "종료", "인계"];
+
+const BUCHEON_DONG_PATTERN = /(원미|심곡|상|중|송내|소사|역곡|괴안|범박|옥길|도당|약대|춘의|여월|작동|고강|원종|오정|삼정|내동|대장|대산|소사본|심곡본|중동|상동|원미동|심곡동|송내동|역곡동|괴안동|범박동|옥길동|도당동|약대동|춘의동|여월동|작동|고강동|원종동|오정동|삼정동|내동|대장동)$/;
+
+const toNumber = (value: unknown): number => {
+  const number = Number(String(value ?? "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(number) ? number : 0;
+};
+
+const getVoucherBaseHours = (user: Pick<ServiceUser, "voucherTier" | "voucherHours">): number => {
+  const manual = toNumber(user.voucherHours);
+  return manual > 0 ? manual : VOUCHER_HOURS[user.voucherTier] || 0;
+};
+
+const getAdditionalHours = (user: Pick<ServiceUser, "additionalHours">): number => toNumber(user.additionalHours);
+
+const formatVoucherHours = (user: Pick<ServiceUser, "voucherTier" | "voucherHours" | "additionalHours">): string => {
+  const base = getVoucherBaseHours(user);
+  const extra = getAdditionalHours(user);
+  return `${base + extra}시간 (${base}시간 + ${extra}시간)`;
+};
+
+const withBucheonAddressPrefix = (address: string): string => {
+  const trimmed = String(address || "").trim();
+  if (!trimmed || /부천시|경기도|서울|인천|시\s|군\s|구\s/.test(trimmed)) return trimmed;
+  if (BUCHEON_DONG_PATTERN.test(trimmed.replace(/\s+/g, "")) || /동(\s|$)/.test(trimmed)) {
+    return `경기도 부천시 ${trimmed}`;
+  }
+  return trimmed;
+};
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -352,9 +382,13 @@ const UserManagement = () => {
   }, [searchParams]);
 
   const handleAutoGeocode = async (address: string) => {
-    if (!address || (form.lat && form.lng)) return;
+    const normalizedAddress = withBucheonAddressPrefix(address);
+    if (normalizedAddress !== address) {
+      setForm((f) => ({ ...f, address: normalizedAddress, lat: undefined, lng: undefined }));
+    }
+    if (!normalizedAddress || (form.lat && form.lng && normalizedAddress === form.address)) return;
     setGeocoding(true);
-    const result = await geocodeAddress(address);
+    const result = await geocodeAddress(normalizedAddress);
     if (result) {
       setForm((f) => ({ ...f, lat: result.lat, lng: result.lng }));
       toast({ title: "자동 주소 변환 완료", description: `위도: ${result.lat.toFixed(4)}, 경도: ${result.lng.toFixed(4)}` });
@@ -420,6 +454,8 @@ const UserManagement = () => {
       txtUSex: form.gender,
       txtUMemostop: form.terminationReason,
       receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
+      voucherHours: getVoucherBaseHours(form),
+      additionalHours: getAdditionalHours(form),
     };
     // 계약해지/타기관 계약/보류는 사용자가 직접 지정한 상태이므로 자동 전환하지 않음
     // (담당 활동지원사 연결은 삭제하지 않고 그대로 유지 → 이력이 끊기지 않음)
@@ -1371,6 +1407,7 @@ const UserManagement = () => {
                 <div className="flex flex-col items-end gap-2">
                   <Badge variant={draft.isCurrent ? "default" : "secondary"}>{draft.isCurrent ? "서비스 중" : "종료(이력)"}</Badge>
                   <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>
+                  <Button size="sm" variant="destructive" onClick={() => openServiceCloseDialog(user, entry)}>배정 해제</Button>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -1768,12 +1805,23 @@ const UserManagement = () => {
                     </Select>
                   </div>
                   <div><Label>바우처 등급</Label>
-                    <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v) }))}>
+                    <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v), voucherHours: VOUCHER_HOURS[Number(v)] || f.voucherHours || 0 }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.keys(VOUCHER_HOURS).map(v => <SelectItem key={v} value={v}>{v}구간 ({VOUCHER_HOURS[Number(v)]}시간)</SelectItem>)}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label>바우처 기본시간</Label>
+                    <Input type="number" min={0} value={form.voucherHours ?? VOUCHER_HOURS[form.voucherTier] ?? 0} onChange={(e) => setForm((f) => ({ ...f, voucherHours: Number(e.target.value) || 0 }))} />
+                  </div>
+                  <div>
+                    <Label>추가시간</Label>
+                    <Input type="number" min={0} value={form.additionalHours ?? 0} onChange={(e) => setForm((f) => ({ ...f, additionalHours: Number(e.target.value) || 0 }))} />
+                  </div>
+                  <div className="col-span-2 rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium">
+                    합산시간: {formatVoucherHours(form)}
                   </div>
                 </div>
 
@@ -1796,6 +1844,7 @@ const UserManagement = () => {
                     <div className="flex items-center space-x-2"><Checkbox id="wantsWeekendSupport" checked={form.wantsWeekendSupport} onCheckedChange={(checked) => setForm((f) => ({ ...f, wantsWeekendSupport: !!checked }))} /><label htmlFor="wantsWeekendSupport" className="text-sm">주말지원 희망</label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="femaleOnly" checked={form.femaleOnly} onCheckedChange={(checked) => setForm((f) => ({ ...f, femaleOnly: !!checked }))} /><label htmlFor="femaleOnly" className="text-sm">여성만 원함</label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="maleOnly" checked={form.maleOnly} onCheckedChange={(checked) => setForm((f) => ({ ...f, maleOnly: !!checked }))} /><label htmlFor="maleOnly" className="text-sm">남성만 원함</label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="needsSchoolSupport" checked={form.needsSchoolSupport} onCheckedChange={(checked) => setForm((f) => ({ ...f, needsSchoolSupport: !!checked }))} /><label htmlFor="needsSchoolSupport" className="text-sm">학교내 지원</label></div>
                   </div>
                 </div>
 
@@ -1808,11 +1857,12 @@ const UserManagement = () => {
                   <div className="col-span-2">
                     <Label>주소</Label>
                     <div className="flex gap-2">
-                      <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} onBlur={(e) => handleAutoGeocode(e.target.value)} />
+                      <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value, lat: undefined, lng: undefined }))} onBlur={(e) => handleAutoGeocode(e.target.value)} placeholder="예: 원미동 → 경기도 부천시 원미동" />
                       <Button variant="outline" size="sm" onClick={handleGeocode} disabled={geocoding}>{geocoding ? "변환중..." : "좌표변환"}</Button>
                     </div>
                   </div>
                   <div><Label>거주자</Label><Input value={form.livingWith} onChange={(e) => setForm((f) => ({ ...f, livingWith: e.target.value }))} placeholder="예: 독거, 부모님 등" /></div>
+                  <div className="flex items-center space-x-2 h-full pt-6"><Checkbox id="livingAlone" checked={form.livingWith === "독거"} onCheckedChange={(checked) => setForm((f) => ({ ...f, livingWith: checked ? "독거" : "" }))} /><Label htmlFor="livingAlone">독거 (혼자 살음)</Label></div>
                   <div className="flex items-center space-x-4 h-full pt-6">
                     <div className="flex items-center space-x-2">
                       <Checkbox id="hasPet" checked={form.hasPet} onCheckedChange={(checked) => setForm(f => ({ ...f, hasPet: !!checked }))} />
@@ -1999,7 +2049,8 @@ const UserManagement = () => {
                 <Button onClick={handleQuickWorkerSave}>등록 후 선택</Button>
               </div>
             </DialogContent>
-          </Dialog>`r`n        </div>
+          </Dialog>
+        </div>
       </div>
 
 
@@ -2072,7 +2123,7 @@ const UserManagement = () => {
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
-                      <p><span className="text-muted-foreground">바우처 시간:</span> 월 {VOUCHER_HOURS[user.voucherTier] || 0}시간 ({user.voucherTier || "-"}구간)</p>
+                      <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({user.voucherTier || "-"}구간)</p>
                       <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
                       <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? `총 ${getFormattedDuration(user.serviceStartDate)}째 서비스 중` : "미등록"}</p>
                       <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelperPreview(user as ServiceUser & { id: string }) || "없음"}</p>
@@ -2505,6 +2556,14 @@ const UserManagement = () => {
                   <p className="font-medium">{detailTarget.contractStatus}</p>
                 </div>
                 <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">바우처 합산시간</p>
+                  <p className="font-medium">{formatVoucherHours(detailTarget)}</p>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">거주/추가요청</p>
+                  <p className="font-medium">{[detailTarget.livingWith, detailTarget.needsSchoolSupport ? "학교내 지원" : ""].filter(Boolean).join(" · ") || "미등록"}</p>
+                </div>
+                <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 활동지원사</p>
                   <p className="font-medium">{formatCurrentHelper(detailTarget) || "없음"}</p>
                   {(detailTarget.assignedHelperIds?.length || 0) > 1 && (
@@ -2779,6 +2838,11 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
 
 
 
