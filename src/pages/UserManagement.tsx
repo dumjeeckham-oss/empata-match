@@ -140,7 +140,7 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
 const UserManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, add, update, remove, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: workersRaw, add: addWorker, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>(COUNSELING_COLLECTION);
   const { data: matchingHistory, add: addMatchingHistory, update: updateMatchingHistory, remove: removeMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const { data: handoverDocsRaw } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
@@ -168,6 +168,39 @@ const UserManagement = () => {
   const [geocoding, setGeocoding] = useState(false);
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [quickWorkerOpen, setQuickWorkerOpen] = useState(false);
+  const [quickWorkerForm, setQuickWorkerForm] = useState<Omit<Worker, "id" | "createdAt" | "updatedAt">>({
+    name: "",
+    age: 0,
+    gender: "여성",
+    phone: "",
+    residenceArea: "",
+    preferredArea: "",
+    address: "",
+    experience: "경력없음",
+    availableDays: "",
+    availableHours: "",
+    rejectionTypes: [],
+    rejectedTasks: "",
+    canDrive: false,
+    animalAllergy: false,
+    isForeigner: false,
+    hasF4: false,
+    hasF5: false,
+    certificateNumber: "",
+    contractStatus: "대기",
+    serviceStartDate: "",
+    serviceEndDate: null,
+    retirementDate: "",
+    resignationDate: "",
+    notes: "이용자 등록 중 빠른 등록",
+    assignedUserIds: [],
+    assignedUserNames: [],
+    assignedUserPhones: [],
+    supportTypes: [],
+    certificates: [],
+    receiptDate: "",
+  });
   const [pendingProfileSync, setPendingProfileSync] = useState<{
     id: string;
     changedFields: string[];
@@ -748,9 +781,45 @@ const UserManagement = () => {
 
   const handleDelete = async () => {
     if (!deleteTarget?.id) return;
+    const prevHelperIds = deleteTarget.assignedHelperIds || [];
+    await syncUserToWorkers(
+      deleteTarget.id,
+      { name: deleteTarget.name, phone: deleteTarget.phone, assignedHelperIds: [] },
+      workers,
+      prevHelperIds,
+      updateWorker
+    );
+    for (const log of matchingLogs.filter((record) => record.userId === deleteTarget.id && record.id)) {
+      await removeMatchingHistory(log.id as string);
+    }
     await remove(deleteTarget.id);
-    toast({ title: "삭제 완료", description: `${deleteTarget.name} 님의 정보가 삭제되었습니다.` });
+    toast({ title: "삭제 완료", description: `${deleteTarget.name} 님의 정보와 연결된 매칭 이력을 정리했습니다.` });
     setDeleteTarget(null);
+  };
+
+  const handleQuickWorkerSave = async () => {
+    if (!quickWorkerForm.name.trim() || !quickWorkerForm.phone.trim()) {
+      toast({ title: "입력 확인", description: "활동지원사 이름과 연락처를 입력해 주세요.", variant: "destructive" });
+      return;
+    }
+    const startDate = quickWorkerForm.serviceStartDate || form.serviceStartDate || new Date().toISOString().slice(0, 10);
+    const payload: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
+      ...quickWorkerForm,
+      name: quickWorkerForm.name.trim(),
+      phone: quickWorkerForm.phone.trim(),
+      serviceStartDate: startDate,
+      contractStatus: "근무중",
+    };
+    const ref = await addWorker(payload as Omit<Worker, "id">);
+    const newWorkerId = ref.id;
+    setForm((f) => ({
+      ...f,
+      serviceStartDate: f.serviceStartDate || startDate,
+      assignedHelperIds: Array.from(new Set([...(f.assignedHelperIds || []), newWorkerId])),
+    }));
+    setQuickWorkerForm((f) => ({ ...f, name: "", phone: "", address: "", residenceArea: "", preferredArea: "", serviceStartDate: "" }));
+    setQuickWorkerOpen(false);
+    toast({ title: "활동지원사 등록 완료", description: `${payload.name} 님을 담당 활동지원사로 선택했습니다.` });
   };
 
   const handleBulkConfirm = async (items: Omit<ServiceUser, "id" | "createdAt" | "updatedAt">[]) => {
@@ -913,19 +982,27 @@ const UserManagement = () => {
       });
     }
 
+    const logsByWorker = new Map<string, MatchingHistoryRecord & { id?: string }>();
+    for (const log of matchingLogs
+      .filter((record) => record.userId === user.id && !!record.workerId && record.type !== "시도")
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)))) {
+      if (log.workerId && !logsByWorker.has(log.workerId)) logsByWorker.set(log.workerId, log);
+    }
+
     for (const workerId of user.assignedHelperIds || []) {
       const worker = workers.find((w) => w.id === workerId);
       const existing = byWorker.get(workerId);
+      const matchingLog = logsByWorker.get(workerId);
       const existingEnded = existing && existing.serviceEndDate !== null && existing.serviceEndDate !== "";
       byWorker.set(workerId, {
         id: existing?.id || `${workerId}-${user.serviceStartDate || today}`,
         workerId,
         workerName: existing?.workerName || worker?.name || user.assignedHelperNames?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
         workerPhone: existing?.workerPhone || worker?.phone || user.assignedHelperPhones?.[(user.assignedHelperIds || []).indexOf(workerId)] || "",
-        serviceStartDate: existing?.serviceStartDate || user.serviceStartDate || today,
-        serviceEndDate: existingEnded ? existing.serviceEndDate : null,
-        reason: existing?.reason || "추가",
-        reasonDetail: existing?.reasonDetail || "",
+        serviceStartDate: existing?.serviceStartDate || matchingLog?.date || user.serviceStartDate || today,
+        serviceEndDate: existingEnded ? existing.serviceEndDate : matchingLog?.endDate || null,
+        reason: existing?.reason || matchingLog?.reason || "추가",
+        reasonDetail: existing?.reasonDetail || matchingLog?.reasonDetail || matchingLog?.notes || "",
         updatedAt: existing?.updatedAt,
       });
     }
@@ -1547,6 +1624,7 @@ const UserManagement = () => {
   const filtered = getFilteredUsers();
   const terminatedCount = users.filter((u) => effectiveUserStatus(u) === "계약해지").length;
   const activeCount = users.filter((u) => effectiveUserStatus(u) === "서비스중").length;
+  const waitingCount = users.filter((u) => effectiveUserStatus(u) === "대기").length;
 
   const userSummary = useMemo(() => {
     const recentContracts = users.filter((u) => isWithinRecentMonths(u.serviceStartDate)).length;
@@ -1602,7 +1680,7 @@ const UserManagement = () => {
             <DialogTrigger asChild>
               <Button onClick={() => { setForm(emptyUser); setAgeInput(""); setEditingId(null); }}>+ 신규등록</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle>{editingId ? "이용자 수정" : "이용자 신규등록"}</DialogTitle>
               </DialogHeader>
@@ -1845,6 +1923,18 @@ const UserManagement = () => {
                       onChange={(ids) => setForm((f) => ({ ...f, assignedHelperIds: ids }))}
                       placeholder="지원사 선택..."
                     />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => {
+                        setQuickWorkerForm((f) => ({ ...f, serviceStartDate: form.serviceStartDate || new Date().toISOString().slice(0, 10) }));
+                        setQuickWorkerOpen(true);
+                      }}
+                    >
+                      + 신규 활동지원사 등록
+                    </Button>
                   </div>
                   {editingId && (
                     <div className="col-span-2 space-y-3">
@@ -1857,13 +1947,59 @@ const UserManagement = () => {
                   )}
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-2">
+              <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
                 <Button onClick={handleSave}>저장</Button>
               </div>
             </DialogContent>
           </Dialog>
-        </div>
+          <Dialog open={quickWorkerOpen} onOpenChange={setQuickWorkerOpen}>
+                          <DialogContent className="max-w-3xl w-[95vw]" onPointerDownOutside={(event) => event.preventDefault()}>
+              <DialogHeader>
+                <DialogTitle>신규 활동지원사 빠른 등록</DialogTitle>
+              </DialogHeader>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <Label>이름 *</Label>
+                  <Input value={quickWorkerForm.name} onChange={(e) => setQuickWorkerForm((f) => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>연락처 *</Label>
+                  <Input value={quickWorkerForm.phone} onChange={(e) => setQuickWorkerForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" />
+                </div>
+                <div>
+                  <Label>성별</Label>
+                  <Select value={quickWorkerForm.gender} onValueChange={(v) => setQuickWorkerForm((f) => ({ ...f, gender: v }))}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="여성">여성</SelectItem>
+                      <SelectItem value="남성">남성</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>서비스 시작일</Label>
+                  <Input type="date" value={quickWorkerForm.serviceStartDate} onChange={(e) => setQuickWorkerForm((f) => ({ ...f, serviceStartDate: e.target.value }))} />
+                </div>
+                <div className="md:col-span-2">
+                  <Label>주소</Label>
+                  <Input value={quickWorkerForm.address} onChange={(e) => setQuickWorkerForm((f) => ({ ...f, address: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>거주지역</Label>
+                  <Input value={quickWorkerForm.residenceArea} onChange={(e) => setQuickWorkerForm((f) => ({ ...f, residenceArea: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>희망지역</Label>
+                  <Input value={quickWorkerForm.preferredArea} onChange={(e) => setQuickWorkerForm((f) => ({ ...f, preferredArea: e.target.value }))} />
+                </div>
+              </div>
+              <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
+                <Button variant="outline" onClick={() => setQuickWorkerOpen(false)}>취소</Button>
+                <Button onClick={handleQuickWorkerSave}>등록 후 선택</Button>
+              </div>
+            </DialogContent>
+          </Dialog>`r`n        </div>
       </div>
 
 
@@ -1877,9 +2013,9 @@ const UserManagement = () => {
               <Input placeholder="이름·연락처 또는 담당 활동지원사로 검색..." value={search} onChange={(e) => setSearch(e.target.value)} />
               <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
                 <TabsList className="min-w-max">
-                  <TabsTrigger value="all">전체</TabsTrigger>
+                  <TabsTrigger value="all">전체 {users.length}</TabsTrigger>
                   <TabsTrigger value="서비스중">서비스중 {activeCount}</TabsTrigger>
-                  <TabsTrigger value="대기">대기</TabsTrigger>
+                  <TabsTrigger value="대기">대기 {waitingCount}</TabsTrigger>
                   <TabsTrigger value="계약해지">계약해지 {terminatedCount}</TabsTrigger>
                 </TabsList>
               </Tabs>
@@ -2110,7 +2246,7 @@ const UserManagement = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>정말 삭제하시겠습니까?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget?.name} 님의 모든 정보가 영구적으로 삭제됩니다.
+              정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2349,7 +2485,7 @@ const UserManagement = () => {
 
 
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "이용자 상세"}</DialogTitle>
           </DialogHeader>
@@ -2445,7 +2581,7 @@ const UserManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>🗑️</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
@@ -2459,7 +2595,8 @@ const UserManagement = () => {
                 </Card>
               </div>
 
-              <div className="flex justify-end gap-2">
+              <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
+                <Button variant="destructive" onClick={() => { if (detailTarget) { setDeleteTarget(detailTarget); setDetailTarget(null); } }}>삭제</Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
               </div>
@@ -2469,7 +2606,7 @@ const UserManagement = () => {
       
             {/* 매칭 히스토리 추가/수정 다이얼로그 */}
             <Dialog open={matchHistoryDialogOpen} onOpenChange={setMatchHistoryDialogOpen}>
-              <DialogContent>
+              <DialogContent className="max-w-3xl w-[95vw]" onPointerDownOutside={(event) => event.preventDefault()}>
                 <DialogHeader>
                   <DialogTitle>{editingMatchHistoryId ? "매칭 이력 수정" : "매칭 이력 추가"}</DialogTitle>
                 </DialogHeader>
@@ -2642,6 +2779,15 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
+
+
+
+
 
 
 

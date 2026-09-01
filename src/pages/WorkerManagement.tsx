@@ -395,7 +395,7 @@ const WorkerManagement = () => {
               workerId: savedId,
               workerName: payload.name,
               workerPhone: payload.phone,
-              date: new Date().toISOString().slice(0, 10),
+              date: payload.serviceStartDate || new Date().toISOString().slice(0, 10),
               notes: "이용자 배정",
             } as any);
           }
@@ -463,8 +463,19 @@ const WorkerManagement = () => {
 
   const handleDelete = async () => {
     if (!deleteTarget?.id) return;
+    const prevUserIds = deleteTarget.assignedUserIds || [];
+    await syncWorkerToUsers(
+      deleteTarget.id,
+      { name: deleteTarget.name, phone: deleteTarget.phone, assignedUserIds: [] },
+      users,
+      prevUserIds,
+      updateUser
+    );
+    for (const log of matchingLogs.filter((record) => record.workerId === deleteTarget.id && record.id)) {
+      await removeMatchingHistory(log.id as string);
+    }
     await remove(deleteTarget.id);
-    toast({ title: "삭제 완료", description: `${deleteTarget.name} 님의 정보가 삭제되었습니다.` });
+    toast({ title: "삭제 완료", description: `${deleteTarget.name} 님의 정보와 연결된 매칭 이력을 정리했습니다.` });
     setDeleteTarget(null);
   };
 
@@ -717,6 +728,7 @@ const WorkerManagement = () => {
   const filtered = getFiltered();
   const resignedCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "퇴사").length;
   const workingCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "근무중").length;
+  const waitingCount = displayWorkers.filter((w) => effectiveWorkerStatus(w) === "대기").length;
 
   const workerSummary = useMemo(() => {
     const recentJoined = displayWorkers.filter((w) => isWithinRecentMonths(w.serviceStartDate)).length;
@@ -772,7 +784,7 @@ const WorkerManagement = () => {
             <DialogTrigger asChild>
               <Button onClick={() => { setForm(emptyWorker); setEditingId(null); setExplicitOks(new Set()); }}>+ 신규등록</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle>{editingId ? "활동지원사 수정" : "활동지원사 신규등록"}</DialogTitle>
               </DialogHeader>
@@ -971,7 +983,7 @@ const WorkerManagement = () => {
                   </div>
                 </div>
               </div>
-              <div className="mt-6 flex justify-end gap-2">
+              <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
                 <Button onClick={handleSave}>저장</Button>
               </div>
@@ -994,9 +1006,9 @@ const WorkerManagement = () => {
                   <Label className="text-[10px] text-muted-foreground uppercase tracking-wider ml-1">상태 필터</Label>
                   <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
                     <TabsList className="min-w-max">
-                      <TabsTrigger value="all" className="text-xs">전체</TabsTrigger>
+                      <TabsTrigger value="all" className="text-xs">전체 {displayWorkers.length}</TabsTrigger>
                       <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
-                      <TabsTrigger value="대기" className="text-xs">대기</TabsTrigger>
+                      <TabsTrigger value="대기" className="text-xs">대기 {waitingCount}</TabsTrigger>
                       <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
                     </TabsList>
                   </Tabs>
@@ -1195,7 +1207,7 @@ const WorkerManagement = () => {
           <AlertDialogHeader>
             <AlertDialogTitle>정말 삭제하시겠습니까?</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget?.name} 님의 모든 정보가 영구적으로 삭제됩니다.
+              정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1273,7 +1285,7 @@ const WorkerManagement = () => {
 
 
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
-        <DialogContent className="max-w-4xl w-[95vw] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "활동지원사 상세"}</DialogTitle>
           </DialogHeader>
@@ -1363,7 +1375,7 @@ const WorkerManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>🗑️</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
@@ -1377,6 +1389,7 @@ const WorkerManagement = () => {
               </div>
 
               <div className="flex justify-end gap-2">
+                <Button variant="destructive" onClick={() => { if (detailTarget) { setDeleteTarget(detailTarget); setDetailTarget(null); } }}>삭제</Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
               </div>
@@ -1386,7 +1399,7 @@ const WorkerManagement = () => {
       
             {/* 매칭 히스토리 추가/수정 다이얼로그 */}
             <Dialog open={matchHistoryDialogOpen} onOpenChange={setMatchHistoryDialogOpen}>
-              <DialogContent>
+              <DialogContent className="max-w-3xl w-[95vw]" onPointerDownOutside={(event) => event.preventDefault()}>
                 <DialogHeader>
                   <DialogTitle>{editingMatchHistoryId ? "매칭 이력 수정" : "매칭 이력 추가"}</DialogTitle>
                 </DialogHeader>
@@ -1468,6 +1481,11 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
+
+
+
 
 
 
