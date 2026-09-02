@@ -65,6 +65,7 @@ export type FieldKey =
   | "canDrive"
   | "animalAllergy"
   | "certificateNumber"
+  | "certificateDate"
   | "resignationDate"
   | "psychiatricCheckDate"
   | "psychiatricCheckUnchecked"
@@ -443,6 +444,7 @@ export function rowToWorker(
     canDrive: parseYesNo(getCell(row, headerMap, "canDrive")),
     animalAllergy: parseYesNo(getCell(row, headerMap, "animalAllergy")),
     certificateNumber: getCell(row, headerMap, "certificateNumber"),
+    certificateDate: normalizeDateCell(getCell(row, headerMap, "certificateDate")),
     contractStatus: (getCell(row, headerMap, "contractStatus") || "대기") as Worker["contractStatus"],
     serviceStartDate: normalizeDateCell(getCell(row, headerMap, "serviceStartDate")),
     resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
@@ -830,6 +832,7 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
+
 
 
 

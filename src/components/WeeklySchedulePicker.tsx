@@ -19,6 +19,10 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<DragType | null>(null);
   const [mode, setMode] = useState<ScheduleMode>("primary");
+  const [quickStartDay, setQuickStartDay] = useState<typeof DAYS[number]>("월");
+  const [quickEndDay, setQuickEndDay] = useState<typeof DAYS[number]>("금");
+  const [quickStartHour, setQuickStartHour] = useState("09:00");
+  const [quickEndHour, setQuickEndHour] = useState("18:00");
   const containerRef = useRef<HTMLDivElement>(null);
 
   const getInitialSchedule = (): Record<string, { primary: Set<number>; secondary: Set<number> }> => {
@@ -90,6 +94,45 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
     setDragType(null);
   };
 
+  const timeToSlot = (value: string, fallback: number) => {
+    const [hourRaw, minuteRaw] = String(value || "").split(":");
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw || 0);
+    if (!Number.isFinite(hour) || hour < 0 || hour > 24) return fallback;
+    return Math.max(0, Math.min(48, hour * SLOTS_PER_HOUR + (minute >= 30 ? 1 : 0)));
+  };
+
+  const applyQuickRange = () => {
+    if (readOnly) return;
+    const startDayIndex = DAYS.indexOf(quickStartDay);
+    const endDayIndex = DAYS.indexOf(quickEndDay);
+    const fromDay = Math.min(startDayIndex, endDayIndex);
+    const toDay = Math.max(startDayIndex, endDayIndex);
+    const startSlot = Math.min(timeToSlot(quickStartHour, 18), timeToSlot(quickEndHour, 36));
+    const endSlot = Math.max(timeToSlot(quickStartHour, 18), timeToSlot(quickEndHour, 36));
+    if (startSlot === endSlot) return;
+
+    setSchedule((prev) => {
+      const next = { ...prev };
+      for (let dayIndex = fromDay; dayIndex <= toDay; dayIndex += 1) {
+        const day = DAYS[dayIndex];
+        const daySchedule = {
+          primary: new Set(next[day].primary),
+          secondary: new Set(next[day].secondary),
+        };
+        const target = mode === "primary" ? daySchedule.primary : daySchedule.secondary;
+        const other = mode === "primary" ? daySchedule.secondary : daySchedule.primary;
+        for (let slot = startSlot; slot < endSlot; slot += 1) {
+          target.add(slot);
+          other.delete(slot);
+        }
+        next[day] = daySchedule;
+      }
+      emitChange(next);
+      return next;
+    });
+  };
+
   useEffect(() => {
     window.addEventListener("pointerup", stopDragging);
     return () => window.removeEventListener("pointerup", stopDragging);
@@ -110,6 +153,18 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
         </div>
       </div>
 
+      {!readOnly && (
+        <div className="rounded-md border bg-muted/20 p-3 text-xs">
+          <div className="mb-2 font-medium text-foreground">범위 선택 Quick 입력</div>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-6 md:items-end">
+            <label className="space-y-1"><span className="text-muted-foreground">시작 요일</span><select className="w-full rounded-md border bg-background px-2 py-1.5" value={quickStartDay} onChange={(e) => setQuickStartDay(e.target.value as typeof DAYS[number])}>{DAYS.map((day) => <option key={day} value={day}>{day}요일</option>)}</select></label>
+            <label className="space-y-1"><span className="text-muted-foreground">종료 요일</span><select className="w-full rounded-md border bg-background px-2 py-1.5" value={quickEndDay} onChange={(e) => setQuickEndDay(e.target.value as typeof DAYS[number])}>{DAYS.map((day) => <option key={day} value={day}>{day}요일</option>)}</select></label>
+            <label className="space-y-1"><span className="text-muted-foreground">시작 시간</span><input className="w-full rounded-md border bg-background px-2 py-1.5" type="time" step="1800" value={quickStartHour} onChange={(e) => setQuickStartHour(e.target.value)} /></label>
+            <label className="space-y-1"><span className="text-muted-foreground">종료 시간</span><input className="w-full rounded-md border bg-background px-2 py-1.5" type="time" step="1800" value={quickEndHour} onChange={(e) => setQuickEndHour(e.target.value)} /></label>
+            <button type="button" className="col-span-2 rounded-md bg-primary px-3 py-2 text-primary-foreground md:col-span-2" onClick={applyQuickRange}>자동 적용</button>
+          </div>
+        </div>
+      )}
       <div className="flex border-b pb-2">
         <div className="w-12 flex-shrink-0" />
         {HOURS.map((hour) => (
@@ -149,4 +204,5 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
     </div>
   );
 };
+
 

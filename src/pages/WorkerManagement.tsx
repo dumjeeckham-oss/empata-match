@@ -4,6 +4,7 @@ import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
+import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
@@ -54,13 +55,27 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   isForeigner: false, hasF4: false, hasF5: false,
-  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", psychiatricCheckDate: "", psychiatricCheckUnchecked: false, workplaceCheckDate: "", workplaceCheckUnchecked: false, notes: "",
+  certificateNumber: "", certificateDate: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", psychiatricCheckDate: "", psychiatricCheckUnchecked: false, workplaceCheckDate: "", workplaceCheckUnchecked: false, notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
   supportTypes: [],
   certificates: [],
   receiptDate: "",
 };
 
+const WORKER_PARTIAL_UPDATE_FIELDS = [
+  { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
+  { key: "certificateNumber", label: "이수증번호", aliases: ["이수번호", "자격번호"] },
+  { key: "certificateDate", label: "이수일자", aliases: ["이수일", "교육이수일"] },
+  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성검진일", "마약검사일", "마약검진일"] },
+  { key: "psychiatricCheckUnchecked", label: "향정신성/마약미검진", aliases: ["마약검사미검진", "마약미검진"], parse: partialParsers.boolean },
+  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장건강검진일", "건강검진일"] },
+  { key: "workplaceCheckUnchecked", label: "직장검진미검진", aliases: ["직장미검진"], parse: partialParsers.boolean },
+  { key: "contractStatus", label: "근무상태", aliases: ["상태"] },
+  { key: "serviceStartDate", label: "최초근무일", aliases: ["입사일", "근무시작일"] },
+  { key: "retirementDate", label: "퇴사일", aliases: ["퇴사일자"] },
+  { key: "address", label: "주소", aliases: ["거주지"] },
+  { key: "notes", label: "비고", aliases: ["메모", "특이사항"] },
+] as const;
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -599,7 +614,7 @@ const WorkerManagement = () => {
       rows = displayWorkers
         .filter((worker) => worker.psychiatricCheckUnchecked || worker.workplaceCheckUnchecked || !isCurrentYearDate(worker.psychiatricCheckDate) || !isCurrentYearDate(worker.workplaceCheckDate))
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"))
-        .map((worker) => makeWorkerRow(worker, `${currentYear}년`, `연락처 ${worker.phone || "미등록"} · 향정신성 ${formatExamStatus(worker.psychiatricCheckDate, worker.psychiatricCheckUnchecked)} · 직장 ${formatExamStatus(worker.workplaceCheckDate, worker.workplaceCheckUnchecked)} · 전화/문자 안내 필요`));
+        .map((worker) => makeWorkerRow(worker, `${currentYear}년`, `연락처 ${worker.phone || "미등록"} · 향정신성/마약 ${formatExamStatus(worker.psychiatricCheckDate, worker.psychiatricCheckUnchecked)} · 직장 ${formatExamStatus(worker.workplaceCheckDate, worker.workplaceCheckUnchecked)} · 전화/문자 안내 필요`));
       title = `${currentYear}년 건강검진 미검진자 명단 (총 ${rows.length}명)`;
     } else if (kind === "joined") {
       rows = displayWorkers
@@ -650,6 +665,26 @@ const WorkerManagement = () => {
     setSummaryModal({ title, rows });
   };
 
+  const isHealthSummary = summaryModal?.title.includes("건강검진") ?? false;
+  const getHealthCopyRows = () => (summaryModal?.rows || []).map((row) => {
+    const phone = row.note.match(/연락처\s*([^·]+)/)?.[1]?.trim() || "";
+    const missingItems: string[] = [];
+    if (row.note.includes("향정신성/마약 미검진") || row.note.includes("향정신성 미검진")) missingItems.push("향정신성/마약검사");
+    if (row.note.includes("직장 미검진")) missingItems.push("직장검진");
+    if (missingItems.length === 0) missingItems.push("건강검진 확인 필요");
+    return { name: row.name, phone, missingItems: missingItems.join(", ") };
+  });
+
+  const copyHealthCheckRows = async () => {
+    const text = getHealthCopyRows().map((row) => `${row.name}\t${row.phone}\t${row.missingItems}`).join("\n");
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: "복사 완료", description: "이름, 연락처, 미검진 항목을 탭 구분 표로 복사했습니다." });
+    } catch {
+      toast({ title: "복사 실패", description: "표 영역을 드래그해 Ctrl+C로 복사해 주세요.", variant: "destructive" });
+    }
+  };
   const openSummaryWorker = (workerId?: string) => {
     if (!workerId) return;
     const target = displayWorkers.find((worker) => worker.id === workerId);
@@ -662,9 +697,9 @@ const WorkerManagement = () => {
       경력: w.experience, 근무가능요일: w.availableDays, 근무가능시간: w.availableHours,
       거부업무: w.rejectionTypes?.join(","), 거부업무상세: w.rejectedTasks,
       운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
-      이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
+      이수증번호: w.certificateNumber, 이수일자: w.certificateDate || "", 근무상태: w.contractStatus,
       담당이용자: w.assignedUserNames?.join(", "), 최초접수일: w.receiptDate,
-      최초근무일: w.serviceStartDate, 퇴사일: w.retirementDate || w.resignationDate, 서비스종료일: w.serviceEndDate || "", 향정신성건강검진일: w.psychiatricCheckDate || "", 향정신성미검진: w.psychiatricCheckUnchecked ? "예" : "아니오", 직장검진일: w.workplaceCheckDate || "", 직장검진미검진: w.workplaceCheckUnchecked ? "예" : "아니오", 비고: w.notes,
+      최초근무일: w.serviceStartDate, 퇴사일: w.retirementDate || w.resignationDate, 서비스종료일: w.serviceEndDate || "", "향정신성/마약검사일": w.psychiatricCheckDate || "", "향정신성/마약미검진": w.psychiatricCheckUnchecked ? "예" : "아니오", 직장검진일: w.workplaceCheckDate || "", 직장검진미검진: w.workplaceCheckUnchecked ? "예" : "아니오", 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -800,6 +835,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={displayWorkers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={update} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -945,7 +981,7 @@ const WorkerManagement = () => {
                   <Label>건강검진 관리</Label>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2 rounded-md border p-3">
-                      <Label>향정신성 건강검진일</Label>
+                      <Label>향정신성/마약검사일</Label>
                       <Input type="date" value={form.psychiatricCheckDate || ""} disabled={!!form.psychiatricCheckUnchecked} onChange={(e) => setForm((f) => ({ ...f, psychiatricCheckDate: e.target.value }))} />
                       <div className="flex items-center gap-2"><Checkbox id="psychiatric-unchecked" checked={!!form.psychiatricCheckUnchecked} onCheckedChange={(checked) => setForm((f) => ({ ...f, psychiatricCheckUnchecked: !!checked, psychiatricCheckDate: checked ? "" : f.psychiatricCheckDate }))} /><Label htmlFor="psychiatric-unchecked" className="text-sm font-normal">미검진</Label></div>
                     </div>
@@ -971,6 +1007,11 @@ const WorkerManagement = () => {
                     onChange={(e) => setForm((f) => ({ ...f, certificates: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
                     placeholder="요양보호사, 사회복지사 등"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div><Label>이수증번호</Label><Input value={form.certificateNumber || ""} onChange={(e) => setForm((f) => ({ ...f, certificateNumber: e.target.value }))} placeholder="이수증 번호" /></div>
+                  <div><Label>이수일자</Label><Input type="date" value={form.certificateDate || ""} onChange={(e) => setForm((f) => ({ ...f, certificateDate: e.target.value }))} /></div>
                 </div>
 
                 <div className="space-y-2">
@@ -1187,7 +1228,20 @@ const WorkerManagement = () => {
               ) : summaryModal.rows.length === 0 ? (
                 <p className="py-8 text-center text-sm text-muted-foreground">해당 조건에 해당하는 대상자가 없습니다.</p>
               ) : (
-                <div className="max-h-[520px] overflow-auto">
+                <div className="space-y-3">
+                  {isHealthSummary && (
+                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">엑셀형 복사용 표</p>
+                        <Button size="sm" variant="outline" onClick={copyHealthCheckRows}>이름+연락처 복사</Button>
+                      </div>
+                      <table className="w-full border-collapse bg-background text-xs">
+                        <thead><tr className="bg-muted"><th className="border p-2 text-left">이름</th><th className="border p-2 text-left">연락처</th><th className="border p-2 text-left">미검진 항목</th></tr></thead>
+                        <tbody>{getHealthCopyRows().map((row) => <tr key={`${row.name}-${row.phone}`}><td className="border p-2">{row.name}</td><td className="border p-2">{row.phone}</td><td className="border p-2">{row.missingItems}</td></tr>)}</tbody>
+                      </table>
+                    </div>
+                  )}
+                  <div className="max-h-[520px] overflow-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b text-left text-muted-foreground">
@@ -1210,6 +1264,7 @@ const WorkerManagement = () => {
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -1378,8 +1433,9 @@ const WorkerManagement = () => {
                     <div><p className="text-sm text-muted-foreground">외국인 / 체류</p><p className="font-medium">{joinNonEmpty([detailTarget.isForeigner ? "외국인" : "", detailTarget.hasF4 ? "F4" : "", detailTarget.hasF5 ? "F5" : ""])}</p></div>
                     <div><p className="text-sm text-muted-foreground">자격증</p><p className="font-medium">{joinNonEmpty(detailTarget.certificates || [])}</p></div>
                     <div><p className="text-sm text-muted-foreground">이수증번호</p><p className="font-medium">{detailTarget.certificateNumber || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">이수일자</p><p className="font-medium">{detailTarget.certificateDate || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">근무 시작 / 퇴사일</p><p className="font-medium">{joinNonEmpty([detailTarget.serviceStartDate, detailTarget.retirementDate || detailTarget.resignationDate])}</p></div>
-                    <div><p className="text-sm text-muted-foreground">향정신성 건강검진</p><p className="font-medium">{formatExamStatus(detailTarget.psychiatricCheckDate, detailTarget.psychiatricCheckUnchecked)}</p></div>
+                    <div><p className="text-sm text-muted-foreground">향정신성/마약검사</p><p className="font-medium">{formatExamStatus(detailTarget.psychiatricCheckDate, detailTarget.psychiatricCheckUnchecked)}</p></div>
                     <div><p className="text-sm text-muted-foreground">직장검진</p><p className="font-medium">{formatExamStatus(detailTarget.workplaceCheckDate, detailTarget.workplaceCheckUnchecked)}</p></div>
                   </div>
                   <div>
@@ -1464,6 +1520,7 @@ const WorkerManagement = () => {
             </div>
           )}
         </DialogContent>
+      </Dialog>
       
             {/* 매칭 히스토리 추가/수정 다이얼로그 */}
             <Dialog open={matchHistoryDialogOpen} onOpenChange={setMatchHistoryDialogOpen}>
@@ -1544,12 +1601,20 @@ const WorkerManagement = () => {
                 </div>
               </DialogContent>
             </Dialog>
-</Dialog>
     </div>
   );
 };
 
 export default WorkerManagement;
+
+
+
+
+
+
+
+
+
 
 
 

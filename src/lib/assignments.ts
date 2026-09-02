@@ -207,6 +207,7 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     txtHSex: String(raw.txtHSex ?? raw.gender ?? ""),
     contractStatus: derivedStatus,
     experience: derivedExperience,
+    certificateDate: toYmd(raw.certificateDate ?? raw["이수일자"] ?? raw["교육이수일"]),
     serviceStartDate,
         serviceEndDate,
     retirementDate,
@@ -374,6 +375,7 @@ export function buildUserArraysFromIds(
   }
   return { ids, names, phones };
 }
+
 
 
 

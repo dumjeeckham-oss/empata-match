@@ -9,12 +9,12 @@ export const DISABILITY_TYPES = [
   "호흡기장애", "간장애", "안면장애", "장루·요루장애", "뇌전증장애",
 ] as const;
 
-export const SUPPORT_TYPES = ["사회지원", "신체지원", "가사지원"] as const;
+export const SUPPORT_TYPES = ["사회지원", "신체지원", "가사지원", "목욕"] as const;
 export const ENVIRONMENT_TAGS = ["기저귀", "반려동물", "흡연", "와상", "차량필요"] as const;
 
 export const WORKER_REJECTION_TYPES = [
   "성인거부", "남성거부", "여성거부", "흡연자거부", "반려동물거부",
-  "와상거부", "기저귀거부", "요리거부",
+  "와상거부", "기저귀거부", "요리거부", "목욕거부",
 ] as const;
 
 export const EXPERIENCE_OPTIONS = [
@@ -143,6 +143,7 @@ export interface Worker {
   hasF5?: boolean;
   certificates: string[]; // 보유 자격증
   certificateNumber: string;
+  certificateDate?: string;
   contractStatus: "근무중" | "퇴사" | "대기" | "변경";
   serviceStartDate: string;
   /** 특정 이용자와의 서비스 종료일 기본값 */
@@ -271,6 +272,7 @@ export interface MatchingHistoryRecord {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
 
 
 

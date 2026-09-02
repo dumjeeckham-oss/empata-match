@@ -5,6 +5,7 @@ import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
+import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import {
   rowsToEntities,
@@ -168,6 +169,23 @@ const withBucheonAddressPrefix = (address: string): string => {
   }
   return trimmed;
 };
+const USER_PARTIAL_UPDATE_FIELDS = [
+  { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
+  { key: "isOwnPhone", label: "연락처본인", aliases: ["본인여부", "연락처본인여부"], parse: partialParsers.boolean },
+  { key: "phoneOwnerRelation", label: "연락처관계", aliases: ["관계", "관계/소유자"] },
+  { key: "phoneOwnerName", label: "연락처소유자", aliases: ["연락처주체", "소유자"] },
+  { key: "voucherHours", label: "바우처시간", aliases: ["월바우처시간", "기본시간"], parse: partialParsers.number },
+  { key: "additionalHours", label: "추가시간", aliases: ["추가 시간"], parse: partialParsers.number },
+  { key: "serviceStartDate", label: "최초서비스제공일", aliases: ["서비스시작일", "계약일"] },
+  { key: "receiptDate", label: "최초접수일", aliases: ["접수일"] },
+  { key: "contractStatus", label: "이용상태", aliases: ["계약상태", "상태"] },
+  { key: "terminationReason", label: "해지사유", aliases: ["종결사유", "중단사유"] },
+  { key: "guardianName", label: "보호자이름", aliases: ["보호자명"] },
+  { key: "guardianRelation", label: "보호자관계", aliases: ["보호자 관계"] },
+  { key: "guardianPhone", label: "보호자연락처", aliases: ["보호자전화"] },
+  { key: "address", label: "주소", aliases: ["거주지"] },
+  { key: "notes", label: "비고", aliases: ["메모", "특이사항"] },
+] as const;
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -1727,6 +1745,7 @@ const UserManagement = () => {
             getPreviewValue={getUserPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
+          <PartialUpdateDialog<ServiceUser & { id: string }> title="이용자 일괄 정보 업데이트" existing={users} fields={USER_PARTIAL_UPDATE_FIELDS as any} onUpdate={update} />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => { setForm(emptyUser); setAgeInput(""); setEditingId(null); }}>+ 신규등록</Button>
@@ -2885,6 +2904,7 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
 
 
 
