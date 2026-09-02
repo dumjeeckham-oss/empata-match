@@ -82,9 +82,9 @@ const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "hasF5", label: "F5", aliases: ["F-5", "F5비자"], parse: partialParsers.boolean },
   { key: "certificateNumber", label: "이수증번호", aliases: ["이수번호", "자격번호"] },
   { key: "certificateDate", label: "이수일자", aliases: ["이수일", "교육이수일"], parse: partialParsers.date },
-  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성/마약검사", "향정신성건강검진일", "향정신성 검진일", "향정신성검진일", "향정신성검진여부", "마약검사일", "마약검진일", "마약검사", "마약검진", "마약검사여부", "검진여부"], parse: partialParsers.examDate },
+  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성/마약검사", "향정신성건강검진일", "향정신성 검진일", "향정신성검진일", "향정신성검진여부", "마약검사일", "마약검진일", "마약검사", "마약검진", "마약검사여부", "검진여부"], parse: partialParsers.examDate, allowBlank: true },
   { key: "psychiatricCheckUnchecked", label: "향정신성/마약미검진", aliases: ["마약검사미검진", "마약미검진"], parse: partialParsers.boolean },
-  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장검진", "직장 건강검진일", "직장건강검진일", "직장건강검진", "직장검진여부", "건강검진일", "건강검진", "직장검사일"], parse: partialParsers.examDate },
+  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장검진", "직장 건강검진일", "직장건강검진일", "직장건강검진", "직장검진여부", "건강검진일", "건강검진", "직장검사일"], parse: partialParsers.examDate, allowBlank: true },
   { key: "workplaceCheckUnchecked", label: "직장검진미검진", aliases: ["직장미검진"], parse: partialParsers.boolean },
   { key: "contractStatus", label: "근무상태", aliases: ["상태", "지원사상태"] },
   { key: "serviceStartDate", label: "최초근무일", aliases: ["입사일", "근무시작일"], parse: partialParsers.date },
@@ -106,11 +106,13 @@ const todayYmd = () => {
 
 const normalizeWorkerPartialUpdates = (updates: Partial<Worker>): Partial<Worker> => {
   const patch: Partial<Worker> = { ...updates };
+  const hasPsychiatricDate = Object.prototype.hasOwnProperty.call(updates, "psychiatricCheckDate");
+  const hasWorkplaceDate = Object.prototype.hasOwnProperty.call(updates, "workplaceCheckDate");
   const hasPsychiatricUnchecked = Object.prototype.hasOwnProperty.call(updates, "psychiatricCheckUnchecked");
   const hasWorkplaceUnchecked = Object.prototype.hasOwnProperty.call(updates, "workplaceCheckUnchecked");
 
-  if (updates.psychiatricCheckDate) patch.psychiatricCheckUnchecked = false;
-  if (updates.workplaceCheckDate) patch.workplaceCheckUnchecked = false;
+  if (hasPsychiatricDate) patch.psychiatricCheckUnchecked = !updates.psychiatricCheckDate;
+  if (hasWorkplaceDate) patch.workplaceCheckUnchecked = !updates.workplaceCheckDate;
   if (hasPsychiatricUnchecked && updates.psychiatricCheckUnchecked === false && !updates.psychiatricCheckDate) {
     patch.psychiatricCheckDate = todayYmd();
   }
@@ -1662,6 +1664,8 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
 
 
 

@@ -15,6 +15,7 @@ type PartialFieldConfig<T> = {
   label: string;
   aliases: string[];
   parse?: (value: string) => unknown;
+  allowBlank?: boolean;
 };
 
 type PreviewRow<T> = {
@@ -141,7 +142,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
           const idx = findHeaderIndex(sheet.headers, [field.label, field.key, ...field.aliases]);
           if (idx < 0) return;
           const raw = String(row[idx] ?? "").trim();
-          if (raw === "") return;
+          if (raw === "" && !field.allowBlank) return;
           (updates as Record<string, unknown>)[field.key] = field.parse ? field.parse(raw) : raw;
           updateLabels.push(field.label);
         });
@@ -264,6 +265,8 @@ export function PartialUpdateDialog<T extends ExistingItem>({
     </Dialog>
   );
 }
+
+
 
 
 
