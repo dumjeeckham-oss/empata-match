@@ -153,9 +153,38 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedSheet> {
   return sheetFromMatrix(stringMatrix);
 }
 
+function splitPastedLine(line: string): string[] {
+  if (line.includes("\t")) return line.split("\t");
+
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current);
+  return cells;
+}
+
 export function parsePasteData(paste: string): ParsedSheet {
   const lines = String(paste || "").trim().split(/\r?\n/);
-  const matrix = lines.map((line) => line.split("\t").map(safeStr));
+  const matrix = lines.map((line) => splitPastedLine(line).map(safeStr));
   return sheetFromMatrix(matrix);
 }
 
@@ -832,6 +861,7 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
+
 
 
 

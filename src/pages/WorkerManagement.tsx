@@ -151,8 +151,11 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
 
 /** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
 function effectiveWorkerStatus(worker: Worker): string {
-  const raw = String(worker.contractStatus || "");
-  if (raw === "퇴사" || String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  const raw = String(worker.contractStatus || "").trim();
+  const compact = raw.replace(/\s+/g, "");
+  if (compact === "퇴사" || String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  if (compact === "근무중" || compact === "서비스중") return "근무중";
+  if (compact === "대기") return "대기";
   return raw;
 }
 
@@ -231,6 +234,12 @@ const WorkerManagement = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
+
+  useEffect(() => {
+    if (!detailTarget?.id) return;
+    const fresh = displayWorkers.find((worker) => worker.id === detailTarget.id);
+    if (fresh) setDetailTarget(fresh);
+  }, [displayWorkers, detailTarget?.id]);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; notes: string} | null>(null);
@@ -631,10 +640,11 @@ const WorkerManagement = () => {
 
     if (kind === "health") {
       rows = displayWorkers
+        .filter((worker) => effectiveWorkerStatus(worker) === "근무중")
         .filter((worker) => worker.psychiatricCheckUnchecked || worker.workplaceCheckUnchecked || !isCurrentYearDate(worker.psychiatricCheckDate) || !isCurrentYearDate(worker.workplaceCheckDate))
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"))
         .map((worker) => makeWorkerRow(worker, `${currentYear}년`, `연락처 ${worker.phone || "미등록"} · 향정신성/마약 ${formatExamStatus(worker.psychiatricCheckDate, worker.psychiatricCheckUnchecked)} · 직장 ${formatExamStatus(worker.workplaceCheckDate, worker.workplaceCheckUnchecked)} · 전화/문자 안내 필요`));
-      title = `${currentYear}년 건강검진 미검진자 명단 (총 ${rows.length}명)`;
+      title = `${currentYear}년 근무중 건강검진 미검진자 명단 (총 ${rows.length}명)`;
     } else if (kind === "joined") {
       rows = displayWorkers
         .filter((worker) => isWithinRecentMonths(worker.serviceStartDate))
@@ -854,7 +864,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={displayWorkers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtHSex: updates.gender } : {}), ...(updates.psychiatricCheckDate ? { psychiatricCheckUnchecked: false } : {}), ...(updates.workplaceCheckDate ? { workplaceCheckUnchecked: false } : {}) })} />
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtHSex: updates.gender } : {}), ...(updates.psychiatricCheckDate ? { psychiatricCheckUnchecked: false } : {}), ...(updates.workplaceCheckDate ? { workplaceCheckUnchecked: false } : {}) })} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -1625,6 +1635,11 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
+
+
+
 
 
 

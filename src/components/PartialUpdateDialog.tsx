@@ -35,7 +35,7 @@ interface PartialUpdateDialogProps<T extends ExistingItem> {
   onUpdate: (id: string, updates: Partial<T>) => Promise<unknown>;
 }
 
-const normalizeHeader = (value: string) => String(value || "").replace(/[\s_\-()]/g, "").toLowerCase();
+const normalizeHeader = (value: string) => String(value || "").replace(/^\uFEFF/, "").replace(/[\s_\-()/·.]/g, "").toLowerCase();
 const phoneLast4 = (value: unknown) => normalizePhone(value).slice(-4);
 const parseBoolean = (value: string) => /^(예|y|yes|true|1|미검진)$/i.test(String(value || "").trim());
 const parseNumber = (value: string) => {
@@ -192,7 +192,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
       <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">이름과 연락처 전체 또는 뒤 4자리로 기존 대상을 찾고, 엑셀/CSV에 포함된 컬럼만 덮어씁니다.</p>
+          <p className="text-sm text-muted-foreground">이름과 연락처 전체 또는 뒤 4자리로 기존 대상을 찾고, 엑셀/CSV에 포함된 컬럼만 덮어씁니다. 파일 업로드와 붙여넣기 모두 탭/쉼표 구분 데이터를 지원합니다.</p>
           <div className="rounded-md border bg-muted/20 p-3 space-y-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
@@ -223,7 +223,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
           </div>
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">또는 엑셀에서 복사한 데이터 붙여넣기</p>
-            <Textarea className="min-h-[110px] font-mono text-xs" value={pasteData} onChange={(e) => setPasteData(e.target.value)} placeholder="이름, 연락처, 수정할 컬럼 헤더를 포함해 붙여넣기" />
+            <Textarea className="min-h-[110px] font-mono text-xs" value={pasteData} onChange={(e) => setPasteData(e.target.value)} placeholder="이름, 연락처, 수정할 컬럼 헤더를 포함해 붙여넣기 (탭 또는 쉼표 구분)" />
             <Button variant="secondary" size="sm" onClick={handlePastePreview} disabled={!pasteData.trim()}>붙여넣기 미리보기</Button>
           </div>
           {previewRows.length > 0 && (
@@ -243,6 +243,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
     </Dialog>
   );
 }
+
 
 
 
