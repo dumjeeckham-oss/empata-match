@@ -65,10 +65,10 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
 const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
   { key: "certificateNumber", label: "이수증번호", aliases: ["이수번호", "자격번호"] },
-  { key: "certificateDate", label: "이수일자", aliases: ["이수일", "교육이수일"] },
-  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성검진일", "마약검사일", "마약검진일"] },
+  { key: "certificateDate", label: "이수일자", aliases: ["이수일", "교육이수일"], parse: partialParsers.date },
+  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성건강검진일", "향정신성 검진일", "향정신성검진일", "마약검사일", "마약검진일", "마약검사", "마약검진"], parse: partialParsers.date },
   { key: "psychiatricCheckUnchecked", label: "향정신성/마약미검진", aliases: ["마약검사미검진", "마약미검진"], parse: partialParsers.boolean },
-  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장건강검진일", "건강검진일"] },
+  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장 건강검진일", "직장건강검진일", "건강검진일", "직장검사일"], parse: partialParsers.date },
   { key: "workplaceCheckUnchecked", label: "직장검진미검진", aliases: ["직장미검진"], parse: partialParsers.boolean },
   { key: "contractStatus", label: "근무상태", aliases: ["상태"] },
   { key: "serviceStartDate", label: "최초근무일", aliases: ["입사일", "근무시작일"] },
@@ -835,7 +835,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={displayWorkers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={update} />
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={displayWorkers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.psychiatricCheckDate ? { psychiatricCheckUnchecked: false } : {}), ...(updates.workplaceCheckDate ? { workplaceCheckUnchecked: false } : {}) })} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -1606,6 +1606,7 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
 
 
 

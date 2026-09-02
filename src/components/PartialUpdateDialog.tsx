@@ -41,10 +41,19 @@ const parseNumber = (value: string) => {
   const number = Number(String(value || "").replace(/[^0-9.]/g, ""));
   return Number.isFinite(number) ? number : undefined;
 };
+const parseDate = (value: string) => {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
+  if (!match) return raw;
+  const [, y, m, d] = match;
+  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+};
+
 
 export const partialParsers = {
   boolean: parseBoolean,
   number: parseNumber,
+  date: parseDate,
 };
 
 export function PartialUpdateDialog<T extends ExistingItem>({
@@ -184,3 +193,5 @@ export function PartialUpdateDialog<T extends ExistingItem>({
     </Dialog>
   );
 }
+
+
