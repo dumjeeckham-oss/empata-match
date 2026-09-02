@@ -92,7 +92,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
 
-  name: "", age: 0, gender: "남성", phone: "", disabilityType: "", voucherTier: 1, voucherHours: VOUCHER_HOURS[1], additionalHours: 0,
+  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", voucherTier: 1, voucherHours: VOUCHER_HOURS[1], additionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
@@ -150,6 +150,14 @@ const formatVoucherHours = (user: Pick<ServiceUser, "voucherTier" | "voucherHour
   const base = getVoucherBaseHours(user);
   const extra = getAdditionalHours(user);
   return `${base + extra}시간 (${base}시간 + ${extra}시간)`;
+};
+
+const formatUserContact = (user: Pick<ServiceUser, "phone" | "isOwnPhone" | "phoneOwnerRelation" | "phoneOwnerName">): string => {
+  const phone = String(user.phone || "").trim() || "연락처 없음";
+  if (user.isOwnPhone !== false) return `${phone} (본인)`;
+  const relation = String(user.phoneOwnerRelation || "관계 미등록").trim();
+  const owner = String(user.phoneOwnerName || "").trim();
+  return `${phone} (${relation}${owner ? `: ${owner}` : ""})`;
 };
 
 const withBucheonAddressPrefix = (address: string): string => {
@@ -1558,7 +1566,7 @@ const UserManagement = () => {
   const downloadExcel = () => {
     const filtered = getFilteredUsers();
     const data = filtered.map((u) => ({
-      이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone,
+      이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
       장애유형: u.disabilityType, 바우처구간: u.voucherTier,
       "월바우처시간": VOUCHER_HOURS[u.voucherTier] || 0,
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
@@ -1740,7 +1748,8 @@ const UserManagement = () => {
                       </p>
                     ) : null}
                   </div>
-                  <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
+                  <div className="space-y-2"><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /><div className="flex items-center gap-2"><Checkbox id="user-phone-self" checked={form.isOwnPhone !== false} onCheckedChange={(checked) => setForm((f) => ({ ...f, isOwnPhone: !!checked, phoneOwnerRelation: checked ? "" : f.phoneOwnerRelation, phoneOwnerName: checked ? "" : f.phoneOwnerName }))} /><Label htmlFor="user-phone-self" className="text-sm font-normal">본인</Label></div></div>
+                  {form.isOwnPhone === false && (<><div><Label>연락처 관계</Label><Input value={form.phoneOwnerRelation || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerRelation: e.target.value }))} placeholder="보호자, 자녀, 배우자 등" /></div><div><Label>연락처 소유자</Label><Input value={form.phoneOwnerName || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerName: e.target.value }))} placeholder="예: 홍길동" /></div></>)}
                   <div>
                     <Label>나이 (생년 또는 생년월일 입력 시 자동변환)</Label>
                     <Input 
@@ -2125,7 +2134,7 @@ const UserManagement = () => {
                           onClick={(e) => e.stopPropagation()}
                         >
                           <PhoneCall className="w-3 h-3" />
-                          {user.phone}
+                          {formatUserContact(user)}
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
@@ -2586,7 +2595,7 @@ const UserManagement = () => {
                 <CardContent className="space-y-5">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div><p className="text-sm text-muted-foreground">성별 / 나이</p><p className="font-medium">{joinNonEmpty([detailTarget.gender, detailTarget.age ? `${detailTarget.age}세` : ""])}</p></div>
-                    <div><p className="text-sm text-muted-foreground">연락처</p><p className="font-medium">{detailTarget.phone || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">연락처</p><p className="font-medium">{formatUserContact(detailTarget)}</p></div>
                     <div><p className="text-sm text-muted-foreground">장애유형</p><p className="font-medium">{detailTarget.disabilityType || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">지원 종류</p><p className="font-medium">{joinNonEmpty(detailTarget.supportTypes || [])}</p></div>
                     <div><p className="text-sm text-muted-foreground">바우처 구간</p><p className="font-medium">{detailTarget.voucherTier || "-"}구간</p></div>
@@ -2714,7 +2723,8 @@ const UserManagement = () => {
                       <SelectContent>
                         <SelectItem value="매칭">매칭 (배정)</SelectItem>
                         <SelectItem value="해제">해제</SelectItem>
-                        <SelectItem value="시도">시도 (미성사)</SelectItem>
+                        <SelectItem value="시도">시도 (진행중)</SelectItem>
+                        <SelectItem value="실패">실패 (거부/불일치)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -2875,6 +2885,11 @@ const UserManagement = () => {
 };
 
 export default UserManagement;
+
+
+
+
+
 
 
 

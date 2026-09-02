@@ -55,6 +55,12 @@ export interface ServiceUser {
   /** Excel/Firebase 원본 필드 호환: 이용자 성별 */
   txtUSex?: string;
   phone: string;
+  /** 연락처가 이용자 본인 번호인지 여부 */
+  isOwnPhone?: boolean;
+  /** 본인 번호가 아닐 때 연락처 소유자와의 관계 */
+  phoneOwnerRelation?: string;
+  /** 본인 번호가 아닐 때 연락처 소유자 이름 */
+  phoneOwnerName?: string;
   disabilityType: string;
   voucherTier: number;
   voucherHours?: number;
@@ -104,6 +110,8 @@ export interface ServiceUser {
   receiptDate: string; // 최초 접수일
   /** 문서 내부 매칭 이력: 현재 서비스 중은 serviceEndDate=null */
   matchingHistory?: DocumentMatchingHistoryEntry[];
+  /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
+  rejectionScores?: Record<string, number>;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -142,6 +150,14 @@ export interface Worker {
   /** 인사 기록용 퇴사일 */
   retirementDate?: string;
   resignationDate: string;
+  /** 향정신성 건강검진일 */
+  psychiatricCheckDate?: string;
+  /** 향정신성 건강검진 미검진 표시 */
+  psychiatricCheckUnchecked?: boolean;
+  /** 직장 건강검진일 */
+  workplaceCheckDate?: string;
+  /** 직장 건강검진 미검진 표시 */
+  workplaceCheckUnchecked?: boolean;
   notes: string;
   /** 담당 이용자 ID 목록 (N:M) */
   assignedUserIds: string[];
@@ -154,6 +170,8 @@ export interface Worker {
   receiptDate: string; // 최초 접수일
   /** 문서 내부 매칭 이력: 현재 서비스 중은 serviceEndDate=null */
   matchingHistory?: DocumentMatchingHistoryEntry[];
+  /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
+  rejectionScores?: Record<string, number>;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -234,7 +252,9 @@ export interface MatchResult {
 
 export interface MatchingHistoryRecord {
   id?: string;
-  type: "매칭" | "해제" | "시도";
+  type: "매칭" | "해제" | "시도" | "실패";
+  /** 화면 표시용 진행 상태 */
+  status?: "매칭 완료" | "매칭 시도중" | "매칭 실패";
   userId: string;
   userName: string;
   userPhone: string;
@@ -245,10 +265,14 @@ export interface MatchingHistoryRecord {
   endDate?: string; // YYYY-MM-DD (종료일, 해제 시에만)
   reason?: MatchingHistoryReason;
   reasonDetail?: string;
+  failureReason?: string;
+  rejectionScoreDelta?: number;
   notes?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
+
 
 
 

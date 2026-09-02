@@ -54,7 +54,7 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   isForeigner: false, hasF4: false, hasF5: false,
-  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", notes: "",
+  certificateNumber: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", psychiatricCheckDate: "", psychiatricCheckUnchecked: false, workplaceCheckDate: "", workplaceCheckUnchecked: false, notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
   supportTypes: [],
   certificates: [],
@@ -171,6 +171,14 @@ const joinNonEmpty = (items: unknown[], fallback = "미등록") => {
 };
 
 const yesNo = (value: unknown) => (value ? "예" : "아니오");
+const currentYear = new Date().getFullYear();
+const isCurrentYearDate = (value?: string) => {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  const date = new Date(raw);
+  return !Number.isNaN(date.getTime()) && date.getFullYear() === currentYear;
+};
+const formatExamStatus = (date?: string, unchecked?: boolean) => unchecked ? "미검진" : isCurrentYearDate(date) ? date || "검진완료" : "미검진";
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
@@ -575,7 +583,7 @@ const WorkerManagement = () => {
   };
 
 
-  const openWorkerSummaryModal = (kind: "joined" | "resigned" | "working" | "waiting" | "handover" | "counseling") => {
+  const openWorkerSummaryModal = (kind: "joined" | "resigned" | "working" | "waiting" | "handover" | "counseling" | "health") => {
     const makeWorkerRow = (worker: Worker & { id: string }, date: string, note: string) => ({
       id: `${kind}-${worker.id}`,
       name: worker.name,
@@ -587,7 +595,13 @@ const WorkerManagement = () => {
     let title = "";
     let rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }> = [];
 
-    if (kind === "joined") {
+    if (kind === "health") {
+      rows = displayWorkers
+        .filter((worker) => worker.psychiatricCheckUnchecked || worker.workplaceCheckUnchecked || !isCurrentYearDate(worker.psychiatricCheckDate) || !isCurrentYearDate(worker.workplaceCheckDate))
+        .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"))
+        .map((worker) => makeWorkerRow(worker, `${currentYear}년`, `연락처 ${worker.phone || "미등록"} · 향정신성 ${formatExamStatus(worker.psychiatricCheckDate, worker.psychiatricCheckUnchecked)} · 직장 ${formatExamStatus(worker.workplaceCheckDate, worker.workplaceCheckUnchecked)} · 전화/문자 안내 필요`));
+      title = `${currentYear}년 건강검진 미검진자 명단 (총 ${rows.length}명)`;
+    } else if (kind === "joined") {
       rows = displayWorkers
         .filter((worker) => isWithinRecentMonths(worker.serviceStartDate))
         .map((worker) => makeWorkerRow(worker, worker.serviceStartDate || "미등록", worker.phone || "연락처 없음"));
@@ -650,7 +664,7 @@ const WorkerManagement = () => {
       운전가능: w.canDrive ? "예" : "아니오", 동물알러지: w.animalAllergy ? "예" : "아니오",
       이수증번호: w.certificateNumber, 근무상태: w.contractStatus,
       담당이용자: w.assignedUserNames?.join(", "), 최초접수일: w.receiptDate,
-      최초근무일: w.serviceStartDate, 퇴사일: w.retirementDate || w.resignationDate, 서비스종료일: w.serviceEndDate || "", 비고: w.notes,
+      최초근무일: w.serviceStartDate, 퇴사일: w.retirementDate || w.resignationDate, 서비스종료일: w.serviceEndDate || "", 향정신성건강검진일: w.psychiatricCheckDate || "", 향정신성미검진: w.psychiatricCheckUnchecked ? "예" : "아니오", 직장검진일: w.workplaceCheckDate || "", 직장검진미검진: w.workplaceCheckUnchecked ? "예" : "아니오", 비고: w.notes,
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -786,6 +800,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
+          <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button onClick={() => { setForm(emptyWorker); setEditingId(null); setExplicitOks(new Set()); }}>+ 신규등록</Button>
@@ -926,6 +941,21 @@ const WorkerManagement = () => {
                   </div>
                 </div>
 
+                <div className="space-y-2">
+                  <Label>건강검진 관리</Label>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2 rounded-md border p-3">
+                      <Label>향정신성 건강검진일</Label>
+                      <Input type="date" value={form.psychiatricCheckDate || ""} disabled={!!form.psychiatricCheckUnchecked} onChange={(e) => setForm((f) => ({ ...f, psychiatricCheckDate: e.target.value }))} />
+                      <div className="flex items-center gap-2"><Checkbox id="psychiatric-unchecked" checked={!!form.psychiatricCheckUnchecked} onCheckedChange={(checked) => setForm((f) => ({ ...f, psychiatricCheckUnchecked: !!checked, psychiatricCheckDate: checked ? "" : f.psychiatricCheckDate }))} /><Label htmlFor="psychiatric-unchecked" className="text-sm font-normal">미검진</Label></div>
+                    </div>
+                    <div className="space-y-2 rounded-md border p-3">
+                      <Label>직장검진일</Label>
+                      <Input type="date" value={form.workplaceCheckDate || ""} disabled={!!form.workplaceCheckUnchecked} onChange={(e) => setForm((f) => ({ ...f, workplaceCheckDate: e.target.value }))} />
+                      <div className="flex items-center gap-2"><Checkbox id="workplace-unchecked" checked={!!form.workplaceCheckUnchecked} onCheckedChange={(checked) => setForm((f) => ({ ...f, workplaceCheckUnchecked: !!checked, workplaceCheckDate: checked ? "" : f.workplaceCheckDate }))} /><Label htmlFor="workplace-unchecked" className="text-sm font-normal">미검진</Label></div>
+                    </div>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label>경력</Label>
                   <Select value={form.experience} onValueChange={(v) => setForm((f) => ({ ...f, experience: v }))}>
@@ -1349,6 +1379,8 @@ const WorkerManagement = () => {
                     <div><p className="text-sm text-muted-foreground">자격증</p><p className="font-medium">{joinNonEmpty(detailTarget.certificates || [])}</p></div>
                     <div><p className="text-sm text-muted-foreground">이수증번호</p><p className="font-medium">{detailTarget.certificateNumber || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">근무 시작 / 퇴사일</p><p className="font-medium">{joinNonEmpty([detailTarget.serviceStartDate, detailTarget.retirementDate || detailTarget.resignationDate])}</p></div>
+                    <div><p className="text-sm text-muted-foreground">향정신성 건강검진</p><p className="font-medium">{formatExamStatus(detailTarget.psychiatricCheckDate, detailTarget.psychiatricCheckUnchecked)}</p></div>
+                    <div><p className="text-sm text-muted-foreground">직장검진</p><p className="font-medium">{formatExamStatus(detailTarget.workplaceCheckDate, detailTarget.workplaceCheckUnchecked)}</p></div>
                   </div>
                   <div>
                     <p className="mb-2 text-sm text-muted-foreground">희망 활동 시간 및 요일</p>
@@ -1447,7 +1479,8 @@ const WorkerManagement = () => {
                       <SelectContent>
                         <SelectItem value="매칭">매칭 (배정)</SelectItem>
                         <SelectItem value="해제">해제</SelectItem>
-                        <SelectItem value="시도">시도 (미성사)</SelectItem>
+                        <SelectItem value="시도">시도 (진행중)</SelectItem>
+                        <SelectItem value="실패">실패 (거부/불일치)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1517,6 +1550,10 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
+
+
 
 
 

@@ -29,6 +29,9 @@ export type FieldKey =
   | "name"
   | "gender"
   | "phone"
+  | "isOwnPhone"
+  | "phoneOwnerRelation"
+  | "phoneOwnerName"
   | "age"
   | "disabilityType"
   | "voucherTier"
@@ -63,6 +66,10 @@ export type FieldKey =
   | "animalAllergy"
   | "certificateNumber"
   | "resignationDate"
+  | "psychiatricCheckDate"
+  | "psychiatricCheckUnchecked"
+  | "workplaceCheckDate"
+  | "workplaceCheckUnchecked"
   | "receiptDate";
 
 const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
@@ -70,6 +77,9 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "name", patterns: [/이름/, /성명/, /^name$/i, /이용자/, /지원사명/, /성명\(한글\)/] },
   { field: "gender", patterns: [/성별/, /구분/, /^sex$/i, /^gender$/i, /txtUSex/i, /txtHSex/i] },
   { field: "phone", patterns: [/연락처/, /전화/, /휴대폰/, /^hp$/i, /^phone$/i, /txtUPhone/i, /txtHPhone/i, /핸드폰/, /휴대전화/] },
+  { field: "isOwnPhone", patterns: [/본인.*연락/, /연락처.*본인/, /본인여부/] },
+  { field: "phoneOwnerRelation", patterns: [/연락처.*관계/, /연락처관계/, /관계\/소유자/] },
+  { field: "phoneOwnerName", patterns: [/연락처.*소유자/, /연락처주체/, /연락처.*이름/] },
   { field: "age", patterns: [/나이/, /연령/, /^age$/i, /출생/] },
   { field: "disabilityType", patterns: [/장애/, /장애유형/] },
   { field: "voucherTier", patterns: [/바우처.*구간/, /구간/] },
@@ -358,6 +368,9 @@ export function rowToServiceUser(
     gender,
     txtUSex: gender,
     phone: getCell(row, headerMap, "phone"),
+    isOwnPhone: getCell(row, headerMap, "isOwnPhone") ? parseYesNo(getCell(row, headerMap, "isOwnPhone")) : true,
+    phoneOwnerRelation: getCell(row, headerMap, "phoneOwnerRelation"),
+    phoneOwnerName: getCell(row, headerMap, "phoneOwnerName"),
     disabilityType: getCell(row, headerMap, "disabilityType"),
     voucherTier: Number(getCell(row, headerMap, "voucherTier")) || 1,
     voucherHours: Number(getCell(row, headerMap, "voucherHours")) || undefined,
@@ -433,6 +446,10 @@ export function rowToWorker(
     contractStatus: (getCell(row, headerMap, "contractStatus") || "대기") as Worker["contractStatus"],
     serviceStartDate: normalizeDateCell(getCell(row, headerMap, "serviceStartDate")),
     resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
+    psychiatricCheckDate: normalizeDateCell(getCell(row, headerMap, "psychiatricCheckDate")),
+    psychiatricCheckUnchecked: parseYesNo(getCell(row, headerMap, "psychiatricCheckUnchecked")),
+    workplaceCheckDate: normalizeDateCell(getCell(row, headerMap, "workplaceCheckDate")),
+    workplaceCheckUnchecked: parseYesNo(getCell(row, headerMap, "workplaceCheckUnchecked")),
     notes: getCell(row, headerMap, "notes"),
     assigned_users: [...assigned.ids],
     assignedUserIds: [...assigned.ids],
@@ -813,6 +830,7 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
+
 
 
 
