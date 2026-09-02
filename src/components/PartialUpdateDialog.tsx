@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { parsePasteData, parseSpreadsheetFile, normalizePhone, type ParsedSheet } from "@/lib/bulkUpload";
 import { toast } from "@/hooks/use-toast";
 import { FileSpreadsheet, Upload } from "lucide-react";
@@ -48,12 +49,17 @@ const parseDate = (value: string) => {
   const [, y, m, d] = match;
   return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
 };
-
+const parseList = (value: string) =>
+  String(value || "")
+    .split(/[,，、/|]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 export const partialParsers = {
   boolean: parseBoolean,
   number: parseNumber,
   date: parseDate,
+  list: parseList,
 };
 
 export function PartialUpdateDialog<T extends ExistingItem>({
@@ -66,12 +72,14 @@ export function PartialUpdateDialog<T extends ExistingItem>({
   const [open, setOpen] = useState(false);
   const [pasteData, setPasteData] = useState("");
   const [previewRows, setPreviewRows] = useState<PreviewRow<T>[]>([]);
+  const [headerSearch, setHeaderSearch] = useState("");
   const [updating, setUpdating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = () => {
     setPasteData("");
     setPreviewRows([]);
+    setHeaderSearch("");
   };
 
   const findHeaderIndex = (headers: string[], aliases: string[]) => {
@@ -158,6 +166,25 @@ export function PartialUpdateDialog<T extends ExistingItem>({
 
   const matchedCount = previewRows.filter((row) => row.target && !row.error).length;
   const failedCount = previewRows.length - matchedCount;
+  const headerGuideRows = fields
+    .map((field) => ({
+      label: field.label,
+      aliases: [field.label, field.key, ...field.aliases].filter(Boolean),
+    }))
+    .filter((field) => {
+      const query = headerSearch.trim().toLowerCase();
+      if (!query) return true;
+      return [field.label, ...field.aliases].some((value) => String(value).toLowerCase().includes(query));
+    });
+  const sampleHeaders = ["이름", "연락처", ...fields.slice(0, 4).map((field) => field.label)].join(",");
+  const copyHeaderSample = async () => {
+    try {
+      await navigator.clipboard.writeText(sampleHeaders);
+      toast({ title: "헤더 예시 복사", description: "CSV 첫 줄에 붙여넣어 사용할 수 있습니다." });
+    } catch {
+      toast({ title: "복사 실패", description: "헤더 예시를 직접 선택해 복사해 주세요.", variant: "destructive" });
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(value) => { setOpen(value); if (!value) reset(); }}>
@@ -165,7 +192,30 @@ export function PartialUpdateDialog<T extends ExistingItem>({
       <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">이름과 연락처 전체 또는 뒤 4자리로 기존 대상을 찾고, 엑셀/CSV에 포함된 컬럼만 덮어씁니다.</p>
+                    <p className="text-sm text-muted-foreground">이름과 연락처 전체 또는 뒤 4자리로 기존 대상을 찾고, 엑셀/CSV에 포함된 컬럼만 덮어씁니다.</p>
+          <div className="rounded-md border bg-muted/20 p-3 space-y-3">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold">CSV 헤더 안내</p>
+                <p className="text-xs text-muted-foreground">수정하려는 항목명을 검색해 CSV 첫 줄에 사용할 수 있는 헤더명을 확인하세요.</p>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={copyHeaderSample}>헤더 예시 복사</Button>
+            </div>
+            <Input value={headerSearch} onChange={(e) => setHeaderSearch(e.target.value)} placeholder="예: 검진, 주소, 연락처, 이수증, 상태" />
+            <div className="max-h-40 overflow-auto rounded border bg-background">
+              <table className="w-full min-w-[640px] text-xs">
+                <thead className="sticky top-0 bg-muted"><tr><th className="p-2 text-left">수정 항목</th><th className="p-2 text-left">인식되는 헤더 예시</th></tr></thead>
+                <tbody>
+                  {headerGuideRows.length === 0 ? (
+                    <tr><td colSpan={2} className="p-3 text-center text-muted-foreground">검색된 헤더가 없습니다.</td></tr>
+                  ) : headerGuideRows.map((field) => (
+                    <tr key={field.label} className="border-t"><td className="p-2 font-medium">{field.label}</td><td className="p-2 text-muted-foreground">{field.aliases.join(", ")}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="rounded bg-background p-2 font-mono text-xs text-muted-foreground">예시: {sampleHeaders}</p>
+          </div>
           <div className="rounded-lg border-2 border-dashed p-5 text-center">
             <FileSpreadsheet className="mx-auto mb-2 h-8 w-8 text-muted-foreground" />
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; if (file) handleFile(file); e.target.value = ""; }} />
@@ -193,5 +243,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
     </Dialog>
   );
 }
+
+
 
 

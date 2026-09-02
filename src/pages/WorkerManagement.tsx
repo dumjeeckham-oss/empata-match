@@ -64,17 +64,36 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
 
 const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
+  { key: "gender", label: "성별", aliases: ["남녀", "지원사성별"] },
+  { key: "age", label: "나이", aliases: ["연령", "만나이"], parse: partialParsers.number },
+  { key: "residenceArea", label: "거주지역", aliases: ["거주지", "사는지역"] },
+  { key: "preferredArea", label: "희망지역", aliases: ["업무희망지역", "근무희망지역"] },
+  { key: "address", label: "주소", aliases: ["상세주소", "지원사주소"] },
+  { key: "experience", label: "경력", aliases: ["경력사항", "근무경력"] },
+  { key: "availableDays", label: "가능요일", aliases: ["업무가능요일", "근무가능요일"] },
+  { key: "availableHours", label: "가능시간", aliases: ["업무가능시간", "근무가능시간"] },
+  { key: "supportTypes", label: "업무가능항목", aliases: ["케어가능항목", "지원가능항목", "목욕가능"], parse: partialParsers.list },
+  { key: "rejectionTypes", label: "거부유형", aliases: ["불가유형", "기피유형"], parse: partialParsers.list },
+  { key: "rejectedTasks", label: "거부업무", aliases: ["불가업무", "기피업무"] },
+  { key: "canDrive", label: "운전가능", aliases: ["운전", "차량운행"], parse: partialParsers.boolean },
+  { key: "animalAllergy", label: "동물알레르기", aliases: ["반려동물알레르기", "애완동물알레르기"], parse: partialParsers.boolean },
+  { key: "isForeigner", label: "외국인", aliases: ["외국인여부"], parse: partialParsers.boolean },
+  { key: "hasF4", label: "F4", aliases: ["F-4", "F4비자"], parse: partialParsers.boolean },
+  { key: "hasF5", label: "F5", aliases: ["F-5", "F5비자"], parse: partialParsers.boolean },
   { key: "certificateNumber", label: "이수증번호", aliases: ["이수번호", "자격번호"] },
   { key: "certificateDate", label: "이수일자", aliases: ["이수일", "교육이수일"], parse: partialParsers.date },
   { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성건강검진일", "향정신성 검진일", "향정신성검진일", "마약검사일", "마약검진일", "마약검사", "마약검진"], parse: partialParsers.date },
   { key: "psychiatricCheckUnchecked", label: "향정신성/마약미검진", aliases: ["마약검사미검진", "마약미검진"], parse: partialParsers.boolean },
   { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장 건강검진일", "직장건강검진일", "건강검진일", "직장검사일"], parse: partialParsers.date },
   { key: "workplaceCheckUnchecked", label: "직장검진미검진", aliases: ["직장미검진"], parse: partialParsers.boolean },
-  { key: "contractStatus", label: "근무상태", aliases: ["상태"] },
-  { key: "serviceStartDate", label: "최초근무일", aliases: ["입사일", "근무시작일"] },
-  { key: "retirementDate", label: "퇴사일", aliases: ["퇴사일자"] },
-  { key: "address", label: "주소", aliases: ["거주지"] },
-  { key: "notes", label: "비고", aliases: ["메모", "특이사항"] },
+  { key: "contractStatus", label: "근무상태", aliases: ["상태", "지원사상태"] },
+  { key: "serviceStartDate", label: "최초근무일", aliases: ["입사일", "근무시작일"], parse: partialParsers.date },
+  { key: "serviceEndDate", label: "서비스종료일", aliases: ["매칭종료일", "담당종료일"], parse: partialParsers.date },
+  { key: "retirementDate", label: "퇴사일", aliases: ["퇴사일자"], parse: partialParsers.date },
+  { key: "resignationDate", label: "중단일", aliases: ["종결일", "해지일"], parse: partialParsers.date },
+  { key: "receiptDate", label: "접수일", aliases: ["최초접수일", "등록일"], parse: partialParsers.date },
+  { key: "certificates", label: "보유자격", aliases: ["자격증", "자격사항"], parse: partialParsers.list },
+  { key: "notes", label: "비고", aliases: ["메모", "특이사항", "참고사항"] },
 ] as const;
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
@@ -835,7 +854,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={displayWorkers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.psychiatricCheckDate ? { psychiatricCheckUnchecked: false } : {}), ...(updates.workplaceCheckDate ? { workplaceCheckUnchecked: false } : {}) })} />
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={displayWorkers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtHSex: updates.gender } : {}), ...(updates.psychiatricCheckDate ? { psychiatricCheckUnchecked: false } : {}), ...(updates.workplaceCheckDate ? { workplaceCheckUnchecked: false } : {}) })} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -1606,6 +1625,8 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
 
 
 
