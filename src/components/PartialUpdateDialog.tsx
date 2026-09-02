@@ -42,12 +42,32 @@ const parseNumber = (value: string) => {
   const number = Number(String(value || "").replace(/[^0-9.]/g, ""));
   return Number.isFinite(number) ? number : undefined;
 };
+const todayYmd = () => {
+  const date = new Date();
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
 const parseDate = (value: string) => {
   const raw = String(value || "").trim();
+  if (!raw) return "";
+  const korean = raw.match(/^(\d{4})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일?$/);
+  if (korean) {
+    const [, y, m, d] = korean;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
   const match = raw.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
   if (!match) return raw;
   const [, y, m, d] = match;
   return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+};
+const parseExamDate = (value: string) => {
+  const raw = String(value || "").trim();
+  if (/^(검진|완료|검진완료|수검|수검완료|예|y|yes|true|1|o|ok)$/i.test(raw)) return todayYmd();
+  if (/^(미검진|미완료|아니오|n|no|false|0|x)$/i.test(raw)) return "";
+  return parseDate(raw);
 };
 const parseList = (value: string) =>
   String(value || "")
@@ -59,6 +79,7 @@ export const partialParsers = {
   boolean: parseBoolean,
   number: parseNumber,
   date: parseDate,
+  examDate: parseExamDate,
   list: parseList,
 };
 
@@ -243,6 +264,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
     </Dialog>
   );
 }
+
 
 
 

@@ -82,9 +82,9 @@ const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "hasF5", label: "F5", aliases: ["F-5", "F5비자"], parse: partialParsers.boolean },
   { key: "certificateNumber", label: "이수증번호", aliases: ["이수번호", "자격번호"] },
   { key: "certificateDate", label: "이수일자", aliases: ["이수일", "교육이수일"], parse: partialParsers.date },
-  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성건강검진일", "향정신성 검진일", "향정신성검진일", "마약검사일", "마약검진일", "마약검사", "마약검진"], parse: partialParsers.date },
+  { key: "psychiatricCheckDate", label: "향정신성/마약검사일", aliases: ["향정신성/마약검사", "향정신성건강검진일", "향정신성 검진일", "향정신성검진일", "향정신성검진여부", "마약검사일", "마약검진일", "마약검사", "마약검진", "마약검사여부", "검진여부"], parse: partialParsers.examDate },
   { key: "psychiatricCheckUnchecked", label: "향정신성/마약미검진", aliases: ["마약검사미검진", "마약미검진"], parse: partialParsers.boolean },
-  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장 건강검진일", "직장건강검진일", "건강검진일", "직장검사일"], parse: partialParsers.date },
+  { key: "workplaceCheckDate", label: "직장검진일", aliases: ["직장검진", "직장 건강검진일", "직장건강검진일", "직장건강검진", "직장검진여부", "건강검진일", "건강검진", "직장검사일"], parse: partialParsers.examDate },
   { key: "workplaceCheckUnchecked", label: "직장검진미검진", aliases: ["직장미검진"], parse: partialParsers.boolean },
   { key: "contractStatus", label: "근무상태", aliases: ["상태", "지원사상태"] },
   { key: "serviceStartDate", label: "최초근무일", aliases: ["입사일", "근무시작일"], parse: partialParsers.date },
@@ -95,6 +95,33 @@ const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "certificates", label: "보유자격", aliases: ["자격증", "자격사항"], parse: partialParsers.list },
   { key: "notes", label: "비고", aliases: ["메모", "특이사항", "참고사항"] },
 ] as const;
+
+const todayYmd = () => {
+  const date = new Date();
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const normalizeWorkerPartialUpdates = (updates: Partial<Worker>): Partial<Worker> => {
+  const patch: Partial<Worker> = { ...updates };
+  const hasPsychiatricUnchecked = Object.prototype.hasOwnProperty.call(updates, "psychiatricCheckUnchecked");
+  const hasWorkplaceUnchecked = Object.prototype.hasOwnProperty.call(updates, "workplaceCheckUnchecked");
+
+  if (updates.psychiatricCheckDate) patch.psychiatricCheckUnchecked = false;
+  if (updates.workplaceCheckDate) patch.workplaceCheckUnchecked = false;
+  if (hasPsychiatricUnchecked && updates.psychiatricCheckUnchecked === false && !updates.psychiatricCheckDate) {
+    patch.psychiatricCheckDate = todayYmd();
+  }
+  if (hasWorkplaceUnchecked && updates.workplaceCheckUnchecked === false && !updates.workplaceCheckDate) {
+    patch.workplaceCheckDate = todayYmd();
+  }
+  if (updates.psychiatricCheckUnchecked === true) patch.psychiatricCheckDate = "";
+  if (updates.workplaceCheckUnchecked === true) patch.workplaceCheckDate = "";
+  if (updates.gender) (patch as Partial<Worker> & { txtHSex?: string }).txtHSex = updates.gender;
+  return patch;
+};
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
   { key: "gender", label: "성별" },
@@ -864,7 +891,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtHSex: updates.gender } : {}), ...(updates.psychiatricCheckDate ? { psychiatricCheckUnchecked: false } : {}), ...(updates.workplaceCheckDate ? { workplaceCheckUnchecked: false } : {}) })} />
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, normalizeWorkerPartialUpdates(updates))} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -1635,6 +1662,8 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
 
 
 
