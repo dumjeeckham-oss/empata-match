@@ -13,13 +13,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { formatScheduleSummary, getAssignmentCount, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
+import { formatScheduleMilestones, formatScheduleSummary, getAssignmentCount, getBoardRecommendations, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION,
   WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
 } from "@/lib/collectionNames";
 import type {
-  AnnualSchedule, AnnualScheduleStatus, MatchingBoardItem, ServiceUser, Worker, WorkTodo,
+  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, MatchingBoardItem, ServiceUser, Worker, WorkTodo,
 } from "@/types";
 
 const quickLinks = [
@@ -33,8 +33,13 @@ const quickLinks = [
 ] as const;
 
 const emptySchedule: Omit<AnnualSchedule, "id" | "createdAt" | "updatedAt"> = {
-  projectName: "", status: "예정", preparationStartDate: "", scheduleDate: "", note: "", manager: "",
+  projectName: "", status: "예정", preparationStartDate: "", milestones: [], scheduleDate: "", note: "", manager: "",
 };
+const createMilestone = (): AnnualScheduleMilestone => ({
+  id: `milestone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  label: "",
+  date: "",
+});
 const statusClass: Record<AnnualScheduleStatus, string> = {
   진행중: "border-blue-200 bg-blue-100 text-blue-700",
   예정: "border-amber-200 bg-amber-100 text-amber-700",
@@ -128,6 +133,9 @@ const WorkBoard = () => {
     .filter((todo) => showCompleted || !todo.completed)
     .sort((a, b) => Number(b.important) - Number(a.important) || Number(a.completed) - Number(b.completed));
   const scheduleStartItems = getVisibleScheduleStarts(schedules);
+  const recommendationMap = new Map(
+    matchingItems.map((item) => [item.id, getBoardRecommendations(item, users, workers)]),
+  );
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -175,21 +183,36 @@ const WorkBoard = () => {
       setEditingScheduleId(schedule.id);
       setScheduleForm({
         projectName: schedule.projectName, status: schedule.status, preparationStartDate: schedule.preparationStartDate || "", scheduleDate: schedule.scheduleDate,
+        milestones: (schedule.milestones || []).map((milestone) => ({ ...milestone })),
         note: schedule.note, manager: schedule.manager,
       });
     } else {
       setEditingScheduleId(null);
-      setScheduleForm(emptySchedule);
+      setScheduleForm({ ...emptySchedule, milestones: [createMilestone()] });
     }
     setScheduleDialogOpen(true);
   };
+  const updateMilestone = (id: string, patch: Partial<AnnualScheduleMilestone>) => {
+    setScheduleForm((current) => ({
+      ...current,
+      milestones: (current.milestones || []).map((milestone) => milestone.id === id ? { ...milestone, ...patch } : milestone),
+    }));
+  };
+  const removeMilestone = (id: string) => {
+    setScheduleForm((current) => ({
+      ...current,
+      milestones: (current.milestones || []).filter((milestone) => milestone.id !== id),
+    }));
+  };
   const saveSchedule = async () => {
-    if (!scheduleForm.projectName.trim() || !scheduleForm.preparationStartDate?.trim() || !scheduleForm.scheduleDate.trim() || !scheduleForm.manager.trim()) {
-      toast({ title: "사업명, 업무준비 시작일, 시행날짜, 담당을 입력해주세요.", variant: "destructive" });
+    const milestones = (scheduleForm.milestones || []).filter((milestone) => milestone.label.trim() && milestone.date.trim());
+    if (!scheduleForm.projectName.trim() || !scheduleForm.preparationStartDate?.trim() || !milestones.length || !scheduleForm.manager.trim()) {
+      toast({ title: "사업명, 업무준비 시작일, 세부 일정 1개 이상, 담당을 입력해주세요.", variant: "destructive" });
       return;
     }
-    if (editingScheduleId) await scheduleStore.update(editingScheduleId, scheduleForm);
-    else await scheduleStore.add(scheduleForm);
+    const payload = { ...scheduleForm, milestones, scheduleDate: milestones.map((milestone) => `${milestone.label} ${milestone.date}`).join(" / ") };
+    if (editingScheduleId) await scheduleStore.update(editingScheduleId, payload);
+    else await scheduleStore.add(payload);
     setScheduleDialogOpen(false);
   };
   const openQuickLink = (url: string) => {
@@ -261,26 +284,39 @@ const WorkBoard = () => {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between bg-muted/30"><CardTitle className="text-lg">🎯 매칭 필요 명단</CardTitle><Button size="sm" onClick={() => setMatchingDialogOpen(true)}><UserRoundSearch className="mr-1 h-4 w-4" />명단 추가</Button></CardHeader>
         <CardContent className="pt-5">
-          {!matchingItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">현재 매칭이 필요한 등록 대상이 없습니다.</p> : <div className="grid gap-3 md:grid-cols-2">{matchingItems.map((item) => (
+          {!matchingItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">현재 매칭이 필요한 등록 대상이 없습니다.</p> : <div className="grid gap-3 md:grid-cols-2">{matchingItems.map((item) => {
+            const recommendations = recommendationMap.get(item.id) || [];
+            return (
             <div key={item.id} className="flex items-start gap-3 rounded-xl border p-4">
               <div className="flex shrink-0 flex-col gap-1"><Badge variant="outline">{item.targetType}</Badge><Badge variant={item.matchMode === "1:다" ? "default" : "secondary"}>{item.matchMode || "1:1"}</Badge></div>
-              <div className="min-w-0 flex-1"><button className="font-semibold text-primary hover:underline" onClick={() => navigate(item.targetType === "이용자" ? `/users?detailId=${encodeURIComponent(item.targetId)}` : `/workers?detailId=${encodeURIComponent(item.targetId)}`)}>{item.targetName}</button><p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{item.condition}</p></div>
+              <div className="min-w-0 flex-1">
+                <button className="font-semibold text-primary hover:underline" onClick={() => navigate(item.targetType === "이용자" ? `/users?detailId=${encodeURIComponent(item.targetId)}` : `/workers?detailId=${encodeURIComponent(item.targetId)}`)}>{item.targetName}</button>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{item.condition}</p>
+                <div className="mt-3 rounded-lg bg-muted/50 p-3">
+                  <p className="mb-2 text-xs font-semibold">{item.targetType === "이용자" ? "추천 활동지원사" : "추천 이용자"} 1~3순위</p>
+                  {recommendations.length ? <div className="space-y-1.5">{recommendations.map((recommendation, index) => (
+                    <button key={recommendation.id} className="flex w-full items-center gap-2 rounded-md bg-background px-2 py-1.5 text-left text-xs hover:bg-primary/10" onClick={() => navigate(recommendation.targetType === "이용자" ? `/users?detailId=${encodeURIComponent(recommendation.id)}` : `/workers?detailId=${encodeURIComponent(recommendation.id)}`)}>
+                      <Badge variant="outline" className="h-5 px-1.5">{index + 1}위</Badge><span className="flex-1 font-medium">{recommendation.name}</span><span className="text-muted-foreground">{Math.round(recommendation.score)}점</span>
+                    </button>
+                  ))}</div> : <p className="text-xs text-muted-foreground">조건에 맞는 대기 대상이 없습니다.</p>}
+                </div>
+              </div>
               <Button variant="ghost" size="icon" aria-label={`${item.targetName} 제거`} onClick={() => item.id && void matchingStore.remove(item.id)}><X className="h-4 w-4" /></Button>
             </div>
-          ))}</div>}
+          );})}</div>}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between bg-muted/30"><CardTitle className="text-lg">📅 연간 일정 현황</CardTitle><Button size="sm" onClick={() => openScheduleDialog()}><Plus className="mr-1 h-4 w-4" />신규 일정</Button></CardHeader>
         <CardContent className="pt-5"><div className="overflow-x-auto"><table className="w-full min-w-[960px] text-sm"><thead><tr className="border-b bg-muted/40"><th className="px-3 py-3 text-left">연간사업명</th><th className="px-3 py-3 text-left">상태</th><th className="px-3 py-3 text-left">업무준비 시작일</th><th className="px-3 py-3 text-left">시행날짜</th><th className="px-3 py-3 text-left">비고</th><th className="px-3 py-3 text-left">담당</th><th className="px-3 py-3 text-right">관리</th></tr></thead><tbody>
-          {!schedules.length ? <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">일정을 준비하고 있습니다.</td></tr> : schedules.map((schedule) => <tr key={schedule.id} className="border-b hover:bg-muted/20"><td className="px-3 py-3 font-medium">{schedule.projectName}</td><td className="px-3 py-3"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge></td><td className="whitespace-nowrap px-3 py-3">{schedule.preparationStartDate || "미등록"}</td><td className="whitespace-nowrap px-3 py-3">{schedule.scheduleDate}</td><td className="max-w-xs whitespace-pre-wrap px-3 py-3 text-muted-foreground">{schedule.note || "-"}</td><td className="px-3 py-3">{schedule.manager}</td><td className="px-3 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="일정 수정" onClick={() => openScheduleDialog(schedule)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label="일정 삭제" onClick={() => schedule.id && confirm("이 일정을 삭제할까요?") && void scheduleStore.remove(schedule.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></tr>)}
+          {!schedules.length ? <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">일정을 준비하고 있습니다.</td></tr> : schedules.map((schedule) => <tr key={schedule.id} className="border-b hover:bg-muted/20"><td className="px-3 py-3 font-medium">{schedule.projectName}</td><td className="px-3 py-3"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge></td><td className="whitespace-nowrap px-3 py-3">{schedule.preparationStartDate || "미등록"}</td><td className="min-w-64 px-3 py-3">{schedule.milestones?.length ? <div className="space-y-1">{schedule.milestones.map((milestone) => <div key={milestone.id} className="flex items-center gap-2"><Badge variant="secondary" className="font-normal">{milestone.label}</Badge><span className="whitespace-nowrap">{milestone.date}</span></div>)}</div> : formatScheduleMilestones(schedule)}</td><td className="max-w-xs whitespace-pre-wrap px-3 py-3 text-muted-foreground">{schedule.note || "-"}</td><td className="px-3 py-3">{schedule.manager}</td><td className="px-3 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="일정 수정" onClick={() => openScheduleDialog(schedule)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label="일정 삭제" onClick={() => schedule.id && confirm("이 일정을 삭제할까요?") && void scheduleStore.remove(schedule.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></tr>)}
         </tbody></table></div></CardContent>
       </Card>
 
       <Dialog open={matchingDialogOpen} onOpenChange={setMatchingDialogOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>매칭 필요 대상 추가</DialogTitle></DialogHeader><div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>대상 구분</Label><Select value={targetType} onValueChange={(value) => { setTargetType(value as MatchingBoardItem["targetType"]); setTargetId(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="이용자">이용자</SelectItem><SelectItem value="활동지원사">활동지원사</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>매칭 형태</Label><Select value={matchMode} onValueChange={(value) => setMatchMode(value as NonNullable<MatchingBoardItem["matchMode"]>)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1:1">1:1 (기본 매칭)</SelectItem><SelectItem value="1:다">1:다 (기존 매칭에 추가)</SelectItem></SelectContent></Select></div></div><div className="space-y-2"><Label>이름 검색</Label><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={targetSearch} onChange={(event) => setTargetSearch(event.target.value)} placeholder="이름을 입력하세요" /></div><div className="max-h-40 divide-y overflow-y-auto rounded-md border">{matchingCandidates.map((candidate) => <button key={candidate.id} className={cn("flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted", targetId === candidate.id && "bg-primary/10 text-primary")} onClick={() => setTargetId(candidate.id)}><span>{candidate.name}</span>{targetId === candidate.id && <Check className="h-4 w-4" />}</button>)}</div></div>{matchMode === "1:다" && selectedTarget && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="mb-2 font-semibold">⚠️ 현재 서비스 시간 — 새 매칭과 겹치지 않도록 확인하세요</p><div className="space-y-1">{currentServiceInfo.map((line) => <p key={line} className="whitespace-pre-wrap">{line}</p>)}</div><p className="mt-2 text-xs text-amber-800">현재 배정 {getAssignmentCount(targetType, selectedTarget)}명 · 추가 배정이 확인되면 이 명단에서 자동 제거됩니다.</p></div>}<div className="space-y-2"><Label>매칭 필요 조건 *</Label><Textarea value={matchingCondition} onChange={(event) => setMatchingCondition(event.target.value)} placeholder="예: 10:00~14:00 중동 인근 9월부터 추가 매칭필요" /></div></div><DialogFooter><Button variant="outline" onClick={() => setMatchingDialogOpen(false)}>취소</Button><Button onClick={() => void saveMatchingItem()}>등록</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2"><Label>업무준비 시작일 *</Label><Input type="date" value={scheduleForm.preparationStartDate || ""} onChange={(event) => setScheduleForm({ ...scheduleForm, preparationStartDate: event.target.value })} /></div><div className="space-y-2"><Label>시행날짜 *</Label><Input value={scheduleForm.scheduleDate} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduleDate: event.target.value })} placeholder="2026/07/13 → 2026/07/17" /></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2 sm:col-span-2"><Label>업무준비 시작일 *</Label><Input type="date" value={scheduleForm.preparationStartDate || ""} onChange={(event) => setScheduleForm({ ...scheduleForm, preparationStartDate: event.target.value })} /></div><div className="space-y-3 sm:col-span-2"><div className="flex items-center justify-between gap-3"><div><Label>세부 시행 일정 *</Label><p className="text-xs text-muted-foreground">사업계획, 기안 작성, 조사, 예약, 시행일, 평가 등 필요한 단계를 자유롭게 추가하세요.</p></div><Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setScheduleForm((current) => ({ ...current, milestones: [...(current.milestones || []), createMilestone()] }))}><Plus className="mr-1 h-4 w-4" />일정 추가</Button></div>{!(scheduleForm.milestones || []).length && scheduleForm.scheduleDate && <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">기존 시행날짜: {scheduleForm.scheduleDate}<br />수정 저장하려면 세부 일정을 하나 이상 추가해주세요.</p>}<div className="space-y-2">{(scheduleForm.milestones || []).map((milestone) => <div key={milestone.id} className="grid grid-cols-[minmax(0,1fr)_150px_36px] gap-2"><Input value={milestone.label} onChange={(event) => updateMilestone(milestone.id, { label: event.target.value })} placeholder="예: 기안 작성" /><Input type="date" value={milestone.date} onChange={(event) => updateMilestone(milestone.id, { date: event.target.value })} /><Button type="button" variant="ghost" size="icon" aria-label="세부 일정 삭제" onClick={() => removeMilestone(milestone.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={missingLinkDialogOpen} onOpenChange={setMissingLinkDialogOpen}><DialogContent><DialogHeader><DialogTitle>입사서류 안내 링크 입력</DialogTitle></DialogHeader><div className="space-y-2"><Label>URL</Label><Input value={onboardingUrl} onChange={(event) => setOnboardingUrl(event.target.value)} placeholder="https://..." /><p className="text-xs text-muted-foreground">현재 브라우저에 저장되며 다음부터 새 탭에서 열립니다.</p></div><DialogFooter><Button variant="outline" onClick={() => setMissingLinkDialogOpen(false)}>취소</Button><Button onClick={saveOnboardingLink}>저장</Button></DialogFooter></DialogContent></Dialog>
     </div>

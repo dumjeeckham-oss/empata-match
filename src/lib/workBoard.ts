@@ -1,4 +1,5 @@
 import type { AnnualSchedule, MatchingBoardItem, ServiceUser, WeeklySchedule, Worker } from "@/types";
+import { matchUserWithWorkers } from "@/lib/matching";
 
 type MatchTarget = (ServiceUser & { id: string }) | (Worker & { id: string });
 
@@ -87,4 +88,51 @@ export function getVisibleScheduleStarts<T extends AnnualSchedule>(schedules: T[
       (getScheduleStartInfo(a.preparationStartDate || "")?.timestamp ?? Number.MAX_SAFE_INTEGER)
       - (getScheduleStartInfo(b.preparationStartDate || "")?.timestamp ?? Number.MAX_SAFE_INTEGER)
     );
+}
+
+export type BoardRecommendation = {
+  id: string;
+  name: string;
+  score: number;
+  targetType: MatchingBoardItem["targetType"];
+};
+
+export function getBoardRecommendations(
+  item: MatchingBoardItem,
+  users: (ServiceUser & { id: string })[],
+  workers: (Worker & { id: string })[],
+): BoardRecommendation[] {
+  if (item.targetType === "이용자") {
+    const user = users.find((candidate) => candidate.id === item.targetId);
+    if (!user) return [];
+    const waitingWorkers = workers.filter((worker) => worker.contractStatus === "대기");
+    return matchUserWithWorkers(user, waitingWorkers).slice(0, 3).map((result) => ({
+      id: result.worker.id || "",
+      name: result.worker.name,
+      score: result.score,
+      targetType: "활동지원사" as const,
+    })).filter((result) => Boolean(result.id));
+  }
+
+  const worker = workers.find((candidate) => candidate.id === item.targetId);
+  if (!worker) return [];
+  return users
+    .filter((user) => user.contractStatus === "대기")
+    .map((user) => ({ user, result: matchUserWithWorkers(user, [worker])[0] }))
+    .filter((entry) => Boolean(entry.result))
+    .sort((a, b) => b.result.score - a.result.score)
+    .slice(0, 3)
+    .map(({ user, result }) => ({
+      id: user.id,
+      name: user.name,
+      score: result.score,
+      targetType: "이용자",
+    }));
+}
+
+export function formatScheduleMilestones(schedule: AnnualSchedule): string {
+  const milestones = (schedule.milestones || [])
+    .filter((milestone) => milestone.label.trim() && milestone.date.trim())
+    .map((milestone) => `${milestone.label} ${milestone.date}`);
+  return milestones.length ? milestones.join(" / ") : schedule.scheduleDate;
 }

@@ -298,12 +298,20 @@ export interface MatchingBoardItem {
 
 export type AnnualScheduleStatus = "진행중" | "예정" | "완료";
 
+export interface AnnualScheduleMilestone {
+  id: string;
+  label: string;
+  date: string;
+}
+
 export interface AnnualSchedule {
   id?: string;
   projectName: string;
   status: AnnualScheduleStatus;
   /** 실제 시행 전 업무 준비를 시작해야 하는 날짜 */
   preparationStartDate?: string;
+  /** 사업계획, 기안, 조사, 예약, 시행, 평가 등 자유롭게 구성하는 세부 일정 */
+  milestones?: AnnualScheduleMilestone[];
   scheduleDate: string;
   note: string;
   manager: string;
