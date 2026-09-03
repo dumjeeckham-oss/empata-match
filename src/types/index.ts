@@ -297,6 +297,15 @@ export interface MatchingBoardItem {
   updatedAt?: unknown;
 }
 
+export interface WorkQuickLink {
+  id?: string;
+  key: string;
+  label: string;
+  url: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
 export type AnnualScheduleStatus = "진행중" | "예정" | "완료";
 
 export interface AnnualScheduleMilestone {

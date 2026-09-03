@@ -16,22 +16,23 @@ import { cn } from "@/lib/utils";
 import { assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, toLocalYmd } from "@/lib/workCalendar";
 import { formatScheduleMilestones, formatScheduleSummary, getAssignmentCount, getBoardRecommendations, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
-  ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION, WORK_CALENDAR_EVENTS_COLLECTION,
+  ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION, WORK_CALENDAR_EVENTS_COLLECTION, WORK_QUICK_LINKS_COLLECTION,
   WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
 } from "@/lib/collectionNames";
 import type {
-  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, CalendarEventColor, MatchingBoardItem, ServiceUser, Worker, WorkCalendarEvent, WorkTodo,
+  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, CalendarEventColor, MatchingBoardItem, ServiceUser, Worker, WorkCalendarEvent, WorkQuickLink, WorkTodo,
 } from "@/types";
 import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
 
-const quickLinks = [
-  { label: "공지사항 수정", url: "https://app.notion.com/p/2c43f84ca160805ba164c94fb1642186", icon: "📣" },
-  { label: "입사서류 안내", url: "", icon: "📁" },
-  { label: "dong100.org", url: "https://dong100.org", icon: "🌐" },
-  { label: "상담프로그램 (사례관리 생태도 가계도)", url: "https://canva.link/oxaa2j2npzo6y2b", icon: "🧩" },
-  { label: "동백 활동지원사 업무 앱", url: "https://support.dong100.org/", icon: "📱" },
-  { label: "동백 활동지원사 업무 수정", url: "https://easy-guide-pro-cms.netlify.app/", icon: "🛠️" },
-  { label: "이사장 간담회", url: "https://naver.me/FJOPPWI2", icon: "🤝" },
+const defaultQuickLinks = [
+  { key: "notice", label: "공지사항 수정", url: "https://app.notion.com/p/2c43f84ca160805ba164c94fb1642186", icon: "📣" },
+  { key: "onboarding", label: "입사서류 안내", url: "", icon: "📁" },
+  { key: "dong100", label: "dong100.org", url: "https://dong100.org", icon: "🌐" },
+  { key: "counseling-program", label: "상담프로그램 (사례관리 생태도 가계도)", url: "https://canva.link/oxaa2j2npzo6y2b", icon: "🧩" },
+  { key: "support-app", label: "동백 활동지원사 업무 앱", url: "https://support.dong100.org/", icon: "📱" },
+  { key: "support-cms", label: "동백 활동지원사 업무 수정", url: "https://easy-guide-pro-cms.netlify.app/", icon: "🛠️" },
+  { key: "chairperson-meeting", label: "이사장 간담회", url: "https://naver.me/FJOPPWI2", icon: "🤝" },
+  { key: "corporate-intranet", label: "법인 인트라넷", url: "https://www.bcmedcoop.org/office/index.php", icon: "🏢" },
 ] as const;
 
 const emptySchedule: Omit<AnnualSchedule, "id" | "createdAt" | "updatedAt"> = {
@@ -53,6 +54,7 @@ const EMPTY_SCHEDULES: (AnnualSchedule & { id: string })[] = [];
 const EMPTY_USERS: (ServiceUser & { id: string })[] = [];
 const EMPTY_WORKERS: (Worker & { id: string })[] = [];
 const EMPTY_CALENDAR_EVENTS: (WorkCalendarEvent & { id: string })[] = [];
+const EMPTY_QUICK_LINK_OVERRIDES: (WorkQuickLink & { id: string })[] = [];
 const emptyCalendarEvent = (date: string): Omit<WorkCalendarEvent, "id" | "createdAt" | "updatedAt"> => ({
   title: "", note: "", startDate: date, endDate: date, color: "blue",
 });
@@ -70,14 +72,16 @@ const WorkBoard = () => {
   const usersStore = useCollection<ServiceUser>(USERS_COLLECTION);
   const workersStore = useCollection<Worker>(WORKERS_COLLECTION);
   const calendarStore = useCollection<WorkCalendarEvent>(WORK_CALENDAR_EVENTS_COLLECTION);
+  const quickLinkStore = useCollection<WorkQuickLink>(WORK_QUICK_LINKS_COLLECTION);
   const todos = todosStore.data || EMPTY_TODOS;
   const matchingItems = matchingStore.data || EMPTY_MATCHING_ITEMS;
   const schedules = scheduleStore.data || EMPTY_SCHEDULES;
   const users = usersStore.data || EMPTY_USERS;
   const workers = workersStore.data || EMPTY_WORKERS;
   const calendarEvents = calendarStore.data || EMPTY_CALENDAR_EVENTS;
-  const loading = todosStore.loading || matchingStore.loading || scheduleStore.loading || usersStore.loading || workersStore.loading || calendarStore.loading;
-  const loadError = todosStore.error || matchingStore.error || scheduleStore.error || usersStore.error || workersStore.error || calendarStore.error;
+  const quickLinkOverrides = quickLinkStore.data || EMPTY_QUICK_LINK_OVERRIDES;
+  const loading = todosStore.loading || matchingStore.loading || scheduleStore.loading || usersStore.loading || workersStore.loading || calendarStore.loading || quickLinkStore.loading;
+  const loadError = todosStore.error || matchingStore.error || scheduleStore.error || usersStore.error || workersStore.error || calendarStore.error || quickLinkStore.error;
 
   const [todoTitle, setTodoTitle] = useState("");
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
@@ -91,8 +95,8 @@ const WorkBoard = () => {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [scheduleForm, setScheduleForm] = useState(emptySchedule);
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
-  const [missingLinkDialogOpen, setMissingLinkDialogOpen] = useState(false);
-  const [onboardingUrl, setOnboardingUrl] = useState(() => localStorage.getItem("quickLink_onboarding") || "");
+  const [quickLinkDialogOpen, setQuickLinkDialogOpen] = useState(false);
+  const [editingQuickLink, setEditingQuickLink] = useState<{ id?: string; key: string; label: string; url: string } | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
   const [editingCalendarEventId, setEditingCalendarEventId] = useState<string | null>(null);
@@ -156,6 +160,11 @@ const WorkBoard = () => {
   const calendarDays = buildMonthGrid(calendarMonth.getFullYear(), calendarMonth.getMonth());
   const calendarEventsWithLanes = assignCalendarEventLanes(calendarEvents);
   const today = toLocalYmd(new Date());
+  const quickLinks = defaultQuickLinks.map((defaultLink) => {
+    const override = quickLinkOverrides.find((item) => item.key === defaultLink.key);
+    const legacyOnboardingUrl = defaultLink.key === "onboarding" ? localStorage.getItem("quickLink_onboarding") || "" : "";
+    return { ...defaultLink, id: override?.id, label: override?.label || defaultLink.label, url: override?.url || legacyOnboardingUrl || defaultLink.url };
+  });
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -259,21 +268,36 @@ const WorkBoard = () => {
     await calendarStore.remove(editingCalendarEventId);
     setCalendarDialogOpen(false);
   };
-  const openQuickLink = (url: string) => {
-    const destination = url || onboardingUrl;
-    if (!destination) return setMissingLinkDialogOpen(true);
-    window.open(destination, "_blank", "noopener,noreferrer");
+  const editQuickLink = (link: (typeof quickLinks)[number]) => {
+    setEditingQuickLink({ id: link.id, key: link.key, label: link.label, url: link.url });
+    setQuickLinkDialogOpen(true);
   };
-  const saveOnboardingLink = () => {
+  const openQuickLink = (link: (typeof quickLinks)[number]) => {
+    if (!link.url) return editQuickLink(link);
+    window.open(link.url, "_blank", "noopener,noreferrer");
+  };
+  const saveQuickLink = async () => {
+    if (!editingQuickLink?.label.trim()) {
+      toast({ title: "바로가기 이름을 입력해주세요.", variant: "destructive" });
+      return;
+    }
+    let normalized = "";
     try {
-      const normalized = new URL(onboardingUrl.trim()).toString();
+      normalized = new URL(editingQuickLink.url.trim()).toString();
       if (!["http:", "https:"].includes(new URL(normalized).protocol)) throw new Error("invalid protocol");
-      localStorage.setItem("quickLink_onboarding", normalized);
-      setOnboardingUrl(normalized);
-      setMissingLinkDialogOpen(false);
-      toast({ title: "입사서류 안내 링크를 저장했습니다." });
     } catch {
       toast({ title: "http:// 또는 https://로 시작하는 올바른 URL을 입력해주세요.", variant: "destructive" });
+      return;
+    }
+    try {
+      const payload = { key: editingQuickLink.key, label: editingQuickLink.label.trim(), url: normalized };
+      if (editingQuickLink.id) await quickLinkStore.update(editingQuickLink.id, payload);
+      else await quickLinkStore.add(payload);
+      if (editingQuickLink.key === "onboarding") localStorage.removeItem("quickLink_onboarding");
+      setQuickLinkDialogOpen(false);
+      toast({ title: "바로가기를 수정했습니다.", description: `${payload.label} 링크가 모든 업무 보드에 반영됩니다.` });
+    } catch {
+      toast({ title: "바로가기 저장에 실패했습니다.", description: "네트워크 연결과 로그인 권한을 확인한 뒤 다시 시도해주세요.", variant: "destructive" });
     }
   };
 
@@ -352,7 +376,7 @@ const WorkBoard = () => {
       <Card>
         <CardHeader className="bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle></CardHeader>
         <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 lg:grid-cols-4">
-          {quickLinks.map((link) => <button key={link.label} onClick={() => openQuickLink(link.url)} className="group flex min-h-20 items-center gap-3 rounded-xl border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"><span className="text-2xl">{link.icon}</span><span className="flex-1 text-sm font-semibold leading-snug">{link.label}</span><ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary" /></button>)}
+          {quickLinks.map((link) => <div key={link.key} className="group relative flex min-h-20 items-center gap-3 rounded-xl border bg-card p-4 pr-12 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"><button type="button" onClick={() => openQuickLink(link)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className="text-2xl">{link.icon}</span><span className="min-w-0 flex-1"><span className="block text-sm font-semibold leading-snug">{link.label}</span>{!link.url && <span className="mt-1 block text-[10px] text-amber-600">링크 입력 필요</span>}</span><ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" /></button><Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2" aria-label={`${link.label} 수정`} onClick={() => editQuickLink(link)}><Pencil className="h-4 w-4" /></Button></div>)}
         </CardContent>
       </Card>
 
@@ -395,7 +419,7 @@ const WorkBoard = () => {
 
       <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCalendarEventId ? "달력 일정 수정" : "달력 일정 등록"}</DialogTitle></DialogHeader><div className="space-y-4"><div className="space-y-2"><Label>일정 제목 *</Label><Input value={calendarForm.title} onChange={(event) => setCalendarForm({ ...calendarForm, title: event.target.value })} placeholder="예: 이용자 가정 방문" /></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label>시작일 *</Label><Input type="date" value={calendarForm.startDate} onChange={(event) => setCalendarForm({ ...calendarForm, startDate: event.target.value, endDate: calendarForm.endDate < event.target.value ? event.target.value : calendarForm.endDate })} /></div><div className="space-y-2"><Label>종료일 *</Label><Input type="date" min={calendarForm.startDate} value={calendarForm.endDate} onChange={(event) => setCalendarForm({ ...calendarForm, endDate: event.target.value })} /></div></div><div className="space-y-2"><Label>표시 색상</Label><div className="flex flex-wrap gap-2">{(Object.keys(calendarColorClass) as CalendarEventColor[]).map((color) => <button key={color} type="button" className={cn("rounded-full border-2 px-3 py-1 text-xs font-semibold", calendarColorClass[color], calendarForm.color === color ? "border-foreground ring-2 ring-ring ring-offset-2" : "border-transparent")} onClick={() => setCalendarForm({ ...calendarForm, color })}>{calendarColorLabel[color]}</button>)}</div></div><div className="space-y-2"><Label>메모</Label><Textarea value={calendarForm.note} onChange={(event) => setCalendarForm({ ...calendarForm, note: event.target.value })} placeholder="준비사항이나 참고 내용을 자유롭게 입력하세요." /></div></div><DialogFooter className="gap-2 sm:justify-between"><div>{editingCalendarEventId && <Button variant="destructive" onClick={() => void deleteCalendarEvent()}><Trash2 className="mr-1 h-4 w-4" />삭제</Button>}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>취소</Button><Button onClick={() => void saveCalendarEvent()}>{editingCalendarEventId ? "수정 저장" : "일정 등록"}</Button></div></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={missingLinkDialogOpen} onOpenChange={setMissingLinkDialogOpen}><DialogContent><DialogHeader><DialogTitle>입사서류 안내 링크 입력</DialogTitle></DialogHeader><div className="space-y-2"><Label>URL</Label><Input value={onboardingUrl} onChange={(event) => setOnboardingUrl(event.target.value)} placeholder="https://..." /><p className="text-xs text-muted-foreground">현재 브라우저에 저장되며 다음부터 새 탭에서 열립니다.</p></div><DialogFooter><Button variant="outline" onClick={() => setMissingLinkDialogOpen(false)}>취소</Button><Button onClick={saveOnboardingLink}>저장</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={quickLinkDialogOpen} onOpenChange={setQuickLinkDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>바로가기 수정</DialogTitle></DialogHeader>{editingQuickLink && <div className="space-y-4"><div className="space-y-2"><Label>바로가기 이름 *</Label><Input value={editingQuickLink.label} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, label: event.target.value })} placeholder="바로가기 이름" /></div><div className="space-y-2"><Label>링크 주소 *</Label><Input type="url" value={editingQuickLink.url} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, url: event.target.value })} placeholder="https://..." /><p className="text-xs text-muted-foreground">http:// 또는 https://로 시작하는 전체 주소를 입력하세요. 수정 내용은 모든 사용자에게 동일하게 표시됩니다.</p></div></div>}<DialogFooter><Button variant="outline" onClick={() => setQuickLinkDialogOpen(false)}>취소</Button><Button onClick={() => void saveQuickLink()}>수정 저장</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 };
