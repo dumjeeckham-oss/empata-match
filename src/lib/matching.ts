@@ -67,6 +67,15 @@ function rejectionPenalty(user: ServiceUser, worker: Worker): number {
   return penalty;
 }
 
+function historicalRejectionPenalty(user: ServiceUser, worker: Worker): number {
+  const userKey = String(user.id || "");
+  const workerKey = String(worker.id || "");
+  const userScore = workerKey ? Number(user.rejectionScores?.[workerKey] || 0) : 0;
+  const workerScore = userKey ? Number(worker.rejectionScores?.[userKey] || 0) : 0;
+  const score = Math.max(userScore, workerScore);
+  return Number.isFinite(score) ? score : 0;
+}
+
 export function matchUserWithWorkers(user: ServiceUser, workers: Worker[]): MatchResult[] {
   const availableWorkers = workers.filter((w) => w.contractStatus !== "퇴사");
 
@@ -75,7 +84,7 @@ export function matchUserWithWorkers(user: ServiceUser, workers: Worker[]): Matc
       const timeScore = timeOverlapScore(user.requiredDays, user.requiredHours, worker.availableDays, worker.availableHours);
       const loc = locationScore(user, worker);
       const prefScore = preferenceScore(user, worker);
-      const penalty = rejectionPenalty(user, worker);
+      const penalty = rejectionPenalty(user, worker) + historicalRejectionPenalty(user, worker);
       const score = Math.max(0, timeScore + loc.score + prefScore - penalty);
       return {
         worker,
@@ -92,3 +101,4 @@ export function matchUserWithWorkers(user: ServiceUser, workers: Worker[]): Matc
     .filter((r) => r.details.rejectionPenalty < 100)
     .sort((a, b) => b.score - a.score);
 }
+

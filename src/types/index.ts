@@ -9,12 +9,12 @@ export const DISABILITY_TYPES = [
   "호흡기장애", "간장애", "안면장애", "장루·요루장애", "뇌전증장애",
 ] as const;
 
-export const SUPPORT_TYPES = ["사회지원", "신체지원", "가사지원"] as const;
+export const SUPPORT_TYPES = ["사회지원", "신체지원", "가사지원", "목욕"] as const;
 export const ENVIRONMENT_TAGS = ["기저귀", "반려동물", "흡연", "와상", "차량필요"] as const;
 
 export const WORKER_REJECTION_TYPES = [
   "성인거부", "남성거부", "여성거부", "흡연자거부", "반려동물거부",
-  "와상거부", "기저귀거부", "요리거부",
+  "와상거부", "기저귀거부", "요리거부", "목욕거부",
 ] as const;
 
 export const EXPERIENCE_OPTIONS = [
@@ -30,6 +30,7 @@ export const TERMINATION_REASONS = [
 export interface WeeklySchedule {
   day: "월" | "화" | "수" | "목" | "금" | "토" | "일";
   slots: number[]; // 0-47 (30분 단위, 00:00 = 0)
+  alternativeSlots?: number[]; // 2안 필요시간
 }
 
 export type MatchingHistoryReason = "교체" | "추가" | "종료" | "인계";
@@ -54,8 +55,16 @@ export interface ServiceUser {
   /** Excel/Firebase 원본 필드 호환: 이용자 성별 */
   txtUSex?: string;
   phone: string;
+  /** 연락처가 이용자 본인 번호인지 여부 */
+  isOwnPhone?: boolean;
+  /** 본인 번호가 아닐 때 연락처 소유자와의 관계 */
+  phoneOwnerRelation?: string;
+  /** 본인 번호가 아닐 때 연락처 소유자 이름 */
+  phoneOwnerName?: string;
   disabilityType: string;
   voucherTier: number;
+  voucherHours?: number;
+  additionalHours?: number;
   requiredDays: string;
   requiredHours: string;
   weeklySchedule?: WeeklySchedule[];
@@ -76,6 +85,7 @@ export interface ServiceUser {
   notes: string;
   needsAftercare?: boolean; // 배변뒤처리 필요
   wantsWeekendSupport?: boolean; // 주말지원 희망
+  needsSchoolSupport?: boolean; // 학교내 지원
   femaleOnly?: boolean; // 여성만 원함
   maleOnly?: boolean; // 남성만 원함
   contractStatus: "서비스중" | "작성중" | "계약해지" | "대기" | "타기관 계약" | "보류";
@@ -100,6 +110,8 @@ export interface ServiceUser {
   receiptDate: string; // 최초 접수일
   /** 문서 내부 매칭 이력: 현재 서비스 중은 serviceEndDate=null */
   matchingHistory?: DocumentMatchingHistoryEntry[];
+  /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
+  rejectionScores?: Record<string, number>;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -131,6 +143,7 @@ export interface Worker {
   hasF5?: boolean;
   certificates: string[]; // 보유 자격증
   certificateNumber: string;
+  certificateDate?: string;
   contractStatus: "근무중" | "퇴사" | "대기" | "변경";
   serviceStartDate: string;
   /** 특정 이용자와의 서비스 종료일 기본값 */
@@ -138,6 +151,14 @@ export interface Worker {
   /** 인사 기록용 퇴사일 */
   retirementDate?: string;
   resignationDate: string;
+  /** 향정신성 건강검진일 */
+  psychiatricCheckDate?: string;
+  /** 향정신성 건강검진 미검진 표시 */
+  psychiatricCheckUnchecked?: boolean;
+  /** 직장 건강검진일 */
+  workplaceCheckDate?: string;
+  /** 직장 건강검진 미검진 표시 */
+  workplaceCheckUnchecked?: boolean;
   notes: string;
   /** 담당 이용자 ID 목록 (N:M) */
   assignedUserIds: string[];
@@ -150,6 +171,8 @@ export interface Worker {
   receiptDate: string; // 최초 접수일
   /** 문서 내부 매칭 이력: 현재 서비스 중은 serviceEndDate=null */
   matchingHistory?: DocumentMatchingHistoryEntry[];
+  /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
+  rejectionScores?: Record<string, number>;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -230,7 +253,9 @@ export interface MatchResult {
 
 export interface MatchingHistoryRecord {
   id?: string;
-  type: "매칭" | "해제" | "시도";
+  type: "매칭" | "해제" | "시도" | "실패";
+  /** 화면 표시용 진행 상태 */
+  status?: "매칭 완료" | "매칭 시도중" | "매칭 실패";
   userId: string;
   userName: string;
   userPhone: string;
@@ -241,6 +266,8 @@ export interface MatchingHistoryRecord {
   endDate?: string; // YYYY-MM-DD (종료일, 해제 시에만)
   reason?: MatchingHistoryReason;
   reasonDetail?: string;
+  failureReason?: string;
+  rejectionScoreDelta?: number;
   notes?: string;
   createdAt?: unknown;
   updatedAt?: unknown;
@@ -277,6 +304,12 @@ export interface AnnualSchedule {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
+
+
+
+
+
 
 
 

@@ -126,6 +126,12 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     assigned_workers: ids.filter(Boolean),
     assignedHelperNames: names,
     assignedHelperPhones: phones,
+    isOwnPhone: raw.isOwnPhone === undefined ? !String(raw.phoneOwnerRelation ?? raw.phoneOwnerName ?? raw["연락처관계"] ?? raw["연락처소유자"] ?? "").trim() : Boolean(raw.isOwnPhone),
+    phoneOwnerRelation: String(raw.phoneOwnerRelation ?? raw["연락처관계"] ?? raw["관계"] ?? ""),
+    phoneOwnerName: String(raw.phoneOwnerName ?? raw["연락처소유자"] ?? raw["연락처주체"] ?? ""),
+    voucherHours: Number(raw.voucherHours ?? raw["바우처시간"] ?? raw["월바우처시간"] ?? 0) || undefined,
+    additionalHours: Number(raw.additionalHours ?? raw["추가시간"] ?? 0) || 0,
+    needsSchoolSupport: Boolean(raw.needsSchoolSupport ?? raw["학교내지원"] ?? false),
     gender: String(raw.gender ?? raw.txtUSex ?? ""),
     txtUSex: String(raw.txtUSex ?? raw.gender ?? ""),
     terminationReason,
@@ -201,10 +207,15 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     txtHSex: String(raw.txtHSex ?? raw.gender ?? ""),
     contractStatus: derivedStatus,
     experience: derivedExperience,
+    certificateDate: toYmd(raw.certificateDate ?? raw["이수일자"] ?? raw["교육이수일"]),
     serviceStartDate,
         serviceEndDate,
     retirementDate,
     resignationDate: retirementDate || resignationDate,
+    psychiatricCheckDate: toYmd(raw.psychiatricCheckDate ?? raw["향정신성건강검진일"] ?? raw["향정신성 검진일"]),
+    psychiatricCheckUnchecked: Boolean(raw.psychiatricCheckUnchecked ?? raw["향정신성미검진"] ?? false),
+    workplaceCheckDate: toYmd(raw.workplaceCheckDate ?? raw["직장검진일"] ?? raw["직장 건강검진일"]),
+    workplaceCheckUnchecked: Boolean(raw.workplaceCheckUnchecked ?? raw["직장검진미검진"] ?? false),
   } as Partial<Worker>;
 }
 
@@ -364,6 +375,13 @@ export function buildUserArraysFromIds(
   }
   return { ids, names, phones };
 }
+
+
+
+
+
+
+
 
 
 

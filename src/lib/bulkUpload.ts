@@ -29,9 +29,14 @@ export type FieldKey =
   | "name"
   | "gender"
   | "phone"
+  | "isOwnPhone"
+  | "phoneOwnerRelation"
+  | "phoneOwnerName"
   | "age"
   | "disabilityType"
   | "voucherTier"
+  | "voucherHours"
+  | "additionalHours"
   | "requiredDays"
   | "requiredHours"
   | "supportTypes"
@@ -60,7 +65,12 @@ export type FieldKey =
   | "canDrive"
   | "animalAllergy"
   | "certificateNumber"
+  | "certificateDate"
   | "resignationDate"
+  | "psychiatricCheckDate"
+  | "psychiatricCheckUnchecked"
+  | "workplaceCheckDate"
+  | "workplaceCheckUnchecked"
   | "receiptDate";
 
 const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
@@ -68,9 +78,14 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "name", patterns: [/이름/, /성명/, /^name$/i, /이용자/, /지원사명/, /성명\(한글\)/] },
   { field: "gender", patterns: [/성별/, /구분/, /^sex$/i, /^gender$/i, /txtUSex/i, /txtHSex/i] },
   { field: "phone", patterns: [/연락처/, /전화/, /휴대폰/, /^hp$/i, /^phone$/i, /txtUPhone/i, /txtHPhone/i, /핸드폰/, /휴대전화/] },
+  { field: "isOwnPhone", patterns: [/본인.*연락/, /연락처.*본인/, /본인여부/] },
+  { field: "phoneOwnerRelation", patterns: [/연락처.*관계/, /연락처관계/, /관계\/소유자/] },
+  { field: "phoneOwnerName", patterns: [/연락처.*소유자/, /연락처주체/, /연락처.*이름/] },
   { field: "age", patterns: [/나이/, /연령/, /^age$/i, /출생/] },
   { field: "disabilityType", patterns: [/장애/, /장애유형/] },
-  { field: "voucherTier", patterns: [/바우처/, /구간/] },
+  { field: "voucherTier", patterns: [/바우처.*구간/, /구간/] },
+  { field: "voucherHours", patterns: [/바우처.*시간/, /월바우처시간/, /기본시간/] },
+  { field: "additionalHours", patterns: [/추가시간/, /추가.*시간/] },
   { field: "requiredDays", patterns: [/필요요일/, /서비스요일/, /이용요일/] },
   { field: "requiredHours", patterns: [/필요시간/, /서비스시간/, /이용시간/] },
   { field: "supportTypes", patterns: [/지원유형/, /지원형태/] },
@@ -138,9 +153,38 @@ export async function parseSpreadsheetFile(file: File): Promise<ParsedSheet> {
   return sheetFromMatrix(stringMatrix);
 }
 
+function splitPastedLine(line: string): string[] {
+  if (line.includes("\t")) return line.split("\t");
+
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    const next = line[i + 1];
+    if (char === '"' && inQuotes && next === '"') {
+      current += '"';
+      i += 1;
+      continue;
+    }
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (char === "," && !inQuotes) {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+  cells.push(current);
+  return cells;
+}
+
 export function parsePasteData(paste: string): ParsedSheet {
   const lines = String(paste || "").trim().split(/\r?\n/);
-  const matrix = lines.map((line) => line.split("\t").map(safeStr));
+  const matrix = lines.map((line) => splitPastedLine(line).map(safeStr));
   return sheetFromMatrix(matrix);
 }
 
@@ -354,8 +398,13 @@ export function rowToServiceUser(
     gender,
     txtUSex: gender,
     phone: getCell(row, headerMap, "phone"),
+    isOwnPhone: getCell(row, headerMap, "isOwnPhone") ? parseYesNo(getCell(row, headerMap, "isOwnPhone")) : true,
+    phoneOwnerRelation: getCell(row, headerMap, "phoneOwnerRelation"),
+    phoneOwnerName: getCell(row, headerMap, "phoneOwnerName"),
     disabilityType: getCell(row, headerMap, "disabilityType"),
     voucherTier: Number(getCell(row, headerMap, "voucherTier")) || 1,
+    voucherHours: Number(getCell(row, headerMap, "voucherHours")) || undefined,
+    additionalHours: Number(getCell(row, headerMap, "additionalHours")) || 0,
     requiredDays: getCell(row, headerMap, "requiredDays"),
     requiredHours: getCell(row, headerMap, "requiredHours"),
     supportTypes: splitList(getCell(row, headerMap, "supportTypes")),
@@ -387,6 +436,7 @@ export function rowToServiceUser(
     livingWith: "",
     needsVehicle: false,
     usesDiaper: false,
+    needsSchoolSupport: false,
     resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
     receiptDate: normalizeDateCell(getCell(row, headerMap, "receiptDate")),
   };
@@ -423,9 +473,14 @@ export function rowToWorker(
     canDrive: parseYesNo(getCell(row, headerMap, "canDrive")),
     animalAllergy: parseYesNo(getCell(row, headerMap, "animalAllergy")),
     certificateNumber: getCell(row, headerMap, "certificateNumber"),
+    certificateDate: normalizeDateCell(getCell(row, headerMap, "certificateDate")),
     contractStatus: (getCell(row, headerMap, "contractStatus") || "대기") as Worker["contractStatus"],
     serviceStartDate: normalizeDateCell(getCell(row, headerMap, "serviceStartDate")),
     resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
+    psychiatricCheckDate: normalizeDateCell(getCell(row, headerMap, "psychiatricCheckDate")),
+    psychiatricCheckUnchecked: parseYesNo(getCell(row, headerMap, "psychiatricCheckUnchecked")),
+    workplaceCheckDate: normalizeDateCell(getCell(row, headerMap, "workplaceCheckDate")),
+    workplaceCheckUnchecked: parseYesNo(getCell(row, headerMap, "workplaceCheckUnchecked")),
     notes: getCell(row, headerMap, "notes"),
     assigned_users: [...assigned.ids],
     assignedUserIds: [...assigned.ids],
@@ -806,3 +861,13 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
+
+
+
+
+
+
+
+
+
+

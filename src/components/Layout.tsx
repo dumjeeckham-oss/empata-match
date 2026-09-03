@@ -69,25 +69,6 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               🚪 로그아웃
             </Button>
           </div>
-
-          <section className="notice-board" aria-label="공지사항" aria-live="polite">
-            <div className="notice-board__inner">
-              <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-                <span className="notice-board__icon" aria-hidden="true">📢</span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <strong className="notice-board__label">공지사항</strong>
-                    <span className="text-sm font-bold leading-relaxed tracking-tight text-white sm:text-base">
-                      상담·매칭·인계 관리를 한눈에 확인하세요
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-xs font-medium leading-relaxed text-red-50/90">
-                    중요한 변경사항과 업무 안내를 이 영역에서 빠르게 확인할 수 있습니다.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </section>
         </div>
 
         <nav className="md:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
@@ -105,5 +86,6 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 };
 
 export default Layout;
+
 
 

@@ -278,14 +278,17 @@ export default function Terminations() {
           <style>{`
             @page {
               size: A4;
-              margin: 7mm 8mm;
+              margin: 5mm 6mm;
             }
             @media print {
               html, body { margin: 0 !important; padding: 0 !important; }
               .print-sheet {
-                width: 100%;
-                font-size: 10px;
-                min-height: 283mm;
+                width: 198mm;
+                min-height: 287mm;
+                max-height: 287mm;
+                box-sizing: border-box;
+                overflow: hidden;
+                font-size: 9.5px;
                 line-height: 1.25;
                 color: #000;
                 font-family: 'Malgun Gothic', 'Dotum', sans-serif;
@@ -295,7 +298,7 @@ export default function Terminations() {
               .print-sheet table td,
               .print-sheet table th {
                 border: 1px solid #000;
-                padding: 1.5mm 2mm;
+                padding: 1.2mm 1.8mm;
                 vertical-align: middle;
               }
             }
@@ -312,7 +315,7 @@ export default function Terminations() {
                     fontSize: "16px",
                     letterSpacing: "6px",
                     border: "1px solid #000",
-                    padding: "3mm 0",
+                    padding: "2.5mm 0",
                     width: "68%",
                   }} rowSpan={2}>
                     종 결 승 인 서
@@ -321,8 +324,8 @@ export default function Terminations() {
                   <th style={{ textAlign: "center", width: "16%", height: "8mm" }}>센터장</th>
                 </tr>
                 <tr>
-                  <td style={{ height: "16mm" }}></td>
-                  <td style={{ height: "16mm" }}></td>
+                  <td style={{ height: "13mm" }}></td>
+                  <td style={{ height: "13mm" }}></td>
                 </tr>
               </tbody>
             </table>
@@ -333,7 +336,7 @@ export default function Terminations() {
               padding: "2mm 3mm",
               fontSize: "8.5px",
               lineHeight: 1.4,
-              marginBottom: "3mm",
+              marginBottom: "2mm",
               wordBreak: "keep-all",
             }}>
               부천의료복지사회적협동조합 동백장애인활동지원센터에서 장애인활동지원서비스를 제공 받았던 장애인 이용자를 아래와 같은 사유로 종결하고자 합니다. 검토후 재가바랍니다.
@@ -370,21 +373,18 @@ export default function Terminations() {
               </tbody>
             </table>
 
-            {/* ── 하단: 좌(종결종류) / 우(종결사유) 2단 ── */}
-            <table style={{ marginBottom: "3mm", fontSize: "9px", tableLayout: "fixed" }}>
+            {/* ── 하단: 종결종류 바로 아래 종결사유 ── */}
+            <table style={{ marginBottom: "2mm", fontSize: "9px", tableLayout: "fixed" }}>
               <tbody>
                 <tr>
-                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center", width: "38%", fontSize: "9.5px" }}>
+                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center", fontSize: "9.5px" }}>
                     종 결 종 류
                   </th>
-                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center", width: "62%", fontSize: "9.5px" }}>
-                    종 결 사 유
-                  </th>
                 </tr>
-                <tr style={{ height: "60mm" }}>
-                  <td style={{ verticalAlign: "top", padding: "2mm", lineHeight: 1.6 }}>
+                <tr style={{ height: "48mm" }}>
+                  <td style={{ verticalAlign: "top", padding: "2mm", lineHeight: 1.45 }}>
                     {TERMINATION_REASONS.map(r => (
-                      <div key={r} style={{ display: "flex", alignItems: "center", gap: "1.5mm", fontSize: "8.5px", marginBottom: "0.8mm" }}>
+                      <div key={r} style={{ display: "flex", alignItems: "center", gap: "1.5mm", fontSize: "8.2px", marginBottom: "0.6mm" }}>
                         <span style={{
                           display: "inline-block",
                           width: "3mm",
@@ -402,7 +402,14 @@ export default function Terminations() {
                       </div>
                     ))}
                   </td>
-                  <td style={{ verticalAlign: "top", padding: "2mm", fontSize: "8.5px", lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
+                </tr>
+                <tr>
+                  <th style={{ backgroundColor: "#f5f5f5", textAlign: "center", fontSize: "9.5px" }}>
+                    종 결 사 유
+                  </th>
+                </tr>
+                <tr style={{ height: "55mm" }}>
+                  <td style={{ verticalAlign: "top", padding: "2mm", fontSize: "8.5px", lineHeight: 1.35, whiteSpace: "pre-wrap", wordBreak: "keep-all" }}>
                     {printDoc?.reasonDetail || ""}
                   </td>
                 </tr>
@@ -640,6 +647,7 @@ export default function Terminations() {
     </div>
   );
 }
+
 
 
 

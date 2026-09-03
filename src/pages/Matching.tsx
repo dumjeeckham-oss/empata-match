@@ -8,16 +8,38 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toast } from "@/hooks/use-toast";
 import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
 
+const FAILURE_REASONS = ["거주지 거리 멀음", "시간대 불일치", "이용자 거부", "지원사 거부", "케어 난이도", "기타"] as const;
+const FAILURE_SCORE_DELTA = 25;
+
+const getHistoryStatus = (record: MatchingHistoryRecord) => {
+  if (record.status) return record.status;
+  if (record.type === "매칭") return "매칭 완료";
+  if (record.type === "실패") return "매칭 실패";
+  if (record.type === "시도") return "매칭 시도중";
+  return "해제";
+};
+
+const getPairRejectionScore = (user: ServiceUser | undefined, worker: Worker | undefined) => {
+  if (!user?.id || !worker?.id) return 0;
+  const userScore = Number(user.rejectionScores?.[worker.id] || 0);
+  const workerScore = Number(worker.rejectionScores?.[user.id] || 0);
+  const score = Math.max(userScore, workerScore);
+  return Number.isFinite(score) ? score : 0;
+};
+
 const Matching = () => {
-  const { data: usersRaw, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workersRaw, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: usersRaw, update: updateUser, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, update: updateWorker, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
-  const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: matchingHistoryRaw, add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
@@ -36,6 +58,9 @@ const Matching = () => {
     title: string;
     rows: Array<{ id: string; name: string; date: string; status: string; note: string; userId?: string; workerId?: string }>;
   } | null>(null);
+  const [failureDialog, setFailureDialog] = useState<{ user: ServiceUser & { id: string }; worker: Worker & { id: string }; score: number } | null>(null);
+  const [failureReason, setFailureReason] = useState<string>(FAILURE_REASONS[0]);
+  const [failureDetail, setFailureDetail] = useState("");
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -59,6 +84,48 @@ const Matching = () => {
 
   const closeWorkerDetail = () => {
     setDetailWorker(null);
+  };
+
+  const openFailureDialog = (worker: Worker, score: number) => {
+    if (!selectedUser?.id || !worker.id) return;
+    setFailureReason(FAILURE_REASONS[0]);
+    setFailureDetail("");
+    setFailureDialog({ user: selectedUser as ServiceUser & { id: string }, worker: worker as Worker & { id: string }, score });
+  };
+
+  const saveMatchingFailure = async () => {
+    if (!failureDialog) return;
+    const { user, worker } = failureDialog;
+    const previousUserScores = user.rejectionScores || {};
+    const previousWorkerScores = worker.rejectionScores || {};
+    const nextUserScores = {
+      ...previousUserScores,
+      [worker.id]: Number(previousUserScores[worker.id] || 0) + FAILURE_SCORE_DELTA,
+    };
+    const nextWorkerScores = {
+      ...previousWorkerScores,
+      [user.id]: Number(previousWorkerScores[user.id] || 0) + FAILURE_SCORE_DELTA,
+    };
+    const detail = failureDetail.trim();
+    await addMatchingHistory({
+      type: "실패",
+      status: "매칭 실패",
+      userId: user.id,
+      userName: user.name,
+      userPhone: user.phone,
+      workerId: worker.id,
+      workerName: worker.name,
+      workerPhone: worker.phone,
+      date: new Date().toISOString().slice(0, 10),
+      failureReason,
+      reasonDetail: detail || undefined,
+      rejectionScoreDelta: FAILURE_SCORE_DELTA,
+      notes: [failureReason, detail].filter(Boolean).join(" - "),
+    });
+    await updateUser(user.id, { rejectionScores: nextUserScores });
+    await updateWorker(worker.id, { rejectionScores: nextWorkerScores });
+    setFailureDialog(null);
+    toast({ title: "매칭 실패 이력 저장", description: "이 조합의 거부점수가 추천 결과에 반영됩니다." });
   };
 
   const waitingUsers = users.filter((u) => u.contractStatus === "대기");
@@ -132,11 +199,13 @@ const Matching = () => {
   const manualSelected = allScored.find((r) => r.worker.id === manualWorkerId);
 
   const matchingSummary = useMemo(() => {
-    const successful = matchingHistory.filter((record) => record.type === "매칭");
-    const attempts = matchingHistory.filter((record) => record.type === "시도");
+    const successful = matchingHistory.filter((record) => record.type === "매칭" || record.status === "매칭 완료");
+    const attempts = matchingHistory.filter((record) => record.type === "시도" || record.status === "매칭 시도중");
+    const failures = matchingHistory.filter((record) => record.type === "실패" || record.status === "매칭 실패");
     const recentSuccessful = successful.filter((record) => isWithinRecentMonths(record.date));
     const recentAttempts = attempts.filter((record) => isWithinRecentMonths(record.date));
-    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentAttempts.length);
+    const recentFailures = failures.filter((record) => isWithinRecentMonths(record.date));
+    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentAttempts.length + recentFailures.length);
     const durations = successful
       .map((record) => {
         const user = users.find((u) => u.id === record.userId);
@@ -148,6 +217,7 @@ const Matching = () => {
     return {
       totalSuccess: successful.length,
       recentSuccess: recentSuccessful.length,
+      recentFailure: recentFailures.length,
       successRate,
       avgDays,
       possibleRatio,
@@ -156,7 +226,7 @@ const Matching = () => {
     };
   }, [matchingHistory, users, waitingUsers.length, filteredWorkers.length]);
 
-  const openMatchingSummaryModal = (kind: "success" | "waiting") => {
+  const openMatchingSummaryModal = (kind: "success" | "waiting" | "failure") => {
     if (kind === "success") {
       const rows = users.flatMap((user) => {
         const helperIds = user.assignedHelperIds || [];
@@ -180,6 +250,22 @@ const Matching = () => {
       return;
     }
 
+    if (kind === "failure") {
+      const rows = matchingHistory
+        .filter((record) => record.type === "실패" || record.status === "매칭 실패")
+        .filter((record) => isWithinRecentMonths(record.date))
+        .map((record) => ({
+          id: `failure-${record.id || record.userId + record.workerId + record.date}`,
+          name: `${record.userName || "이용자 미등록"} - ${record.workerName || "지원사 미등록"}`,
+          date: record.date || "미등록",
+          status: getHistoryStatus(record),
+          note: [record.failureReason, record.reasonDetail, record.notes].filter(Boolean).join(" · ") || "실패 사유 미등록",
+          userId: record.userId,
+          workerId: record.workerId,
+        }));
+      setSummaryModal({ title: `최근 3개월 매칭 실패 명단 (총 ${rows.length}건)`, rows });
+      return;
+    }
     const waitingUserRows = waitingUsers.map((user) => ({
       id: `waiting-user-${user.id}`,
       name: user.name,
@@ -241,7 +327,7 @@ const Matching = () => {
           <CardTitle className="text-base">매칭 성과 대시보드</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-7 gap-3">
             <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">누적 매칭 성사</p>
               <p className="text-2xl font-bold text-primary">{matchingSummary.totalSuccess}</p>
@@ -249,6 +335,10 @@ const Matching = () => {
             <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">3개월 성사</p>
               <p className="text-2xl font-bold text-primary">{matchingSummary.recentSuccess}</p>
+            </button>
+            <button type="button" onClick={() => openMatchingSummaryModal("failure")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
+              <p className="text-xs text-muted-foreground">3개월 실패</p>
+              <p className="text-2xl font-bold text-destructive">{matchingSummary.recentFailure}</p>
             </button>
             <button type="button" onClick={() => openMatchingSummaryModal("success")} className="rounded-lg border bg-muted/30 p-3 text-left transition hover:shadow-md cursor-pointer">
               <p className="text-xs text-muted-foreground">최근 성공률</p>
@@ -561,9 +651,17 @@ const Matching = () => {
                           <p className="font-semibold">{manualSelected.details.rejectionPenalty.toFixed(0)}</p>
                         </div>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        📍 {manualSelected.worker.address || "주소 미입력"} · 가능요일 {manualSelected.worker.availableDays || "미입력"}
-                      </p>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-[11px] text-muted-foreground">
+                          📍 {manualSelected.worker.address || "주소 미입력"} · 가능요일 {manualSelected.worker.availableDays || "미입력"}
+                        </p>
+                        {getPairRejectionScore(selectedUser, manualSelected.worker) > 0 && (
+                          <Badge variant="destructive">거부점수 {getPairRejectionScore(selectedUser, manualSelected.worker)}점</Badge>
+                        )}
+                        <Button size="sm" variant="outline" onClick={() => openFailureDialog(manualSelected.worker, manualSelected.score)}>
+                          매칭 실패 기록
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -595,6 +693,9 @@ const Matching = () => {
                             </div>
                           </div>
                           <Progress value={(r.score / 90) * 100} className="mb-3 h-2" />
+                          {getPairRejectionScore(selectedUser, r.worker) > 0 && (
+                            <Badge variant="destructive" className="mb-2">실패/거부점수 {getPairRejectionScore(selectedUser, r.worker)}점 주의</Badge>
+                          )}
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                             <div className="bg-muted rounded p-1.5">
                               <p className="text-muted-foreground">시간 적합도</p>
@@ -616,6 +717,11 @@ const Matching = () => {
                               <p className="font-semibold">{r.details.rejectionPenalty.toFixed(0)}</p>
                             </div>
                           </div>
+                          <div className="mt-3 flex justify-end">
+                            <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openFailureDialog(r.worker, r.score); }}>
+                              매칭 실패 기록
+                            </Button>
+                          </div>
                         </CardContent>
                       </Card>
                     ))}
@@ -630,11 +736,51 @@ const Matching = () => {
           )}
         </div>
       </div>
+      <Dialog open={!!failureDialog} onOpenChange={(open) => !open && setFailureDialog(null)}>
+        <DialogContent className="max-w-lg w-[95vw]" onPointerDownOutside={(event) => event.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>매칭 실패 기록</DialogTitle>
+          </DialogHeader>
+          {failureDialog && (
+            <div className="space-y-4">
+              <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                <p className="font-semibold">{failureDialog.user.name} - {failureDialog.worker.name}</p>
+                <p className="text-muted-foreground">현재 추천점수 {failureDialog.score.toFixed(0)}점 · 저장 시 거부점수 {FAILURE_SCORE_DELTA}점 추가</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium">실패 사유</label>
+                <Select value={failureReason} onValueChange={setFailureReason}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {FAILURE_REASONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-sm font-medium">상세 사유</label>
+                <Textarea value={failureDetail} onChange={(e) => setFailureDetail(e.target.value)} placeholder="필요 시 구체적인 거절/불일치 내용을 입력하세요." />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setFailureDialog(null)}>취소</Button>
+                <Button onClick={saveMatchingFailure}>저장</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
 
 export default Matching;
+
+
+
+
+
+
+
+
 
 
 
