@@ -302,6 +302,8 @@ export interface AnnualSchedule {
   id?: string;
   projectName: string;
   status: AnnualScheduleStatus;
+  /** 실제 시행 전 업무 준비를 시작해야 하는 날짜 */
+  preparationStartDate?: string;
   scheduleDate: string;
   note: string;
   manager: string;

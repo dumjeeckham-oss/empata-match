@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { formatScheduleSummary, getAssignmentCount, getScheduleStartInfo, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
+import { formatScheduleSummary, getAssignmentCount, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION,
   WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
@@ -33,7 +33,7 @@ const quickLinks = [
 ] as const;
 
 const emptySchedule: Omit<AnnualSchedule, "id" | "createdAt" | "updatedAt"> = {
-  projectName: "", status: "예정", scheduleDate: "", note: "", manager: "",
+  projectName: "", status: "예정", preparationStartDate: "", scheduleDate: "", note: "", manager: "",
 };
 const statusClass: Record<AnnualScheduleStatus, string> = {
   진행중: "border-blue-200 bg-blue-100 text-blue-700",
@@ -127,12 +127,7 @@ const WorkBoard = () => {
   const visibleTodos = todos
     .filter((todo) => showCompleted || !todo.completed)
     .sort((a, b) => Number(b.important) - Number(a.important) || Number(a.completed) - Number(b.completed));
-  const scheduleStartItems = [...schedules].sort((a, b) => {
-    if (a.status === "완료" && b.status !== "완료") return 1;
-    if (a.status !== "완료" && b.status === "완료") return -1;
-    return (getScheduleStartInfo(a.scheduleDate)?.timestamp ?? Number.MAX_SAFE_INTEGER)
-      - (getScheduleStartInfo(b.scheduleDate)?.timestamp ?? Number.MAX_SAFE_INTEGER);
-  });
+  const scheduleStartItems = getVisibleScheduleStarts(schedules);
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -179,7 +174,7 @@ const WorkBoard = () => {
     if (schedule) {
       setEditingScheduleId(schedule.id);
       setScheduleForm({
-        projectName: schedule.projectName, status: schedule.status, scheduleDate: schedule.scheduleDate,
+        projectName: schedule.projectName, status: schedule.status, preparationStartDate: schedule.preparationStartDate || "", scheduleDate: schedule.scheduleDate,
         note: schedule.note, manager: schedule.manager,
       });
     } else {
@@ -189,8 +184,8 @@ const WorkBoard = () => {
     setScheduleDialogOpen(true);
   };
   const saveSchedule = async () => {
-    if (!scheduleForm.projectName.trim() || !scheduleForm.scheduleDate.trim() || !scheduleForm.manager.trim()) {
-      toast({ title: "사업명, 시행날짜, 담당을 입력해주세요.", variant: "destructive" });
+    if (!scheduleForm.projectName.trim() || !scheduleForm.preparationStartDate?.trim() || !scheduleForm.scheduleDate.trim() || !scheduleForm.manager.trim()) {
+      toast({ title: "사업명, 업무준비 시작일, 시행날짜, 담당을 입력해주세요.", variant: "destructive" });
       return;
     }
     if (editingScheduleId) await scheduleStore.update(editingScheduleId, scheduleForm);
@@ -247,9 +242,9 @@ const WorkBoard = () => {
           <CardHeader className="bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg"><CalendarClock className="h-5 w-5 text-primary" />연간일정 시작일</CardTitle><p className="text-xs text-muted-foreground">아래 연간일정 현황에서 수정하면 이곳에도 실시간으로 반영됩니다.</p></CardHeader>
           <CardContent className="pt-5">
             {!scheduleStartItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">등록된 연간 일정이 없습니다.</p> : <div className="max-h-80 space-y-3 overflow-y-auto pr-1">{scheduleStartItems.map((schedule) => {
-              const startInfo = getScheduleStartInfo(schedule.scheduleDate);
-              return <div key={schedule.id} className={cn("rounded-xl border p-4", schedule.status === "완료" ? "bg-muted/30 opacity-70" : startInfo && startInfo.daysUntil >= 0 && startInfo.daysUntil <= 14 ? "border-amber-300 bg-amber-50" : "bg-card")}>
-                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold">{schedule.projectName}</p><p className="mt-1 text-lg font-bold tracking-tight text-primary">{startInfo?.displayDate || schedule.scheduleDate}</p><p className="mt-1 text-xs text-muted-foreground">전체 시행일: {schedule.scheduleDate}</p></div><div className="flex shrink-0 flex-col items-end gap-1"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge><Badge variant={startInfo && startInfo.daysUntil >= 0 && startInfo.daysUntil <= 14 ? "default" : "secondary"}>{startInfo?.relativeLabel || "날짜 확인"}</Badge></div></div>
+              const startInfo = getScheduleStartInfo(schedule.preparationStartDate || "");
+              return <div key={schedule.id} className={cn("rounded-xl border p-4", startInfo && startInfo.daysUntil >= 0 && startInfo.daysUntil <= 14 ? "border-amber-300 bg-amber-50" : "bg-card")}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold">{schedule.projectName}</p><p className="mt-1 text-xs font-medium text-muted-foreground">업무준비 시작일</p><p className="text-lg font-bold tracking-tight text-primary">{startInfo?.displayDate || "미등록"}</p><p className="mt-1 text-xs text-muted-foreground">전체 시행일: {schedule.scheduleDate}</p></div><div className="flex shrink-0 flex-col items-end gap-1"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge><Badge variant={startInfo && startInfo.daysUntil >= 0 && startInfo.daysUntil <= 14 ? "default" : "secondary"}>{startInfo?.relativeLabel || "날짜 등록 필요"}</Badge></div></div>
               </div>;
             })}</div>}
           </CardContent>
@@ -278,14 +273,14 @@ const WorkBoard = () => {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between bg-muted/30"><CardTitle className="text-lg">📅 연간 일정 현황</CardTitle><Button size="sm" onClick={() => openScheduleDialog()}><Plus className="mr-1 h-4 w-4" />신규 일정</Button></CardHeader>
-        <CardContent className="pt-5"><div className="overflow-x-auto"><table className="w-full min-w-[840px] text-sm"><thead><tr className="border-b bg-muted/40"><th className="px-3 py-3 text-left">연간사업명</th><th className="px-3 py-3 text-left">상태</th><th className="px-3 py-3 text-left">시행날짜</th><th className="px-3 py-3 text-left">비고</th><th className="px-3 py-3 text-left">담당</th><th className="px-3 py-3 text-right">관리</th></tr></thead><tbody>
-          {!schedules.length ? <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">일정을 준비하고 있습니다.</td></tr> : schedules.map((schedule) => <tr key={schedule.id} className="border-b hover:bg-muted/20"><td className="px-3 py-3 font-medium">{schedule.projectName}</td><td className="px-3 py-3"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge></td><td className="whitespace-nowrap px-3 py-3">{schedule.scheduleDate}</td><td className="max-w-xs whitespace-pre-wrap px-3 py-3 text-muted-foreground">{schedule.note || "-"}</td><td className="px-3 py-3">{schedule.manager}</td><td className="px-3 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="일정 수정" onClick={() => openScheduleDialog(schedule)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label="일정 삭제" onClick={() => schedule.id && confirm("이 일정을 삭제할까요?") && void scheduleStore.remove(schedule.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></tr>)}
+        <CardContent className="pt-5"><div className="overflow-x-auto"><table className="w-full min-w-[960px] text-sm"><thead><tr className="border-b bg-muted/40"><th className="px-3 py-3 text-left">연간사업명</th><th className="px-3 py-3 text-left">상태</th><th className="px-3 py-3 text-left">업무준비 시작일</th><th className="px-3 py-3 text-left">시행날짜</th><th className="px-3 py-3 text-left">비고</th><th className="px-3 py-3 text-left">담당</th><th className="px-3 py-3 text-right">관리</th></tr></thead><tbody>
+          {!schedules.length ? <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">일정을 준비하고 있습니다.</td></tr> : schedules.map((schedule) => <tr key={schedule.id} className="border-b hover:bg-muted/20"><td className="px-3 py-3 font-medium">{schedule.projectName}</td><td className="px-3 py-3"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge></td><td className="whitespace-nowrap px-3 py-3">{schedule.preparationStartDate || "미등록"}</td><td className="whitespace-nowrap px-3 py-3">{schedule.scheduleDate}</td><td className="max-w-xs whitespace-pre-wrap px-3 py-3 text-muted-foreground">{schedule.note || "-"}</td><td className="px-3 py-3">{schedule.manager}</td><td className="px-3 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="일정 수정" onClick={() => openScheduleDialog(schedule)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label="일정 삭제" onClick={() => schedule.id && confirm("이 일정을 삭제할까요?") && void scheduleStore.remove(schedule.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></tr>)}
         </tbody></table></div></CardContent>
       </Card>
 
       <Dialog open={matchingDialogOpen} onOpenChange={setMatchingDialogOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>매칭 필요 대상 추가</DialogTitle></DialogHeader><div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>대상 구분</Label><Select value={targetType} onValueChange={(value) => { setTargetType(value as MatchingBoardItem["targetType"]); setTargetId(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="이용자">이용자</SelectItem><SelectItem value="활동지원사">활동지원사</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>매칭 형태</Label><Select value={matchMode} onValueChange={(value) => setMatchMode(value as NonNullable<MatchingBoardItem["matchMode"]>)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1:1">1:1 (기본 매칭)</SelectItem><SelectItem value="1:다">1:다 (기존 매칭에 추가)</SelectItem></SelectContent></Select></div></div><div className="space-y-2"><Label>이름 검색</Label><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={targetSearch} onChange={(event) => setTargetSearch(event.target.value)} placeholder="이름을 입력하세요" /></div><div className="max-h-40 divide-y overflow-y-auto rounded-md border">{matchingCandidates.map((candidate) => <button key={candidate.id} className={cn("flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted", targetId === candidate.id && "bg-primary/10 text-primary")} onClick={() => setTargetId(candidate.id)}><span>{candidate.name}</span>{targetId === candidate.id && <Check className="h-4 w-4" />}</button>)}</div></div>{matchMode === "1:다" && selectedTarget && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="mb-2 font-semibold">⚠️ 현재 서비스 시간 — 새 매칭과 겹치지 않도록 확인하세요</p><div className="space-y-1">{currentServiceInfo.map((line) => <p key={line} className="whitespace-pre-wrap">{line}</p>)}</div><p className="mt-2 text-xs text-amber-800">현재 배정 {getAssignmentCount(targetType, selectedTarget)}명 · 추가 배정이 확인되면 이 명단에서 자동 제거됩니다.</p></div>}<div className="space-y-2"><Label>매칭 필요 조건 *</Label><Textarea value={matchingCondition} onChange={(event) => setMatchingCondition(event.target.value)} placeholder="예: 10:00~14:00 중동 인근 9월부터 추가 매칭필요" /></div></div><DialogFooter><Button variant="outline" onClick={() => setMatchingDialogOpen(false)}>취소</Button><Button onClick={() => void saveMatchingItem()}>등록</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2 sm:col-span-2"><Label>시행날짜 *</Label><Input value={scheduleForm.scheduleDate} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduleDate: event.target.value })} placeholder="2026/07/13 → 2026/07/17" /></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2"><Label>업무준비 시작일 *</Label><Input type="date" value={scheduleForm.preparationStartDate || ""} onChange={(event) => setScheduleForm({ ...scheduleForm, preparationStartDate: event.target.value })} /></div><div className="space-y-2"><Label>시행날짜 *</Label><Input value={scheduleForm.scheduleDate} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduleDate: event.target.value })} placeholder="2026/07/13 → 2026/07/17" /></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={missingLinkDialogOpen} onOpenChange={setMissingLinkDialogOpen}><DialogContent><DialogHeader><DialogTitle>입사서류 안내 링크 입력</DialogTitle></DialogHeader><div className="space-y-2"><Label>URL</Label><Input value={onboardingUrl} onChange={(event) => setOnboardingUrl(event.target.value)} placeholder="https://..." /><p className="text-xs text-muted-foreground">현재 브라우저에 저장되며 다음부터 새 탭에서 열립니다.</p></div><DialogFooter><Button variant="outline" onClick={() => setMissingLinkDialogOpen(false)}>취소</Button><Button onClick={saveOnboardingLink}>저장</Button></DialogFooter></DialogContent></Dialog>
     </div>

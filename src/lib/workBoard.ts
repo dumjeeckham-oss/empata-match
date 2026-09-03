@@ -1,4 +1,4 @@
-import type { MatchingBoardItem, ServiceUser, WeeklySchedule, Worker } from "@/types";
+import type { AnnualSchedule, MatchingBoardItem, ServiceUser, WeeklySchedule, Worker } from "@/types";
 
 type MatchTarget = (ServiceUser & { id: string }) | (Worker & { id: string });
 
@@ -78,4 +78,13 @@ export function getScheduleStartInfo(value: string, today = new Date()) {
     relativeLabel: daysUntil === 0 ? "오늘 시작" : daysUntil > 0 ? `D-${daysUntil}` : `D+${Math.abs(daysUntil)}`,
     daysUntil,
   };
+}
+
+export function getVisibleScheduleStarts<T extends AnnualSchedule>(schedules: T[]): T[] {
+  return [...schedules]
+    .filter((schedule) => schedule.status !== "완료")
+    .sort((a, b) =>
+      (getScheduleStartInfo(a.preparationStartDate || "")?.timestamp ?? Number.MAX_SAFE_INTEGER)
+      - (getScheduleStartInfo(b.preparationStartDate || "")?.timestamp ?? Number.MAX_SAFE_INTEGER)
+    );
 }

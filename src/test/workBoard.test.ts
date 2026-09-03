@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatScheduleSummary, getScheduleStartInfo, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
+import { formatScheduleSummary, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import type { MatchingBoardItem, ServiceUser } from "@/types";
 
 const boardItem: MatchingBoardItem = {
@@ -39,5 +39,15 @@ describe("work board matching modes", () => {
 
   it("rejects invalid annual schedule dates", () => {
     expect(getScheduleStartInfo("2026/02/30")).toBeNull();
+  });
+
+  it("sorts by preparation start date and excludes completed schedules", () => {
+    const schedules = getVisibleScheduleStarts([
+      { projectName: "완료 사업", status: "완료", preparationStartDate: "2026-01-01", scheduleDate: "2026/02/01", note: "", manager: "A" },
+      { projectName: "두 번째", status: "예정", preparationStartDate: "2026-06-01", scheduleDate: "2026/07/01", note: "", manager: "B" },
+      { projectName: "첫 번째", status: "진행중", preparationStartDate: "2026-05-01", scheduleDate: "2026/06/01", note: "", manager: "C" },
+    ]);
+
+    expect(schedules.map((schedule) => schedule.projectName)).toEqual(["첫 번째", "두 번째"]);
   });
 });
