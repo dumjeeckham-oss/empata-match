@@ -13,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { formatScheduleSummary, getAssignmentCount, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION,
   WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
@@ -72,6 +73,7 @@ const WorkBoard = () => {
   const [showCompleted, setShowCompleted] = useState(false);
   const [matchingDialogOpen, setMatchingDialogOpen] = useState(false);
   const [targetType, setTargetType] = useState<MatchingBoardItem["targetType"]>("이용자");
+  const [matchMode, setMatchMode] = useState<NonNullable<MatchingBoardItem["matchMode"]>>("1:1");
   const [targetSearch, setTargetSearch] = useState("");
   const [targetId, setTargetId] = useState("");
   const [matchingCondition, setMatchingCondition] = useState("");
@@ -97,9 +99,7 @@ const WorkBoard = () => {
       const target = item.targetType === "이용자"
         ? users.find((user) => user.id === item.targetId)
         : workers.find((worker) => worker.id === item.targetId);
-      return item.targetType === "이용자"
-        ? target?.contractStatus === "서비스중"
-        : target?.contractStatus === "근무중";
+      return shouldAutoRemoveMatchingItem(item, target);
     }).map((item) => item.id).filter((id): id is string => Boolean(id));
     if (completedIds.length === 0) return;
     void Promise.all(completedIds.map(matchingStore.remove))
@@ -117,6 +117,31 @@ const WorkBoard = () => {
   const selectedPool = targetType === "이용자" ? users : workers;
   const query = targetSearch.trim().toLowerCase();
   const matchingCandidates = (query ? selectedPool.filter((item) => item.name.toLowerCase().includes(query)) : selectedPool).slice(0, 8);
+  const selectedTarget = selectedPool.find((item) => item.id === targetId);
+  const currentServiceInfo = (() => {
+    if (!selectedTarget || matchMode !== "1:다") return [];
+    if (targetType === "이용자") {
+      const user = selectedTarget as ServiceUser;
+      return [
+        `현재 배정 지원사: ${user.assignedHelperNames?.filter(Boolean).join(", ") || "없음"}`,
+        `등록된 이용시간: ${formatScheduleSummary(user.weeklySchedule, user.requiredDays, user.requiredHours)}`,
+      ];
+    }
+    const worker = selectedTarget as Worker;
+    const assignedUsers = (worker.assignedUserIds || [])
+      .map((id) => users.find((user) => user.id === id))
+      .filter((user): user is ServiceUser & { id: string } => Boolean(user));
+    const lines = assignedUsers.map((user) =>
+      `${user.name}: ${formatScheduleSummary(user.weeklySchedule, user.requiredDays, user.requiredHours)}`
+    );
+    if (!lines.length && worker.assignedUserNames?.length) {
+      lines.push(`현재 배정 이용자: ${worker.assignedUserNames.filter(Boolean).join(", ")} (시간 정보 없음)`);
+    }
+    return [
+      `지원 가능시간: ${formatScheduleSummary(worker.weeklySchedule, worker.availableDays, worker.availableHours)}`,
+      ...lines,
+    ];
+  })();
   const visibleTodos = todos
     .filter((todo) => showCompleted || !todo.completed)
     .sort((a, b) => Number(b.important) - Number(a.important) || Number(a.completed) - Number(b.completed));
@@ -148,11 +173,19 @@ const WorkBoard = () => {
       toast({ title: "이미 명단에 등록된 대상입니다.", variant: "destructive" });
       return;
     }
-    await matchingStore.add({ targetType, targetId: target.id, targetName: target.name, condition: matchingCondition.trim() });
+    await matchingStore.add({
+      targetType,
+      targetId: target.id,
+      targetName: target.name,
+      condition: matchingCondition.trim(),
+      matchMode,
+      existingAssignmentCount: getAssignmentCount(targetType, target),
+    });
     setMatchingDialogOpen(false);
     setTargetId("");
     setTargetSearch("");
     setMatchingCondition("");
+    setMatchMode("1:1");
   };
   const openScheduleDialog = (schedule?: AnnualSchedule & { id: string }) => {
     if (schedule) {
@@ -234,7 +267,7 @@ const WorkBoard = () => {
         <CardContent className="pt-5">
           {!matchingItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">현재 매칭이 필요한 등록 대상이 없습니다.</p> : <div className="grid gap-3 md:grid-cols-2">{matchingItems.map((item) => (
             <div key={item.id} className="flex items-start gap-3 rounded-xl border p-4">
-              <Badge variant="outline" className="shrink-0">{item.targetType}</Badge>
+              <div className="flex shrink-0 flex-col gap-1"><Badge variant="outline">{item.targetType}</Badge><Badge variant={item.matchMode === "1:다" ? "default" : "secondary"}>{item.matchMode || "1:1"}</Badge></div>
               <div className="min-w-0 flex-1"><button className="font-semibold text-primary hover:underline" onClick={() => navigate(item.targetType === "이용자" ? `/users?detailId=${encodeURIComponent(item.targetId)}` : `/workers?detailId=${encodeURIComponent(item.targetId)}`)}>{item.targetName}</button><p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{item.condition}</p></div>
               <Button variant="ghost" size="icon" aria-label={`${item.targetName} 제거`} onClick={() => item.id && void matchingStore.remove(item.id)}><X className="h-4 w-4" /></Button>
             </div>
@@ -249,7 +282,7 @@ const WorkBoard = () => {
         </tbody></table></div></CardContent>
       </Card>
 
-      <Dialog open={matchingDialogOpen} onOpenChange={setMatchingDialogOpen}><DialogContent><DialogHeader><DialogTitle>매칭 필요 대상 추가</DialogTitle></DialogHeader><div className="space-y-4"><div className="space-y-2"><Label>대상 구분</Label><Select value={targetType} onValueChange={(value) => { setTargetType(value as MatchingBoardItem["targetType"]); setTargetId(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="이용자">이용자</SelectItem><SelectItem value="활동지원사">활동지원사</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>이름 검색</Label><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={targetSearch} onChange={(event) => setTargetSearch(event.target.value)} placeholder="이름을 입력하세요" /></div><div className="max-h-40 divide-y overflow-y-auto rounded-md border">{matchingCandidates.map((candidate) => <button key={candidate.id} className={cn("flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted", targetId === candidate.id && "bg-primary/10 text-primary")} onClick={() => setTargetId(candidate.id)}><span>{candidate.name}</span>{targetId === candidate.id && <Check className="h-4 w-4" />}</button>)}</div></div><div className="space-y-2"><Label>매칭 필요 조건 *</Label><Textarea value={matchingCondition} onChange={(event) => setMatchingCondition(event.target.value)} placeholder="예: 10:00~14:00 중동 인근 9월부터 매칭필요" /></div></div><DialogFooter><Button variant="outline" onClick={() => setMatchingDialogOpen(false)}>취소</Button><Button onClick={() => void saveMatchingItem()}>등록</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={matchingDialogOpen} onOpenChange={setMatchingDialogOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>매칭 필요 대상 추가</DialogTitle></DialogHeader><div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>대상 구분</Label><Select value={targetType} onValueChange={(value) => { setTargetType(value as MatchingBoardItem["targetType"]); setTargetId(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="이용자">이용자</SelectItem><SelectItem value="활동지원사">활동지원사</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>매칭 형태</Label><Select value={matchMode} onValueChange={(value) => setMatchMode(value as NonNullable<MatchingBoardItem["matchMode"]>)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1:1">1:1 (기본 매칭)</SelectItem><SelectItem value="1:다">1:다 (기존 매칭에 추가)</SelectItem></SelectContent></Select></div></div><div className="space-y-2"><Label>이름 검색</Label><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={targetSearch} onChange={(event) => setTargetSearch(event.target.value)} placeholder="이름을 입력하세요" /></div><div className="max-h-40 divide-y overflow-y-auto rounded-md border">{matchingCandidates.map((candidate) => <button key={candidate.id} className={cn("flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted", targetId === candidate.id && "bg-primary/10 text-primary")} onClick={() => setTargetId(candidate.id)}><span>{candidate.name}</span>{targetId === candidate.id && <Check className="h-4 w-4" />}</button>)}</div></div>{matchMode === "1:다" && selectedTarget && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="mb-2 font-semibold">⚠️ 현재 서비스 시간 — 새 매칭과 겹치지 않도록 확인하세요</p><div className="space-y-1">{currentServiceInfo.map((line) => <p key={line} className="whitespace-pre-wrap">{line}</p>)}</div><p className="mt-2 text-xs text-amber-800">현재 배정 {getAssignmentCount(targetType, selectedTarget)}명 · 추가 배정이 확인되면 이 명단에서 자동 제거됩니다.</p></div>}<div className="space-y-2"><Label>매칭 필요 조건 *</Label><Textarea value={matchingCondition} onChange={(event) => setMatchingCondition(event.target.value)} placeholder="예: 10:00~14:00 중동 인근 9월부터 추가 매칭필요" /></div></div><DialogFooter><Button variant="outline" onClick={() => setMatchingDialogOpen(false)}>취소</Button><Button onClick={() => void saveMatchingItem()}>등록</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2 sm:col-span-2"><Label>시행날짜 *</Label><Input value={scheduleForm.scheduleDate} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduleDate: event.target.value })} placeholder="2026/07/13 → 2026/07/17" /></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
 

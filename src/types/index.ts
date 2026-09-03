@@ -288,6 +288,10 @@ export interface MatchingBoardItem {
   targetId: string;
   targetName: string;
   condition: string;
+  /** 기본 1:1, 기존 매칭을 유지한 채 추가 배정이 필요하면 1:다 */
+  matchMode?: "1:1" | "1:다";
+  /** 1:다 등록 당시 배정 인원수. 이후 인원이 늘면 자동 완료 처리 */
+  existingAssignmentCount?: number;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
