@@ -22,6 +22,7 @@ import {
 import type {
   AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, CalendarEventColor, MatchingBoardItem, ServiceUser, Worker, WorkCalendarEvent, WorkTodo,
 } from "@/types";
+import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
 
 const quickLinks = [
   { label: "공지사항 수정", url: "https://app.notion.com/p/2c43f84ca160805ba164c94fb1642186", icon: "📣" },
@@ -278,9 +279,14 @@ const WorkBoard = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h1 className="page-header">업무 종합 보드</h1><p className="mt-1 text-sm text-muted-foreground">오늘의 업무와 매칭, 연간 일정을 한곳에서 관리합니다.</p></div>
-        <Button variant="outline" onClick={() => navigate("/")}>대시보드로 이동</Button>
+      <div className="flex flex-col gap-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="w-full max-w-[560px] overflow-hidden rounded-lg bg-white p-2">
+            <img src={dongbaekCenterLogo} alt="부천의료복지사회적협동조합 동백 장애인활동지원센터" className="h-auto w-full object-contain" />
+          </div>
+          <div><div className="flex flex-wrap items-baseline gap-x-3 gap-y-1"><h1 className="page-header mb-0">업무 종합 보드</h1><p className="text-sm font-medium text-primary sm:text-base">오늘도 행복한 하루를~</p></div><p className="mt-1 text-sm text-muted-foreground">오늘의 업무와 매칭, 연간 일정을 한곳에서 관리합니다.</p></div>
+        </div>
+        <Button className="self-start lg:self-auto" variant="outline" onClick={() => navigate("/")}>대시보드로 이동</Button>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">

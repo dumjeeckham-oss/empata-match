@@ -8,6 +8,7 @@ import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, HANDOVER
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { isWithinRecentMonths, parseDateValue } from "@/lib/dashboardStats";
+import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -108,7 +109,15 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-8">
-      <h1 className="page-header">대시보드</h1>
+      <div className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
+        <div className="w-full max-w-[560px] overflow-hidden rounded-lg bg-white p-2">
+          <img src={dongbaekCenterLogo} alt="부천의료복지사회적협동조합 동백 장애인활동지원센터" className="h-auto w-full object-contain" />
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h1 className="page-header mb-0">대시보드</h1>
+          <p className="text-sm font-medium text-primary sm:text-base">오늘도 행복한 하루를~</p>
+        </div>
+      </div>
       
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="stat-card border-l-4 border-l-primary cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => navigate("/users?status=서비스중")}>
