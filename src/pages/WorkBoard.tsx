@@ -160,11 +160,12 @@ const WorkBoard = () => {
   const calendarDays = buildMonthGrid(calendarMonth.getFullYear(), calendarMonth.getMonth());
   const calendarEventsWithLanes = assignCalendarEventLanes(calendarEvents);
   const today = toLocalYmd(new Date());
-  const quickLinks = defaultQuickLinks.map((defaultLink) => {
+  const defaultLinkKeys = new Set<string>(defaultQuickLinks.map((link) => link.key));
+  const quickLinks = [...defaultQuickLinks.map((defaultLink) => {
     const override = quickLinkOverrides.find((item) => item.key === defaultLink.key);
     const legacyOnboardingUrl = defaultLink.key === "onboarding" ? localStorage.getItem("quickLink_onboarding") || "" : "";
     return { ...defaultLink, id: override?.id, label: override?.label || defaultLink.label, url: override?.url || legacyOnboardingUrl || defaultLink.url };
-  });
+  }), ...quickLinkOverrides.filter((item) => !defaultLinkKeys.has(item.key)).map((item) => ({ ...item, icon: "🔗" }))];
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -272,6 +273,10 @@ const WorkBoard = () => {
     setEditingQuickLink({ id: link.id, key: link.key, label: link.label, url: link.url });
     setQuickLinkDialogOpen(true);
   };
+  const addQuickLink = () => {
+    setEditingQuickLink({ key: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, label: "", url: "" });
+    setQuickLinkDialogOpen(true);
+  };
   const openQuickLink = (link: (typeof quickLinks)[number]) => {
     if (!link.url) return editQuickLink(link);
     window.open(link.url, "_blank", "noopener,noreferrer");
@@ -374,7 +379,7 @@ const WorkBoard = () => {
       </Card>
 
       <Card>
-        <CardHeader className="bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle><Button size="sm" onClick={addQuickLink}><Plus className="mr-1 h-4 w-4" />새 바로가기 추가</Button></CardHeader>
         <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 lg:grid-cols-4">
           {quickLinks.map((link) => <div key={link.key} className="group relative flex min-h-20 items-center gap-3 rounded-xl border bg-card p-4 pr-12 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"><button type="button" onClick={() => openQuickLink(link)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className="text-2xl">{link.icon}</span><span className="min-w-0 flex-1"><span className="block text-sm font-semibold leading-snug">{link.label}</span>{!link.url && <span className="mt-1 block text-[10px] text-amber-600">링크 입력 필요</span>}</span><ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" /></button><Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2" aria-label={`${link.label} 수정`} onClick={() => editQuickLink(link)}><Pencil className="h-4 w-4" /></Button></div>)}
         </CardContent>
@@ -419,7 +424,7 @@ const WorkBoard = () => {
 
       <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCalendarEventId ? "달력 일정 수정" : "달력 일정 등록"}</DialogTitle></DialogHeader><div className="space-y-4"><div className="space-y-2"><Label>일정 제목 *</Label><Input value={calendarForm.title} onChange={(event) => setCalendarForm({ ...calendarForm, title: event.target.value })} placeholder="예: 이용자 가정 방문" /></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label>시작일 *</Label><Input type="date" value={calendarForm.startDate} onChange={(event) => setCalendarForm({ ...calendarForm, startDate: event.target.value, endDate: calendarForm.endDate < event.target.value ? event.target.value : calendarForm.endDate })} /></div><div className="space-y-2"><Label>종료일 *</Label><Input type="date" min={calendarForm.startDate} value={calendarForm.endDate} onChange={(event) => setCalendarForm({ ...calendarForm, endDate: event.target.value })} /></div></div><div className="space-y-2"><Label>표시 색상</Label><div className="flex flex-wrap gap-2">{(Object.keys(calendarColorClass) as CalendarEventColor[]).map((color) => <button key={color} type="button" className={cn("rounded-full border-2 px-3 py-1 text-xs font-semibold", calendarColorClass[color], calendarForm.color === color ? "border-foreground ring-2 ring-ring ring-offset-2" : "border-transparent")} onClick={() => setCalendarForm({ ...calendarForm, color })}>{calendarColorLabel[color]}</button>)}</div></div><div className="space-y-2"><Label>메모</Label><Textarea value={calendarForm.note} onChange={(event) => setCalendarForm({ ...calendarForm, note: event.target.value })} placeholder="준비사항이나 참고 내용을 자유롭게 입력하세요." /></div></div><DialogFooter className="gap-2 sm:justify-between"><div>{editingCalendarEventId && <Button variant="destructive" onClick={() => void deleteCalendarEvent()}><Trash2 className="mr-1 h-4 w-4" />삭제</Button>}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>취소</Button><Button onClick={() => void saveCalendarEvent()}>{editingCalendarEventId ? "수정 저장" : "일정 등록"}</Button></div></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={quickLinkDialogOpen} onOpenChange={setQuickLinkDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>바로가기 수정</DialogTitle></DialogHeader>{editingQuickLink && <div className="space-y-4"><div className="space-y-2"><Label>바로가기 이름 *</Label><Input value={editingQuickLink.label} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, label: event.target.value })} placeholder="바로가기 이름" /></div><div className="space-y-2"><Label>링크 주소 *</Label><Input type="url" value={editingQuickLink.url} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, url: event.target.value })} placeholder="https://..." /><p className="text-xs text-muted-foreground">http:// 또는 https://로 시작하는 전체 주소를 입력하세요. 수정 내용은 모든 사용자에게 동일하게 표시됩니다.</p></div></div>}<DialogFooter><Button variant="outline" onClick={() => setQuickLinkDialogOpen(false)}>취소</Button><Button onClick={() => void saveQuickLink()}>수정 저장</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={quickLinkDialogOpen} onOpenChange={setQuickLinkDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingQuickLink && !editingQuickLink.id && editingQuickLink.key.startsWith("custom-") ? "새 바로가기 추가" : "바로가기 수정"}</DialogTitle></DialogHeader>{editingQuickLink && <div className="space-y-4"><div className="space-y-2"><Label>바로가기 이름 *</Label><Input value={editingQuickLink.label} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, label: event.target.value })} placeholder="예: 기관 업무 시스템" /></div><div className="space-y-2"><Label>링크 주소 *</Label><Input type="url" value={editingQuickLink.url} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, url: event.target.value })} placeholder="https://..." /><p className="text-xs text-muted-foreground">http:// 또는 https://로 시작하는 전체 주소를 입력하세요. 저장 내용은 모든 사용자에게 동일하게 표시됩니다.</p></div></div>}<DialogFooter><Button variant="outline" onClick={() => setQuickLinkDialogOpen(false)}>취소</Button><Button onClick={() => void saveQuickLink()}>{editingQuickLink && !editingQuickLink.id && editingQuickLink.key.startsWith("custom-") ? "바로가기 추가" : "수정 저장"}</Button></DialogFooter></DialogContent></Dialog>
     </div>
   );
 };
