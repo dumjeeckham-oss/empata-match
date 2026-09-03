@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, ExternalLink, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
+import { CalendarClock, Check, ExternalLink, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { formatScheduleSummary, getAssignmentCount, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
+import { formatScheduleSummary, getAssignmentCount, getScheduleStartInfo, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION,
   WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
@@ -145,6 +145,12 @@ const WorkBoard = () => {
   const visibleTodos = todos
     .filter((todo) => showCompleted || !todo.completed)
     .sort((a, b) => Number(b.important) - Number(a.important) || Number(a.completed) - Number(b.completed));
+  const scheduleStartItems = [...schedules].sort((a, b) => {
+    if (a.status === "완료" && b.status !== "완료") return 1;
+    if (a.status !== "완료" && b.status === "완료") return -1;
+    return (getScheduleStartInfo(a.scheduleDate)?.timestamp ?? Number.MAX_SAFE_INTEGER)
+      - (getScheduleStartInfo(b.scheduleDate)?.timestamp ?? Number.MAX_SAFE_INTEGER);
+  });
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -254,13 +260,25 @@ const WorkBoard = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle></CardHeader>
-          <CardContent className="grid gap-3 pt-5 sm:grid-cols-2">
-            {quickLinks.map((link) => <button key={link.label} onClick={() => openQuickLink(link.url)} className="group flex min-h-20 items-center gap-3 rounded-xl border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"><span className="text-2xl">{link.icon}</span><span className="flex-1 text-sm font-semibold leading-snug">{link.label}</span><ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary" /></button>)}
+        <Card className="overflow-hidden">
+          <CardHeader className="bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg"><CalendarClock className="h-5 w-5 text-primary" />연간일정 시작일</CardTitle></CardHeader>
+          <CardContent className="pt-5">
+            {!scheduleStartItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">등록된 연간 일정이 없습니다.</p> : <div className="max-h-80 space-y-3 overflow-y-auto pr-1">{scheduleStartItems.map((schedule) => {
+              const startInfo = getScheduleStartInfo(schedule.scheduleDate);
+              return <div key={schedule.id} className={cn("rounded-xl border p-4", schedule.status === "완료" ? "bg-muted/30 opacity-70" : startInfo && startInfo.daysUntil >= 0 && startInfo.daysUntil <= 14 ? "border-amber-300 bg-amber-50" : "bg-card")}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold">{schedule.projectName}</p><p className="mt-1 text-lg font-bold tracking-tight text-primary">{startInfo?.displayDate || schedule.scheduleDate}</p><p className="mt-1 text-xs text-muted-foreground">전체 시행일: {schedule.scheduleDate}</p></div><div className="flex shrink-0 flex-col items-end gap-1"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge><Badge variant={startInfo && startInfo.daysUntil >= 0 && startInfo.daysUntil <= 14 ? "default" : "secondary"}>{startInfo?.relativeLabel || "날짜 확인"}</Badge></div></div>
+              </div>;
+            })}</div>}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle></CardHeader>
+        <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 lg:grid-cols-4">
+          {quickLinks.map((link) => <button key={link.label} onClick={() => openQuickLink(link.url)} className="group flex min-h-20 items-center gap-3 rounded-xl border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"><span className="text-2xl">{link.icon}</span><span className="flex-1 text-sm font-semibold leading-snug">{link.label}</span><ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-primary" /></button>)}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between bg-muted/30"><CardTitle className="text-lg">🎯 매칭 필요 명단</CardTitle><Button size="sm" onClick={() => setMatchingDialogOpen(true)}><UserRoundSearch className="mr-1 h-4 w-4" />명단 추가</Button></CardHeader>

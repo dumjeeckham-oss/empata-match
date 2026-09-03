@@ -58,3 +58,24 @@ export function shouldAutoRemoveMatchingItem(item: MatchingBoardItem, target?: M
     ? (target as ServiceUser).contractStatus === "서비스중"
     : (target as Worker).contractStatus === "근무중";
 }
+
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
+
+export function getScheduleStartInfo(value: string, today = new Date()) {
+  const match = String(value || "").match(/(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})/);
+  if (!match) return null;
+  const [, yearRaw, monthRaw, dayRaw] = match;
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const day = Number(dayRaw);
+  const start = new Date(year, month - 1, day);
+  if (start.getFullYear() !== year || start.getMonth() !== month - 1 || start.getDate() !== day) return null;
+  const base = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const daysUntil = Math.round((start.getTime() - base.getTime()) / 86400000);
+  return {
+    timestamp: start.getTime(),
+    displayDate: `${year}년 ${month}월 ${day}일 (${WEEKDAYS[start.getDay()]})`,
+    relativeLabel: daysUntil === 0 ? "오늘 시작" : daysUntil > 0 ? `D-${daysUntil}` : `D+${Math.abs(daysUntil)}`,
+    daysUntil,
+  };
+}

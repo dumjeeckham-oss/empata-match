@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatScheduleSummary, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
+import { formatScheduleSummary, getScheduleStartInfo, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import type { MatchingBoardItem, ServiceUser } from "@/types";
 
 const boardItem: MatchingBoardItem = {
@@ -29,5 +29,15 @@ describe("work board matching modes", () => {
 
   it("formats contiguous half-hour slots for overlap checking", () => {
     expect(formatScheduleSummary([{ day: "월", slots: [20, 21, 22, 23] }])).toBe("월 10:00~12:00");
+  });
+
+  it("shows a readable annual schedule start date and countdown", () => {
+    const info = getScheduleStartInfo("2026/07/13 → 2026/07/17", new Date(2026, 6, 3));
+    expect(info?.displayDate).toBe("2026년 7월 13일 (월)");
+    expect(info?.relativeLabel).toBe("D-10");
+  });
+
+  it("rejects invalid annual schedule dates", () => {
+    expect(getScheduleStartInfo("2026/02/30")).toBeNull();
   });
 });
