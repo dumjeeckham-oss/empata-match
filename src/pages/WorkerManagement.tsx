@@ -49,6 +49,7 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
+import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -238,17 +239,11 @@ const joinNonEmpty = (items: unknown[], fallback = "미등록") => {
 
 const yesNo = (value: unknown) => (value ? "예" : "아니오");
 const currentYear = new Date().getFullYear();
-const isCurrentYearDate = (value?: string) => {
-  const raw = String(value || "").trim();
-  if (!raw) return false;
-  const date = new Date(raw);
-  return !Number.isNaN(date.getTime()) && date.getFullYear() === currentYear;
-};
 const formatExamStatus = (date?: string, unchecked?: boolean) => {
   const value = String(date || "").trim();
   if (unchecked) return value ? `${value} (미검진 지정)` : "미검진";
   if (!value) return "미검진";
-  return isCurrentYearDate(value) ? value : `${value} (금년도 미검진)`;
+  return isCurrentYearHealthDate(value, currentYear) ? value : `${value} (금년도 미검진)`;
 };
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
@@ -683,7 +678,7 @@ const WorkerManagement = () => {
     if (kind === "health") {
       rows = displayWorkers
         .filter((worker) => effectiveWorkerStatus(worker) === "근무중")
-        .filter((worker) => worker.psychiatricCheckUnchecked || worker.workplaceCheckUnchecked || !isCurrentYearDate(worker.psychiatricCheckDate) || !isCurrentYearDate(worker.workplaceCheckDate))
+        .filter((worker) => getMissingHealthChecks(worker, currentYear).length > 0)
         .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "ko"))
         .map((worker) => makeWorkerRow(worker, `${currentYear}년`, `연락처 ${worker.phone || "미등록"} · 향정신성/마약 ${formatExamStatus(worker.psychiatricCheckDate, worker.psychiatricCheckUnchecked)} · 직장 ${formatExamStatus(worker.workplaceCheckDate, worker.workplaceCheckUnchecked)} · 전화/문자 안내 필요`));
       title = `${currentYear}년 근무중 건강검진 미검진자 명단 (총 ${rows.length}명)`;
@@ -737,21 +732,20 @@ const WorkerManagement = () => {
   };
 
   const isHealthSummary = summaryModal?.title.includes("건강검진") ?? false;
-  const getHealthCopyRows = () => (summaryModal?.rows || []).map((row) => {
-    const phone = row.note.match(/연락처\s*([^·]+)/)?.[1]?.trim() || "";
-    const missingItems: string[] = [];
-    if (row.note.includes("향정신성/마약 미검진") || row.note.includes("향정신성 미검진")) missingItems.push("향정신성/마약검사");
-    if (row.note.includes("직장 미검진")) missingItems.push("직장검진");
-    if (missingItems.length === 0) missingItems.push("건강검진 확인 필요");
-    return { name: row.name, phone, missingItems: missingItems.join(", ") };
+  const getHealthCopyRows = (kind: HealthCheckKind) => (summaryModal?.rows || []).flatMap((row) => {
+    const worker = displayWorkers.find((item) => item.id === row.workerId);
+    if (!worker || !getMissingHealthChecks(worker, currentYear).includes(kind)) return [];
+    return [{ name: worker.name, phone: worker.phone || "", workerId: worker.id }];
   });
 
-  const copyHealthCheckRows = async () => {
-    const text = getHealthCopyRows().map((row) => `${row.name}\t${row.phone}\t${row.missingItems}`).join("\n");
+  const copyHealthCheckRows = async (kind: HealthCheckKind) => {
+    const label = kind === "workplace" ? "직장검진" : "향정신성/마약검사";
+    const rows = getHealthCopyRows(kind);
+    const text = rows.map((row) => `${row.name}\t${row.phone}`).join("\n");
     if (!text) return;
     try {
       await navigator.clipboard.writeText(text);
-      toast({ title: "복사 완료", description: "이름, 연락처, 미검진 항목을 탭 구분 표로 복사했습니다." });
+      toast({ title: `${label} 미검진자 ${rows.length}명 복사 완료`, description: "이름과 연락처를 탭 구분 형식으로 복사했습니다." });
     } catch {
       toast({ title: "복사 실패", description: "표 영역을 드래그해 Ctrl+C로 복사해 주세요.", variant: "destructive" });
     }
@@ -1301,15 +1295,23 @@ const WorkerManagement = () => {
               ) : (
                 <div className="space-y-3">
                   {isHealthSummary && (
-                    <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-medium">엑셀형 복사용 표</p>
-                        <Button size="sm" variant="outline" onClick={copyHealthCheckRows}>이름+연락처 복사</Button>
-                      </div>
-                      <table className="w-full border-collapse bg-background text-xs">
-                        <thead><tr className="bg-muted"><th className="border p-2 text-left">이름</th><th className="border p-2 text-left">연락처</th><th className="border p-2 text-left">미검진 항목</th></tr></thead>
-                        <tbody>{getHealthCopyRows().map((row) => <tr key={`${row.name}-${row.phone}`}><td className="border p-2">{row.name}</td><td className="border p-2">{row.phone}</td><td className="border p-2">{row.missingItems}</td></tr>)}</tbody>
-                      </table>
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      {(["workplace", "psychiatric"] as HealthCheckKind[]).map((kind) => {
+                        const rows = getHealthCopyRows(kind);
+                        const label = kind === "workplace" ? "직장검진" : "향정신성/마약검사";
+                        return <div key={kind} className="space-y-2 rounded-md border bg-muted/20 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold">{label} 미검진자 <Badge variant="secondary">{rows.length}명</Badge></p>
+                            <Button size="sm" variant="outline" disabled={!rows.length} onClick={() => void copyHealthCheckRows(kind)}>{label} 명단 복사</Button>
+                          </div>
+                          <div className="max-h-64 overflow-auto rounded border bg-background">
+                            <table className="w-full border-collapse text-xs">
+                              <thead className="sticky top-0 bg-muted"><tr><th className="border p-2 text-left">이름</th><th className="border p-2 text-left">연락처</th></tr></thead>
+                              <tbody>{rows.length ? rows.map((row) => <tr key={`${kind}-${row.workerId}`} className="cursor-pointer hover:bg-muted/40" onClick={() => openSummaryWorker(row.workerId)}><td className="border p-2 font-medium">{row.name}</td><td className="border p-2">{row.phone || "미등록"}</td></tr>) : <tr><td colSpan={2} className="p-5 text-center text-muted-foreground">해당 미검진자가 없습니다.</td></tr>}</tbody>
+                            </table>
+                          </div>
+                        </div>;
+                      })}
                     </div>
                   )}
                   <div className="max-h-[520px] overflow-auto">
