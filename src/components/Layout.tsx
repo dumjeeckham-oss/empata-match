@@ -3,6 +3,7 @@ import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { InstallAppButton } from "@/components/InstallAppButton";
 
 const navItems = [
   { path: "/", label: "대시보드", icon: "📊" },
@@ -60,6 +61,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               {navItems.map((item) => renderNavLink(item))}
             </nav>
 
+            <div className="flex shrink-0 items-center gap-2">
+            <InstallAppButton />
             <Button
               variant="ghost"
               size="sm"
@@ -68,6 +71,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             >
               🚪 로그아웃
             </Button>
+            </div>
           </div>
         </div>
 
