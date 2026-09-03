@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarClock, Check, ExternalLink, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -34,13 +34,6 @@ const quickLinks = [
 
 const emptySchedule: Omit<AnnualSchedule, "id" | "createdAt" | "updatedAt"> = {
   projectName: "", status: "예정", scheduleDate: "", note: "", manager: "",
-};
-const exampleSchedule: Omit<AnnualSchedule, "id" | "createdAt" | "updatedAt"> = {
-  projectName: "유해위험요인 조사",
-  status: "진행중",
-  scheduleDate: "2026/07/13 → 2026/07/17",
-  note: "-수요조사링크:6/29~7/3(일주일)",
-  manager: "김광민",
 };
 const statusClass: Record<AnnualScheduleStatus, string> = {
   진행중: "border-blue-200 bg-blue-100 text-blue-700",
@@ -82,17 +75,6 @@ const WorkBoard = () => {
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [missingLinkDialogOpen, setMissingLinkDialogOpen] = useState(false);
   const [onboardingUrl, setOnboardingUrl] = useState(() => localStorage.getItem("quickLink_onboarding") || "");
-  const seededExample = useRef(false);
-
-  useEffect(() => {
-    if (loading || loadError || seededExample.current || schedules.length > 0) return;
-    seededExample.current = true;
-    void scheduleStore.add(exampleSchedule).catch(() => {
-      seededExample.current = false;
-      toast({ title: "예시 일정을 등록하지 못했습니다.", variant: "destructive" });
-    });
-  }, [loadError, loading, scheduleStore, schedules.length]);
-
   useEffect(() => {
     if (loading || loadError || matchingItems.length === 0) return;
     const completedIds = matchingItems.filter((item) => {
@@ -245,12 +227,13 @@ const WorkBoard = () => {
           <CardHeader className="bg-muted/30"><CardTitle className="flex items-center justify-between text-lg"><span>✅ 할 일 목록</span><Badge variant="secondary">미완료 {todos.filter((todo) => !todo.completed).length}</Badge></CardTitle></CardHeader>
           <CardContent className="space-y-4 pt-5">
             <div className="flex gap-2"><Input value={todoTitle} onChange={(event) => setTodoTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveTodo(); }} placeholder="할 일을 입력하세요" /><Button onClick={() => void saveTodo()}><Plus className="mr-1 h-4 w-4" />{editingTodoId ? "수정" : "추가"}</Button></div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><label className="flex items-center gap-2"><Checkbox checked={showCompleted} onCheckedChange={(checked) => setShowCompleted(checked === true)} />완료한 항목 모아보기</label><Button variant="ghost" size="sm" onClick={() => void clearCompleted()}>완료 항목 비우기</Button></div>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2"><label className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Checkbox checked={showCompleted} onCheckedChange={(checked) => setShowCompleted(checked === true)} />완료한 항목 모아보기</label><Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => void clearCompleted()}>완료 항목 비우기</Button></div>
             <div className="max-h-80 divide-y overflow-y-auto">
               {!visibleTodos.length ? <p className="py-10 text-center text-sm text-muted-foreground">표시할 할 일이 없습니다.</p> : visibleTodos.map((todo) => (
-                <div key={todo.id} className="flex items-center gap-2 py-3">
+                <div key={todo.id} className={cn("flex items-center gap-2 rounded-md px-2 py-3", todo.completed && "my-1 border border-dashed bg-muted/50 opacity-75")}>
                   <Checkbox checked={todo.completed} onCheckedChange={(checked) => todo.id && void todosStore.update(todo.id, { completed: checked === true })} />
-                  <span className={cn("min-w-0 flex-1 text-sm", todo.completed && "text-muted-foreground line-through")}>{todo.title}</span>
+                  <span className={cn("min-w-0 flex-1 text-sm font-medium", todo.completed && "text-xs font-normal italic text-muted-foreground line-through")}>{todo.title}</span>
+                  {todo.completed && <Badge variant="secondary" className="text-[10px] font-normal">완료</Badge>}
                   <Button variant="ghost" size="icon" aria-label="중요도 변경" onClick={() => todo.id && void todosStore.update(todo.id, { important: !todo.important })}><Star className={cn("h-4 w-4", todo.important && "fill-amber-400 text-amber-500")} /></Button>
                   <Button variant="ghost" size="icon" aria-label="수정" onClick={() => { setEditingTodoId(todo.id || null); setTodoTitle(todo.title); }}><Pencil className="h-4 w-4" /></Button>
                   <Button variant="ghost" size="icon" aria-label="삭제" onClick={() => todo.id && void todosStore.remove(todo.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
@@ -261,7 +244,7 @@ const WorkBoard = () => {
         </Card>
 
         <Card className="overflow-hidden">
-          <CardHeader className="bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg"><CalendarClock className="h-5 w-5 text-primary" />연간일정 시작일</CardTitle></CardHeader>
+          <CardHeader className="bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg"><CalendarClock className="h-5 w-5 text-primary" />연간일정 시작일</CardTitle><p className="text-xs text-muted-foreground">아래 연간일정 현황에서 수정하면 이곳에도 실시간으로 반영됩니다.</p></CardHeader>
           <CardContent className="pt-5">
             {!scheduleStartItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">등록된 연간 일정이 없습니다.</p> : <div className="max-h-80 space-y-3 overflow-y-auto pr-1">{scheduleStartItems.map((schedule) => {
               const startInfo = getScheduleStartInfo(schedule.scheduleDate);
