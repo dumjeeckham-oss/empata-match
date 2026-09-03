@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { path: "/", label: "대시보드", icon: "📊" },
+  { path: "/work-board", label: "업무 종합 보드", icon: "🗂️" },
   { path: "/users", label: "이용자 관리", icon: "👤" },
   { path: "/workers", label: "활동지원사 관리", icon: "🤝" },
   { path: "/matching", label: "매칭 관리", icon: "🔗" },

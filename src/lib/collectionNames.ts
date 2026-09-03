@@ -8,6 +8,9 @@ export const TERMINATIONS_COLLECTION = "terminations" as const;
 export const HANDOVERS_COLLECTION = "handovers" as const;
 export const MATCHING_HISTORY_COLLECTION = "matchingHistory" as const;
 export const COUNSELING_COLLECTION = "counseling" as const;
+export const WORK_TODOS_COLLECTION = "workTodos" as const;
+export const MATCHING_BOARD_COLLECTION = "matchingBoard" as const;
+export const ANNUAL_SCHEDULES_COLLECTION = "annualSchedules" as const;
 
 export type CoreCollectionName =
   | typeof USERS_COLLECTION

@@ -260,6 +260,14 @@ const WorkerManagement = () => {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (loading) return;
+    const detailId = searchParams.get("detailId");
+    if (!detailId) return;
+    const target = displayWorkers.find((worker) => worker.id === detailId);
+    if (target) openDetail(target);
+  }, [displayWorkers, loading, searchParams]);
+
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
     setGeocoding(true);

@@ -246,6 +246,38 @@ export interface MatchingHistoryRecord {
   updatedAt?: unknown;
 }
 
+export interface WorkTodo {
+  id?: string;
+  title: string;
+  completed: boolean;
+  important: boolean;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface MatchingBoardItem {
+  id?: string;
+  targetType: "이용자" | "활동지원사";
+  targetId: string;
+  targetName: string;
+  condition: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export type AnnualScheduleStatus = "진행중" | "예정" | "완료";
+
+export interface AnnualSchedule {
+  id?: string;
+  projectName: string;
+  status: AnnualScheduleStatus;
+  scheduleDate: string;
+  note: string;
+  manager: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
 
 
 

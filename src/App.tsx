@@ -7,6 +7,7 @@ import Layout from "@/components/Layout";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
+import WorkBoard from "@/pages/WorkBoard";
 import UserManagement from "@/pages/UserManagement";
 import WorkerManagement from "@/pages/WorkerManagement";
 import Matching from "@/pages/Matching";
@@ -40,6 +41,7 @@ const AuthenticatedApp = () => {
         <ErrorBoundary>
           <Routes>
             <Route path="/" element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+            <Route path="/work-board" element={<ErrorBoundary><WorkBoard /></ErrorBoundary>} />
             <Route path="/users" element={<ErrorBoundary><UserManagement /></ErrorBoundary>} />
             <Route path="/workers" element={<ErrorBoundary><WorkerManagement /></ErrorBoundary>} />
             <Route path="/matching" element={<ErrorBoundary><Matching /></ErrorBoundary>} />

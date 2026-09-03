@@ -351,6 +351,14 @@ const UserManagement = () => {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (loading) return;
+    const detailId = searchParams.get("detailId");
+    if (!detailId) return;
+    const target = (usersRaw || []).find((user) => user.id === detailId);
+    if (target) openDetail(target);
+  }, [loading, searchParams, usersRaw]);
+
   const handleAutoGeocode = async (address: string) => {
     if (!address || (form.lat && form.lng)) return;
     setGeocoding(true);
