@@ -244,7 +244,12 @@ const isCurrentYearDate = (value?: string) => {
   const date = new Date(raw);
   return !Number.isNaN(date.getTime()) && date.getFullYear() === currentYear;
 };
-const formatExamStatus = (date?: string, unchecked?: boolean) => unchecked ? "미검진" : isCurrentYearDate(date) ? date || "검진완료" : "미검진";
+const formatExamStatus = (date?: string, unchecked?: boolean) => {
+  const value = String(date || "").trim();
+  if (unchecked) return value ? `${value} (미검진 지정)` : "미검진";
+  if (!value) return "미검진";
+  return isCurrentYearDate(value) ? value : `${value} (금년도 미검진)`;
+};
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);

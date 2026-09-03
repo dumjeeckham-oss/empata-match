@@ -46,6 +46,15 @@ function toYmd(raw: unknown): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+function toBoolean(raw: unknown): boolean {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw !== 0;
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (!value) return false;
+  if (["false", "0", "n", "no", "아니오", "미해당", "완료", "검진완료"].includes(value)) return false;
+  return ["true", "1", "y", "yes", "예", "미검진", "미완료"].includes(value);
+}
+
 function personLabel(name: string, phone?: string): string {
   const last4 = normalizePhone(phone).slice(-4);
   return last4 ? `${name}(${last4})` : name;
@@ -213,9 +222,9 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     retirementDate,
     resignationDate: retirementDate || resignationDate,
     psychiatricCheckDate: toYmd(raw.psychiatricCheckDate ?? raw["향정신성건강검진일"] ?? raw["향정신성 검진일"]),
-    psychiatricCheckUnchecked: Boolean(raw.psychiatricCheckUnchecked ?? raw["향정신성미검진"] ?? false),
+    psychiatricCheckUnchecked: toBoolean(raw.psychiatricCheckUnchecked ?? raw["향정신성미검진"] ?? false),
     workplaceCheckDate: toYmd(raw.workplaceCheckDate ?? raw["직장검진일"] ?? raw["직장 건강검진일"]),
-    workplaceCheckUnchecked: Boolean(raw.workplaceCheckUnchecked ?? raw["직장검진미검진"] ?? false),
+    workplaceCheckUnchecked: toBoolean(raw.workplaceCheckUnchecked ?? raw["직장검진미검진"] ?? false),
   } as Partial<Worker>;
 }
 

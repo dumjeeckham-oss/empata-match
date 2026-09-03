@@ -4,8 +4,27 @@ import {
   makeUniqueKey,
   rowToWorker,
 } from "@/lib/bulkUpload";
+import { normalizeWorker } from "@/lib/assignments";
+import { partialParsers } from "@/components/PartialUpdateDialog";
 
 describe("worker bulk upload mapping", () => {
+  it("normalizes Excel serial health-check dates in partial updates", () => {
+    expect(partialParsers.examDate("44424")).toBe("2021-08-16");
+    expect(partialParsers.examDate("2026. 7. 13")).toBe("2026-07-13");
+  });
+
+  it("does not treat string false health-check flags as unchecked", () => {
+    const worker = normalizeWorker({
+      workplaceCheckDate: "2026-07-13",
+      workplaceCheckUnchecked: "false",
+      psychiatricCheckDate: "2026-07-13",
+      psychiatricCheckUnchecked: "아니오",
+    });
+
+    expect(worker.workplaceCheckUnchecked).toBe(false);
+    expect(worker.psychiatricCheckUnchecked).toBe(false);
+  });
+
   it("keeps uploaded worker status and experience unchanged", () => {
     const headers = ["이름", "연락처", "최초근무일", "퇴사일", "경력"];
     const headerMap = buildHeaderMap(headers);

@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { parsePasteData, parseSpreadsheetFile, normalizePhone, type ParsedSheet } from "@/lib/bulkUpload";
+import { normalizeDateCell, parsePasteData, parseSpreadsheetFile, normalizePhone, type ParsedSheet } from "@/lib/bulkUpload";
 import { toast } from "@/hooks/use-toast";
 import { FileSpreadsheet, Upload } from "lucide-react";
 
@@ -36,7 +36,12 @@ interface PartialUpdateDialogProps<T extends ExistingItem> {
   onUpdate: (id: string, updates: Partial<T>) => Promise<unknown>;
 }
 
-const normalizeHeader = (value: string) => String(value || "").replace(/^\uFEFF/, "").replace(/[\s_\-()/·.]/g, "").toLowerCase();
+const normalizeHeader = (value: string) =>
+  String(value || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/[\s_\-()/·.:]/g, "")
+    .replace(/(날짜|일자)$/g, "일")
+    .toLowerCase();
 const phoneLast4 = (value: unknown) => normalizePhone(value).slice(-4);
 const parseBoolean = (value: string) => /^(예|y|yes|true|1|미검진)$/i.test(String(value || "").trim());
 const parseNumber = (value: string) => {
@@ -59,10 +64,7 @@ const parseDate = (value: string) => {
     const [, y, m, d] = korean;
     return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
   }
-  const match = raw.match(/^(\d{4})[-./\s]?(\d{1,2})[-./\s]?(\d{1,2})$/);
-  if (!match) return raw;
-  const [, y, m, d] = match;
-  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  return normalizeDateCell(raw);
 };
 const parseExamDate = (value: string) => {
   const raw = String(value || "").trim();
