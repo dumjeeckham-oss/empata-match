@@ -21,6 +21,28 @@ function parseDisplayDate(raw: unknown): Date | null {
   const str = String(raw).trim();
   if (!str) return null;
 
+  // 엑셀 표시 형식이 연도를 숨긴 `MM월 DD일`인 경우 올해 검진일로 해석한다.
+  const koreanMonthDay = str.match(/^(?:(\d{2,4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일?$/);
+  if (koreanMonthDay) {
+    const [, rawYear, rawMonth, rawDay] = koreanMonthDay;
+    const shortYear = rawYear ? Number(rawYear) : new Date().getFullYear();
+    const year = shortYear < 100 ? 2000 + shortYear : shortYear;
+    const month = Number(rawMonth);
+    const day = Number(rawDay);
+    const date = new Date(year, month - 1, day);
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+  }
+
+  const shortYearDate = str.match(/^(\d{2})[./-](\d{1,2})[./-](\d{1,2})$/);
+  if (shortYearDate) {
+    const [, y, m, d] = shortYearDate;
+    const year = 2000 + Number(y);
+    const month = Number(m);
+    const day = Number(d);
+    const date = new Date(year, month - 1, day);
+    return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null;
+  }
+
   // Excel serial date (대략 2000년 이후 범위)
   const serial = Number(str);
   if (Number.isFinite(serial) && serial > 20000 && serial < 80000) {

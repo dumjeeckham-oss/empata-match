@@ -13,6 +13,25 @@ describe("worker bulk upload mapping", () => {
     expect(partialParsers.examDate("2026. 7. 13")).toBe("2026-07-13");
   });
 
+  it("applies the current year to Korean month-day health-check cells", () => {
+    const year = new Date().getFullYear();
+
+    expect(partialParsers.examDate("06월 01일")).toBe(`${year}-06-01`);
+    expect(partialParsers.examDate("5월 16일")).toBe(`${year}-05-16`);
+    expect(partialParsers.examDate("25.12.26")).toBe("2025-12-26");
+  });
+
+  it("recovers previously stored Korean month-day health-check values", () => {
+    const year = new Date().getFullYear();
+    const worker = normalizeWorker({
+      psychiatricCheckDate: "01월 14일",
+      workplaceCheckDate: "07월10일",
+    });
+
+    expect(worker.psychiatricCheckDate).toBe(`${year}-01-14`);
+    expect(worker.workplaceCheckDate).toBe(`${year}-07-10`);
+  });
+
   it("does not treat string false health-check flags as unchecked", () => {
     const worker = normalizeWorker({
       workplaceCheckDate: "2026-07-13",

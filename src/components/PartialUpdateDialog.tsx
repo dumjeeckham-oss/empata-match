@@ -26,6 +26,7 @@ type PreviewRow<T> = {
   updates: Partial<T>;
   updateLabels: string[];
   error?: string;
+  saveError?: string;
 };
 
 interface PartialUpdateDialogProps<T extends ExistingItem> {
@@ -145,8 +146,10 @@ export function PartialUpdateDialog<T extends ExistingItem>({
           if (idx < 0) return;
           const raw = String(row[idx] ?? "").trim();
           if (raw === "" && !field.allowBlank) return;
-          (updates as Record<string, unknown>)[field.key] = field.parse ? field.parse(raw) : raw;
-          updateLabels.push(field.label);
+          const parsed = field.parse ? field.parse(raw) : raw;
+          (updates as Record<string, unknown>)[field.key] = parsed;
+          const previewValue = Array.isArray(parsed) ? parsed.join(", ") : String(parsed ?? "");
+          updateLabels.push(`${field.label}: ${previewValue || "(비움)"}`);
         });
 
         return {
@@ -177,10 +180,27 @@ export function PartialUpdateDialog<T extends ExistingItem>({
     }
     setUpdating(true);
     try {
+      const failures: PreviewRow<T>[] = [];
+      let succeeded = 0;
       for (const row of targets) {
-        await onUpdate(row.target!.id, row.updates);
+        try {
+          await onUpdate(row.target!.id, row.updates);
+          succeeded += 1;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          failures.push({ ...row, saveError: `저장 실패: ${message}` });
+        }
       }
-      toast({ title: "일괄 업데이트 완료", description: `${targets.length}명 정보가 부분 업데이트되었습니다.` });
+      if (failures.length) {
+        setPreviewRows(failures);
+        toast({
+          title: `일괄 업데이트 일부 실패 (${succeeded}명 성공 / ${failures.length}명 실패)`,
+          description: "실패한 행만 남겼습니다. 원인을 확인한 뒤 다시 시도해 주세요.",
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({ title: "일괄 업데이트 완료", description: `${succeeded}명 정보가 Firestore 기존 문서에 반영되었습니다.` });
       reset();
       setOpen(false);
     } finally {
@@ -216,7 +236,7 @@ export function PartialUpdateDialog<T extends ExistingItem>({
       <DialogContent className="max-w-5xl w-[95vw] max-h-[90vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">이름과 연락처 전체 또는 뒤 4자리로 기존 대상을 찾고, 엑셀/CSV에 포함된 컬럼만 덮어씁니다. 파일 업로드와 붙여넣기 모두 탭/쉼표 구분 데이터를 지원합니다.</p>
+          <p className="text-sm text-muted-foreground">이름과 연락처 전체 또는 뒤 4자리로 기존 대상을 찾고, 엑셀/CSV에 포함된 컬럼만 덮어씁니다. 이 기능은 새 대상을 생성하지 않습니다. 연도 없는 ‘06월 01일’ 형식은 올해 날짜로 저장됩니다.</p>
           <div className="rounded-md border bg-muted/20 p-3 space-y-3">
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
@@ -255,8 +275,8 @@ export function PartialUpdateDialog<T extends ExistingItem>({
               <div className="flex flex-wrap items-center gap-2"><Badge>업데이트 대상 {matchedCount}명</Badge><Badge variant="secondary">식별 실패/제외 {failedCount}건</Badge></div>
               <div className="max-h-[320px] overflow-auto rounded-md border">
                 <table className="w-full min-w-[720px] text-xs">
-                  <thead className="sticky top-0 bg-muted"><tr><th className="p-2 text-left">행</th><th className="p-2 text-left">이름</th><th className="p-2 text-left">연락처</th><th className="p-2 text-left">상태</th><th className="p-2 text-left">업데이트 컬럼</th></tr></thead>
-                  <tbody>{previewRows.map((row) => <tr key={row.rowNumber} className="border-t"><td className="p-2">{row.rowNumber}</td><td className="p-2 font-medium">{row.name || "-"}</td><td className="p-2">{row.phone || "뒤4자리/미입력"}</td><td className="p-2"><Badge variant={row.error ? "secondary" : "default"}>{row.error || "업데이트 가능"}</Badge></td><td className="p-2">{row.updateLabels.join(", ") || "-"}</td></tr>)}</tbody>
+                  <thead className="sticky top-0 bg-muted"><tr><th className="p-2 text-left">행</th><th className="p-2 text-left">이름</th><th className="p-2 text-left">연락처</th><th className="p-2 text-left">상태</th><th className="p-2 text-left">실제 저장 예정값</th></tr></thead>
+                  <tbody>{previewRows.map((row) => <tr key={row.rowNumber} className="border-t"><td className="p-2">{row.rowNumber}</td><td className="p-2 font-medium">{row.name || "-"}</td><td className="p-2">{row.phone || "뒤4자리/미입력"}</td><td className="p-2"><Badge variant={row.error || row.saveError ? "secondary" : "default"}>{row.error || row.saveError || "업데이트 가능"}</Badge></td><td className="p-2">{row.updateLabels.join(", ") || "-"}</td></tr>)}</tbody>
                 </table>
               </div>
             </div>

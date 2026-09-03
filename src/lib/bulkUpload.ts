@@ -228,6 +228,25 @@ export function normalizeDateCell(val: unknown): string {
   const raw = String(val ?? "").trim();
   if (!raw) return "";
 
+  const koreanMonthDay = raw.match(/^(?:(\d{2,4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일?$/);
+  if (koreanMonthDay) {
+    const [, rawYear, rawMonth, rawDay] = koreanMonthDay;
+    const shortYear = rawYear ? Number(rawYear) : new Date().getFullYear();
+    const year = shortYear < 100 ? 2000 + shortYear : shortYear;
+    const month = Number(rawMonth);
+    const day = Number(rawDay);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day) {
+      return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+  }
+
+  const shortYearDate = raw.match(/^(\d{2})[./-](\d{1,2})[./-](\d{1,2})$/);
+  if (shortYearDate) {
+    const [, y, m, d] = shortYearDate;
+    return `20${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+
   const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (iso) {
     const [, y, m, d] = iso;
