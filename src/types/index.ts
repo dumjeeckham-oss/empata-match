@@ -248,6 +248,7 @@ export interface MatchResult {
     preferenceScore: number;
     rejectionPenalty: number;
     distanceKm: number | null;
+    conditionScore?: number;
   };
 }
 
@@ -315,6 +316,19 @@ export interface AnnualSchedule {
   scheduleDate: string;
   note: string;
   manager: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export type CalendarEventColor = "blue" | "green" | "amber" | "rose" | "violet" | "slate";
+
+export interface WorkCalendarEvent {
+  id?: string;
+  title: string;
+  note: string;
+  startDate: string;
+  endDate: string;
+  color: CalendarEventColor;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

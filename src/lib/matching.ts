@@ -76,7 +76,33 @@ function historicalRejectionPenalty(user: ServiceUser, worker: Worker): number {
   return Number.isFinite(score) ? score : 0;
 }
 
-export function matchUserWithWorkers(user: ServiceUser, workers: Worker[]): MatchResult[] {
+const CONDITION_STOP_WORDS = new Set([
+  "매칭", "필요", "추가", "가능", "희망", "근처", "인근", "부터", "까지", "이용자", "활동지원사", "지원사",
+]);
+
+function conditionMatchScore(condition: string, user: ServiceUser, worker: Worker, targetType: "이용자" | "활동지원사"): number {
+  const raw = String(condition || "").trim().toLowerCase();
+  if (!raw) return 0;
+  const candidateText = (targetType === "이용자"
+    ? [worker.gender, worker.residenceArea, worker.preferredArea, worker.address, worker.availableDays, worker.availableHours, ...(worker.supportTypes || []), worker.experience, worker.canDrive ? "운전 차량" : ""]
+    : [user.gender, user.address, user.requiredDays, user.requiredHours, ...(user.supportTypes || []), ...(user.environmentTags || []), user.needsVehicle ? "운전 차량" : "", user.notes]
+  ).join(" ").toLowerCase().replace(/\s+/g, " ");
+  const tokens = Array.from(new Set(raw.match(/[가-힣a-z]+|\d{1,2}:\d{2}/g) || []))
+    .filter((token) => token.length >= 2 && !CONDITION_STOP_WORDS.has(token));
+  let score = Math.min(30, tokens.filter((token) => candidateText.includes(token)).length * 6);
+  if (targetType === "이용자") {
+    if (raw.includes("운전") || raw.includes("차량")) score += worker.canDrive ? 18 : -30;
+    if (raw.includes("여성") && worker.gender !== "여성") score -= 25;
+    if (raw.includes("남성") && worker.gender !== "남성") score -= 25;
+  } else {
+    if ((raw.includes("운전") || raw.includes("차량")) && !user.needsVehicle && !user.environmentTags?.includes("차량필요")) score -= 15;
+    if (raw.includes("여성") && user.gender !== "여성") score -= 25;
+    if (raw.includes("남성") && user.gender !== "남성") score -= 25;
+  }
+  return score;
+}
+
+export function matchUserWithWorkers(user: ServiceUser, workers: Worker[], condition = "", conditionTargetType: "이용자" | "활동지원사" = "이용자"): MatchResult[] {
   const availableWorkers = workers.filter((w) => w.contractStatus !== "퇴사");
 
   return availableWorkers
@@ -84,8 +110,9 @@ export function matchUserWithWorkers(user: ServiceUser, workers: Worker[]): Matc
       const timeScore = timeOverlapScore(user.requiredDays, user.requiredHours, worker.availableDays, worker.availableHours);
       const loc = locationScore(user, worker);
       const prefScore = preferenceScore(user, worker);
+      const conditionScore = conditionMatchScore(condition, user, worker, conditionTargetType);
       const penalty = rejectionPenalty(user, worker) + historicalRejectionPenalty(user, worker);
-      const score = Math.max(0, timeScore + loc.score + prefScore - penalty);
+      const score = Math.max(0, timeScore + loc.score + prefScore + conditionScore - penalty);
       return {
         worker,
         score,
@@ -95,6 +122,7 @@ export function matchUserWithWorkers(user: ServiceUser, workers: Worker[]): Matc
           preferenceScore: prefScore,
           rejectionPenalty: penalty,
           distanceKm: loc.distanceKm,
+          conditionScore,
         },
       };
     })

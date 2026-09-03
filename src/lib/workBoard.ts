@@ -106,7 +106,7 @@ export function getBoardRecommendations(
     const user = users.find((candidate) => candidate.id === item.targetId);
     if (!user) return [];
     const waitingWorkers = workers.filter((worker) => worker.contractStatus === "대기");
-    return matchUserWithWorkers(user, waitingWorkers).slice(0, 3).map((result) => ({
+    return matchUserWithWorkers(user, waitingWorkers, item.condition, "이용자").slice(0, 3).map((result) => ({
       id: result.worker.id || "",
       name: result.worker.name,
       score: result.score,
@@ -118,7 +118,7 @@ export function getBoardRecommendations(
   if (!worker) return [];
   return users
     .filter((user) => user.contractStatus === "대기")
-    .map((user) => ({ user, result: matchUserWithWorkers(user, [worker])[0] }))
+    .map((user) => ({ user, result: matchUserWithWorkers(user, [worker], item.condition, "활동지원사")[0] }))
     .filter((entry) => Boolean(entry.result))
     .sort((a, b) => b.result.score - a.result.score)
     .slice(0, 3)

@@ -72,6 +72,19 @@ describe("work board matching modes", () => {
     expect(recommendations.every((item) => item.targetType === "활동지원사")).toBe(true);
   });
 
+  it("uses the matching-board memo as a recommendation condition", () => {
+    const target = { id: "u1", name: "이용자", contractStatus: "대기", requiredDays: "월", requiredHours: "10:00" } as ServiceUser & { id: string };
+    const workers = [
+      { id: "w1", name: "조건 일치", gender: "여성", canDrive: true, preferredArea: "중동", contractStatus: "대기", availableDays: "월", availableHours: "10:00", rejectionTypes: [], supportTypes: [] },
+      { id: "w2", name: "조건 불일치", gender: "남성", canDrive: false, preferredArea: "상동", contractStatus: "대기", availableDays: "월", availableHours: "10:00", rejectionTypes: [], supportTypes: [] },
+    ] as (Worker & { id: string })[];
+
+    const recommendations = getBoardRecommendations({ ...boardItem, targetId: "u1", condition: "중동 인근 여성 운전 가능" }, [target], workers);
+
+    expect(recommendations[0].name).toBe("조건 일치");
+    expect(recommendations[0].score).toBeGreaterThan(recommendations[1].score);
+  });
+
   it("recommends only waiting users for a worker", () => {
     const worker = {
       id: "w1", name: "활동지원사", contractStatus: "대기", availableDays: "월", availableHours: "09:00",

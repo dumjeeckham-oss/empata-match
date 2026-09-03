@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarClock, Check, ExternalLink, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
+import { CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,13 +13,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, toLocalYmd } from "@/lib/workCalendar";
 import { formatScheduleMilestones, formatScheduleSummary, getAssignmentCount, getBoardRecommendations, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
-  ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION,
+  ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION, WORK_CALENDAR_EVENTS_COLLECTION,
   WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
 } from "@/lib/collectionNames";
 import type {
-  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, MatchingBoardItem, ServiceUser, Worker, WorkTodo,
+  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, CalendarEventColor, MatchingBoardItem, ServiceUser, Worker, WorkCalendarEvent, WorkTodo,
 } from "@/types";
 
 const quickLinks = [
@@ -50,6 +51,15 @@ const EMPTY_MATCHING_ITEMS: (MatchingBoardItem & { id: string })[] = [];
 const EMPTY_SCHEDULES: (AnnualSchedule & { id: string })[] = [];
 const EMPTY_USERS: (ServiceUser & { id: string })[] = [];
 const EMPTY_WORKERS: (Worker & { id: string })[] = [];
+const EMPTY_CALENDAR_EVENTS: (WorkCalendarEvent & { id: string })[] = [];
+const emptyCalendarEvent = (date: string): Omit<WorkCalendarEvent, "id" | "createdAt" | "updatedAt"> => ({
+  title: "", note: "", startDate: date, endDate: date, color: "blue",
+});
+const calendarColorClass: Record<CalendarEventColor, string> = {
+  blue: "bg-blue-500 text-white", green: "bg-emerald-500 text-white", amber: "bg-amber-400 text-amber-950",
+  rose: "bg-rose-500 text-white", violet: "bg-violet-500 text-white", slate: "bg-slate-500 text-white",
+};
+const calendarColorLabel: Record<CalendarEventColor, string> = { blue: "파랑", green: "초록", amber: "노랑", rose: "빨강", violet: "보라", slate: "회색" };
 
 const WorkBoard = () => {
   const navigate = useNavigate();
@@ -58,13 +68,15 @@ const WorkBoard = () => {
   const scheduleStore = useCollection<AnnualSchedule>(ANNUAL_SCHEDULES_COLLECTION);
   const usersStore = useCollection<ServiceUser>(USERS_COLLECTION);
   const workersStore = useCollection<Worker>(WORKERS_COLLECTION);
+  const calendarStore = useCollection<WorkCalendarEvent>(WORK_CALENDAR_EVENTS_COLLECTION);
   const todos = todosStore.data || EMPTY_TODOS;
   const matchingItems = matchingStore.data || EMPTY_MATCHING_ITEMS;
   const schedules = scheduleStore.data || EMPTY_SCHEDULES;
   const users = usersStore.data || EMPTY_USERS;
   const workers = workersStore.data || EMPTY_WORKERS;
-  const loading = todosStore.loading || matchingStore.loading || scheduleStore.loading || usersStore.loading || workersStore.loading;
-  const loadError = todosStore.error || matchingStore.error || scheduleStore.error || usersStore.error || workersStore.error;
+  const calendarEvents = calendarStore.data || EMPTY_CALENDAR_EVENTS;
+  const loading = todosStore.loading || matchingStore.loading || scheduleStore.loading || usersStore.loading || workersStore.loading || calendarStore.loading;
+  const loadError = todosStore.error || matchingStore.error || scheduleStore.error || usersStore.error || workersStore.error || calendarStore.error;
 
   const [todoTitle, setTodoTitle] = useState("");
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
@@ -80,6 +92,10 @@ const WorkBoard = () => {
   const [editingScheduleId, setEditingScheduleId] = useState<string | null>(null);
   const [missingLinkDialogOpen, setMissingLinkDialogOpen] = useState(false);
   const [onboardingUrl, setOnboardingUrl] = useState(() => localStorage.getItem("quickLink_onboarding") || "");
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
+  const [editingCalendarEventId, setEditingCalendarEventId] = useState<string | null>(null);
+  const [calendarForm, setCalendarForm] = useState(() => emptyCalendarEvent(toLocalYmd(new Date())));
   useEffect(() => {
     if (loading || loadError || matchingItems.length === 0) return;
     const completedIds = matchingItems.filter((item) => {
@@ -136,6 +152,9 @@ const WorkBoard = () => {
   const recommendationMap = new Map(
     matchingItems.map((item) => [item.id, getBoardRecommendations(item, users, workers)]),
   );
+  const calendarDays = buildMonthGrid(calendarMonth.getFullYear(), calendarMonth.getMonth());
+  const calendarEventsWithLanes = assignCalendarEventLanes(calendarEvents);
+  const today = toLocalYmd(new Date());
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -215,6 +234,30 @@ const WorkBoard = () => {
     else await scheduleStore.add(payload);
     setScheduleDialogOpen(false);
   };
+  const openCalendarDialog = (date: string, event?: WorkCalendarEvent & { id: string }) => {
+    setEditingCalendarEventId(event?.id || null);
+    setCalendarForm(event ? { title: event.title, note: event.note || "", startDate: event.startDate, endDate: event.endDate, color: event.color } : emptyCalendarEvent(date));
+    setCalendarDialogOpen(true);
+  };
+  const saveCalendarEvent = async () => {
+    if (!calendarForm.title.trim() || !calendarForm.startDate || !calendarForm.endDate) {
+      toast({ title: "일정 제목과 시작일·종료일을 입력해주세요.", variant: "destructive" });
+      return;
+    }
+    if (calendarForm.startDate > calendarForm.endDate) {
+      toast({ title: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
+      return;
+    }
+    const payload = { ...calendarForm, title: calendarForm.title.trim(), note: calendarForm.note.trim() };
+    if (editingCalendarEventId) await calendarStore.update(editingCalendarEventId, payload);
+    else await calendarStore.add(payload);
+    setCalendarDialogOpen(false);
+  };
+  const deleteCalendarEvent = async () => {
+    if (!editingCalendarEventId || !confirm("이 달력 일정을 삭제할까요?")) return;
+    await calendarStore.remove(editingCalendarEventId);
+    setCalendarDialogOpen(false);
+  };
   const openQuickLink = (url: string) => {
     const destination = url || onboardingUrl;
     if (!destination) return setMissingLinkDialogOpen(true);
@@ -274,6 +317,32 @@ const WorkBoard = () => {
         </Card>
       </div>
 
+      <Card className="overflow-hidden">
+        <CardHeader className="bg-muted/30">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div><CardTitle className="flex items-center gap-2 text-lg"><CalendarDays className="h-5 w-5 text-primary" />이번 달 업무 달력</CardTitle><p className="mt-1 text-xs text-muted-foreground">날짜를 누르면 일정을 등록하고, 색상 일정 선을 누르면 수정·삭제할 수 있습니다.</p></div>
+            <div className="flex items-center gap-1"><Button variant="outline" size="icon" aria-label="이전 달" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft className="h-4 w-4" /></Button><Button variant="ghost" className="min-w-28 font-bold" onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{calendarMonth.getFullYear()}년 {calendarMonth.getMonth() + 1}월</Button><Button variant="outline" size="icon" aria-label="다음 달" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight className="h-4 w-4" /></Button></div>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0 sm:p-4">
+          <div className="grid grid-cols-7 border-b bg-muted/40 text-center text-xs font-semibold"><div className="py-2 text-rose-500">일</div><div className="py-2">월</div><div className="py-2">화</div><div className="py-2">수</div><div className="py-2">목</div><div className="py-2">금</div><div className="py-2 text-blue-500">토</div></div>
+          <div className="grid grid-cols-7 gap-px bg-border">{calendarDays.map((day, dayIndex) => {
+            const dayEvents = eventsForCalendarDay(calendarEventsWithLanes, day.date);
+            const laneCount = dayEvents.length ? Math.max(...dayEvents.map((event) => event.lane)) + 1 : 0;
+            return <div key={day.date} role="button" tabIndex={0} className={cn("min-h-28 min-w-0 bg-background p-1 transition hover:bg-muted/30", !day.inMonth && "bg-muted/20 text-muted-foreground")} onClick={() => openCalendarDialog(day.date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openCalendarDialog(day.date); }}>
+              <div className={cn("mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs", day.date === today && "bg-primary font-bold text-primary-foreground", dayIndex % 7 === 0 && day.date !== today && "text-rose-500", dayIndex % 7 === 6 && day.date !== today && "text-blue-500")}>{day.day}</div>
+              <div className="space-y-0.5">{Array.from({ length: laneCount }, (_, lane) => {
+                const event = dayEvents.find((item) => item.lane === lane);
+                if (!event) return <div key={lane} className="h-5" />;
+                const starts = event.startDate === day.date;
+                const ends = event.endDate === day.date;
+                return <button key={event.id} type="button" title={`${event.title}${event.note ? ` · ${event.note}` : ""}`} className={cn("block h-5 w-[calc(100%+4px)] truncate px-1 text-left text-[10px] font-semibold leading-5 shadow-sm", calendarColorClass[event.color], starts && "ml-0 rounded-l-md", !starts && "-ml-1", ends && "w-full rounded-r-md")} onClick={(clickEvent) => { clickEvent.stopPropagation(); openCalendarDialog(day.date, event); }}>{starts || dayIndex % 7 === 0 || day.day === 1 ? event.title : ""}</button>;
+              })}</div>
+            </div>;
+          })}</div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle></CardHeader>
         <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -293,7 +362,7 @@ const WorkBoard = () => {
                 <button className="font-semibold text-primary hover:underline" onClick={() => navigate(item.targetType === "이용자" ? `/users?detailId=${encodeURIComponent(item.targetId)}` : `/workers?detailId=${encodeURIComponent(item.targetId)}`)}>{item.targetName}</button>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{item.condition}</p>
                 <div className="mt-3 rounded-lg bg-muted/50 p-3">
-                  <p className="mb-2 text-xs font-semibold">{item.targetType === "이용자" ? "추천 활동지원사" : "추천 이용자"} 1~3순위</p>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-1"><p className="text-xs font-semibold">{item.targetType === "이용자" ? "추천 활동지원사" : "추천 이용자"} 1~3순위</p><Badge variant="outline" className="text-[10px]">메모 조건 반영</Badge></div>
                   {recommendations.length ? <div className="space-y-1.5">{recommendations.map((recommendation, index) => (
                     <button key={recommendation.id} className="flex w-full items-center gap-2 rounded-md bg-background px-2 py-1.5 text-left text-xs hover:bg-primary/10" onClick={() => navigate(recommendation.targetType === "이용자" ? `/users?detailId=${encodeURIComponent(recommendation.id)}` : `/workers?detailId=${encodeURIComponent(recommendation.id)}`)}>
                       <Badge variant="outline" className="h-5 px-1.5">{index + 1}위</Badge><span className="flex-1 font-medium">{recommendation.name}</span><span className="text-muted-foreground">{Math.round(recommendation.score)}점</span>
@@ -317,6 +386,8 @@ const WorkBoard = () => {
       <Dialog open={matchingDialogOpen} onOpenChange={setMatchingDialogOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>매칭 필요 대상 추가</DialogTitle></DialogHeader><div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>대상 구분</Label><Select value={targetType} onValueChange={(value) => { setTargetType(value as MatchingBoardItem["targetType"]); setTargetId(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="이용자">이용자</SelectItem><SelectItem value="활동지원사">활동지원사</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>매칭 형태</Label><Select value={matchMode} onValueChange={(value) => setMatchMode(value as NonNullable<MatchingBoardItem["matchMode"]>)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1:1">1:1 (기본 매칭)</SelectItem><SelectItem value="1:다">1:다 (기존 매칭에 추가)</SelectItem></SelectContent></Select></div></div><div className="space-y-2"><Label>이름 검색</Label><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={targetSearch} onChange={(event) => setTargetSearch(event.target.value)} placeholder="이름을 입력하세요" /></div><div className="max-h-40 divide-y overflow-y-auto rounded-md border">{matchingCandidates.map((candidate) => <button key={candidate.id} className={cn("flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted", targetId === candidate.id && "bg-primary/10 text-primary")} onClick={() => setTargetId(candidate.id)}><span>{candidate.name}</span>{targetId === candidate.id && <Check className="h-4 w-4" />}</button>)}</div></div>{matchMode === "1:다" && selectedTarget && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="mb-2 font-semibold">⚠️ 현재 서비스 시간 — 새 매칭과 겹치지 않도록 확인하세요</p><div className="space-y-1">{currentServiceInfo.map((line) => <p key={line} className="whitespace-pre-wrap">{line}</p>)}</div><p className="mt-2 text-xs text-amber-800">현재 배정 {getAssignmentCount(targetType, selectedTarget)}명 · 추가 배정이 확인되면 이 명단에서 자동 제거됩니다.</p></div>}<div className="space-y-2"><Label>매칭 필요 조건 *</Label><Textarea value={matchingCondition} onChange={(event) => setMatchingCondition(event.target.value)} placeholder="예: 10:00~14:00 중동 인근 9월부터 추가 매칭필요" /></div></div><DialogFooter><Button variant="outline" onClick={() => setMatchingDialogOpen(false)}>취소</Button><Button onClick={() => void saveMatchingItem()}>등록</Button></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2 sm:col-span-2"><Label>업무준비 시작일 *</Label><Input type="date" value={scheduleForm.preparationStartDate || ""} onChange={(event) => setScheduleForm({ ...scheduleForm, preparationStartDate: event.target.value })} /></div><div className="space-y-3 sm:col-span-2"><div className="flex items-center justify-between gap-3"><div><Label>세부 시행 일정 *</Label><p className="text-xs text-muted-foreground">사업계획, 기안 작성, 조사, 예약, 시행일, 평가 등 필요한 단계를 자유롭게 추가하세요.</p></div><Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setScheduleForm((current) => ({ ...current, milestones: [...(current.milestones || []), createMilestone()] }))}><Plus className="mr-1 h-4 w-4" />일정 추가</Button></div>{!(scheduleForm.milestones || []).length && scheduleForm.scheduleDate && <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">기존 시행날짜: {scheduleForm.scheduleDate}<br />수정 저장하려면 세부 일정을 하나 이상 추가해주세요.</p>}<div className="space-y-2">{(scheduleForm.milestones || []).map((milestone) => <div key={milestone.id} className="grid grid-cols-[minmax(0,1fr)_150px_36px] gap-2"><Input value={milestone.label} onChange={(event) => updateMilestone(milestone.id, { label: event.target.value })} placeholder="예: 기안 작성" /><Input type="date" value={milestone.date} onChange={(event) => updateMilestone(milestone.id, { date: event.target.value })} /><Button type="button" variant="ghost" size="icon" aria-label="세부 일정 삭제" onClick={() => removeMilestone(milestone.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
+
+      <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCalendarEventId ? "달력 일정 수정" : "달력 일정 등록"}</DialogTitle></DialogHeader><div className="space-y-4"><div className="space-y-2"><Label>일정 제목 *</Label><Input value={calendarForm.title} onChange={(event) => setCalendarForm({ ...calendarForm, title: event.target.value })} placeholder="예: 이용자 가정 방문" /></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label>시작일 *</Label><Input type="date" value={calendarForm.startDate} onChange={(event) => setCalendarForm({ ...calendarForm, startDate: event.target.value, endDate: calendarForm.endDate < event.target.value ? event.target.value : calendarForm.endDate })} /></div><div className="space-y-2"><Label>종료일 *</Label><Input type="date" min={calendarForm.startDate} value={calendarForm.endDate} onChange={(event) => setCalendarForm({ ...calendarForm, endDate: event.target.value })} /></div></div><div className="space-y-2"><Label>표시 색상</Label><div className="flex flex-wrap gap-2">{(Object.keys(calendarColorClass) as CalendarEventColor[]).map((color) => <button key={color} type="button" className={cn("rounded-full border-2 px-3 py-1 text-xs font-semibold", calendarColorClass[color], calendarForm.color === color ? "border-foreground ring-2 ring-ring ring-offset-2" : "border-transparent")} onClick={() => setCalendarForm({ ...calendarForm, color })}>{calendarColorLabel[color]}</button>)}</div></div><div className="space-y-2"><Label>메모</Label><Textarea value={calendarForm.note} onChange={(event) => setCalendarForm({ ...calendarForm, note: event.target.value })} placeholder="준비사항이나 참고 내용을 자유롭게 입력하세요." /></div></div><DialogFooter className="gap-2 sm:justify-between"><div>{editingCalendarEventId && <Button variant="destructive" onClick={() => void deleteCalendarEvent()}><Trash2 className="mr-1 h-4 w-4" />삭제</Button>}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>취소</Button><Button onClick={() => void saveCalendarEvent()}>{editingCalendarEventId ? "수정 저장" : "일정 등록"}</Button></div></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={missingLinkDialogOpen} onOpenChange={setMissingLinkDialogOpen}><DialogContent><DialogHeader><DialogTitle>입사서류 안내 링크 입력</DialogTitle></DialogHeader><div className="space-y-2"><Label>URL</Label><Input value={onboardingUrl} onChange={(event) => setOnboardingUrl(event.target.value)} placeholder="https://..." /><p className="text-xs text-muted-foreground">현재 브라우저에 저장되며 다음부터 새 탭에서 열립니다.</p></div><DialogFooter><Button variant="outline" onClick={() => setMissingLinkDialogOpen(false)}>취소</Button><Button onClick={saveOnboardingLink}>저장</Button></DialogFooter></DialogContent></Dialog>
     </div>
