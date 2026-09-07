@@ -2,9 +2,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type TerminationDocument, type Worker, TERMINATION_REASONS } from "@/types";
-import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION } from "@/lib/collectionNames";
+import { type MatchingHistoryRecord, type ServiceUser, type TerminationDocument, type Worker, TERMINATION_REASONS } from "@/types";
+import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
+import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
+import { TerminationPrintSheet } from "@/components/TerminationPrintSheet";
+import { syncUserToWorkers } from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +45,7 @@ export default function Terminations() {
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: docsRaw, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const docs = docsRaw || [];
@@ -91,12 +95,14 @@ export default function Terminations() {
     const linkedWorkers = getLinkedWorkersForUser(user);
     for (const worker of linkedWorkers) {
       if (!worker.id) continue;
+      const hasOtherActiveUsers = (worker.assignedUserIds || worker.assigned_users || []).filter(Boolean).length > 0;
+      const nextStatus = workerAfterStatus === "퇴사" ? "퇴사" : hasOtherActiveUsers ? "근무중" : workerAfterStatus;
       const payload: Partial<Worker> = {
-        contractStatus: workerAfterStatus,
-        serviceEndDate: endDate,
-        retirementDate: workerAfterStatus === "퇴사" ? endDate : "",
-        resignationDate: workerAfterStatus === "퇴사" ? endDate : "",
-        notes: [worker.notes, `종결승인서 후속 처리: ${workerAfterStatus}`].filter(Boolean).join("\n"),
+        contractStatus: nextStatus,
+        serviceEndDate: hasOtherActiveUsers ? null : endDate,
+        retirementDate: nextStatus === "퇴사" ? endDate : "",
+        resignationDate: nextStatus === "퇴사" ? endDate : "",
+        notes: [worker.notes, `종결승인서 후속 처리: ${nextStatus}`].filter(Boolean).join("\n"),
       };
       await updateWorker(worker.id, payload);
     }
@@ -153,6 +159,26 @@ export default function Terminations() {
         ...form.reasons,
         form.reasonDetail.trim() ? `상세:${form.reasonDetail.trim()}` : "",
       ].filter(Boolean).join(" / ");
+      const terminatingUser = users.find((user) => user.id === form.userId);
+      if (!terminatingUser?.id) throw new Error("선택한 이용자 정보를 다시 불러오지 못했습니다.");
+      const linkedWorkers = getLinkedWorkersForUser(terminatingUser).filter((worker): worker is Worker & { id: string } => Boolean(worker.id));
+      const previousHelperIds = linkedWorkers.map((worker) => worker.id);
+      const closedDocumentHistory = (terminatingUser.matchingHistory || []).map((entry) =>
+        entry.serviceEndDate === null || entry.serviceEndDate === ""
+          ? { ...entry, serviceEndDate: form.date, reason: "종료" as const, reasonDetail: terminationReasonText, updatedAt: new Date().toISOString() }
+          : entry
+      );
+      const userTerminationPayload: Partial<ServiceUser> = {
+        contractStatus: "계약해지",
+        terminationReason: terminationReasonText,
+        txtUMemostop: terminationReasonText,
+        resignationDate: form.date,
+        assignedHelperIds: [],
+        assigned_workers: [],
+        assignedHelperNames: [],
+        assignedHelperPhones: [],
+        matchingHistory: closedDocumentHistory,
+      };
 
       if (editingId) {
         // 수정 모드
@@ -163,12 +189,7 @@ export default function Terminations() {
         await updateDoc(editingId, payload);
         
         // 이용자 정보 동기화 (상태, 사유, 해지날짜)
-        await updateUser(form.userId, {
-          contractStatus: "계약해지",
-          terminationReason: terminationReasonText,
-          txtUMemostop: terminationReasonText,
-          resignationDate: form.date, // 계약해지 날짜 동기화
-        } as any);
+        await updateUser(form.userId, userTerminationPayload);
 
         toast({ title: "종결확인서 수정 완료", description: "이용자 프로필의 계약해지 날짜와 종결 사유가 동기화되었습니다." });
       } else {
@@ -181,17 +202,27 @@ export default function Terminations() {
         await addDoc(payload as any);
 
         // 이용자 상태 및 데이터 동기화 (상태, 사유, 계약해지 날짜)
-        await updateUser(form.userId, {
-          contractStatus: "계약해지",
-          terminationReason: terminationReasonText,
-          txtUMemostop: terminationReasonText,
-          resignationDate: form.date, // 계약해지 날짜 동기화
-        } as any);
+        await updateUser(form.userId, userTerminationPayload);
 
         toast({ title: "종결확인서 저장 완료", description: "이용자 상태가 '계약해지'로 자동 전환되고, 계약해지 날짜가 저장되었습니다." });
       }
 
-      const affectedWorkerCount = await applyLinkedWorkerTerminationStatus(selectedUser, form.date);
+      await syncUserToWorkers(
+        terminatingUser.id,
+        { name: terminatingUser.name, phone: terminatingUser.phone, assignedHelperIds: [] },
+        workers.filter((worker): worker is Worker & { id: string } => Boolean(worker.id)),
+        previousHelperIds,
+        updateWorker,
+      );
+      for (const worker of linkedWorkers) {
+        await addMatchingHistory({
+          type: "해제", userId: terminatingUser.id, userName: terminatingUser.name, userPhone: terminatingUser.phone,
+          workerId: worker.id, workerName: worker.name, workerPhone: worker.phone,
+          date: terminatingUser.serviceStartDate || form.date, endDate: form.date,
+          reason: "종료", reasonDetail: terminationReasonText, notes: "종결승인서 작성에 따른 서비스 종료",
+        });
+      }
+      const affectedWorkerCount = await applyLinkedWorkerTerminationStatus(terminatingUser, form.date);
       if (affectedWorkerCount > 0) {
         toast({ title: "연결 활동지원사 상태 업데이트", description: `${affectedWorkerCount}명 상태를 ${workerAfterStatus}(으)로 반영했습니다.` });
       }
@@ -272,10 +303,11 @@ export default function Terminations() {
 
   return (
     <div className="space-y-6">
+      {printDoc && <TerminationPrintSheet document={printDoc} address={users.find((user) => user.id === printDoc.userId)?.address || ""} workerNames={printDoc.assignedWorkerName || getAssignedWorkerNames(users.find((user) => user.id === printDoc.userId)).join(", ")} logoSrc={dongbaekCenterLogo} />}
       
 {/* ── 인쇄용 영역: 종결승인서 A4 단일 페이지 ── */}
       {printDoc && (
-        <div className="hidden print:block fixed inset-0 bg-white z-[9999]">
+        <div className="hidden print:hidden fixed inset-0 bg-white z-[9999]">
           <style>{`
             @page {
               size: A4 portrait;

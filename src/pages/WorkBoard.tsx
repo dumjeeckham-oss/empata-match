@@ -397,7 +397,7 @@ const WorkBoard = () => {
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between bg-muted/30"><CardTitle className="text-lg">🎯 매칭 필요 명단</CardTitle><Button size="sm" onClick={() => setMatchingDialogOpen(true)}><UserRoundSearch className="mr-1 h-4 w-4" />명단 추가</Button></CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg">🎯 매칭 필요 명단 <Badge variant="secondary">전체 {matchingItems.length}명</Badge></CardTitle><Button size="sm" onClick={() => setMatchingDialogOpen(true)}><UserRoundSearch className="mr-1 h-4 w-4" />명단 추가</Button></CardHeader>
         <CardContent className="pt-5">
           {!matchingItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">현재 매칭이 필요한 등록 대상이 없습니다.</p> : <div className="grid gap-3 md:grid-cols-2">{matchingItems.map((item) => {
             const recommendations = recommendationMap.get(item.id) || [];

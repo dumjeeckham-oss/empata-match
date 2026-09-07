@@ -23,8 +23,9 @@ describe("work board matching modes", () => {
     expect(shouldAutoRemoveMatchingItem(boardItem, { ...user, assignedHelperIds: ["worker-1", "worker-2"] })).toBe(true);
   });
 
-  it("keeps the legacy 1:1 completion behavior", () => {
-    expect(shouldAutoRemoveMatchingItem({ ...boardItem, matchMode: "1:1" }, user)).toBe(true);
+  it("keeps every newly registered 1:1 item until a new assignment is made", () => {
+    expect(shouldAutoRemoveMatchingItem({ ...boardItem, matchMode: "1:1" }, user)).toBe(false);
+    expect(shouldAutoRemoveMatchingItem({ ...boardItem, matchMode: "1:1" }, { ...user, assignedHelperIds: ["worker-1", "worker-2"] })).toBe(true);
   });
 
   it("formats contiguous half-hour slots for overlap checking", () => {

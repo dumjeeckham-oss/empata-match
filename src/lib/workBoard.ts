@@ -52,9 +52,10 @@ export function getAssignmentCount(targetType: MatchingBoardItem["targetType"], 
 
 export function shouldAutoRemoveMatchingItem(item: MatchingBoardItem, target?: MatchTarget): boolean {
   if (!target) return false;
-  if (item.matchMode === "1:다") {
+  if (typeof item.existingAssignmentCount === "number") {
     return getAssignmentCount(item.targetType, target) > (item.existingAssignmentCount ?? 0);
   }
+  // 기존 데이터만 상태 기반으로 호환한다. 신규 등록은 등록 이후 배정 수가 늘 때만 제거한다.
   return item.targetType === "이용자"
     ? (target as ServiceUser).contractStatus === "서비스중"
     : (target as Worker).contractStatus === "근무중";
