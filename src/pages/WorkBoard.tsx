@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, toLocalYmd, type CalendarDisplayEvent } from "@/lib/workCalendar";
+import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, moveCalendarEvent, resizeCalendarEvent, toLocalYmd, type CalendarDisplayEvent } from "@/lib/workCalendar";
 import { formatScheduleMilestones, formatScheduleSummary, getAssignmentCount, getBoardRecommendations, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION, WORK_CALENDAR_EVENTS_COLLECTION, WORK_QUICK_LINKS_COLLECTION,
@@ -101,6 +101,8 @@ const WorkBoard = () => {
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
   const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarDisplayEvent | null>(null);
+  const [calendarDrag, setCalendarDrag] = useState<{ eventId: string; mode: "move" | "start" | "end"; grabbedDate: string } | null>(null);
+  const [calendarDropDate, setCalendarDropDate] = useState<string | null>(null);
   const [editingCalendarEventId, setEditingCalendarEventId] = useState<string | null>(null);
   const [calendarForm, setCalendarForm] = useState(() => emptyCalendarEvent(toLocalYmd(new Date())));
   useEffect(() => {
@@ -280,6 +282,28 @@ const WorkBoard = () => {
     await calendarStore.remove(editingCalendarEventId);
     setCalendarDialogOpen(false);
   };
+  const startCalendarDrag = (dragEvent: React.DragEvent, eventId: string, mode: "move" | "start" | "end", grabbedDate: string) => {
+    dragEvent.stopPropagation();
+    dragEvent.dataTransfer.effectAllowed = "move";
+    dragEvent.dataTransfer.setData("text/plain", eventId);
+    setCalendarDrag({ eventId, mode, grabbedDate });
+  };
+  const dropCalendarEvent = async (targetDate: string) => {
+    if (!calendarDrag) return;
+    const source = calendarEvents.find((event) => event.id === calendarDrag.eventId);
+    setCalendarDrag(null);
+    setCalendarDropDate(null);
+    if (!source?.id) return;
+    const dates = calendarDrag.mode === "move"
+      ? moveCalendarEvent(source, calendarDrag.grabbedDate, targetDate)
+      : resizeCalendarEvent(source, calendarDrag.mode, targetDate);
+    try {
+      await calendarStore.update(source.id, dates);
+      toast({ title: calendarDrag.mode === "move" ? "일정을 이동했습니다." : "일정 기간을 변경했습니다.", description: `${dates.startDate} ~ ${dates.endDate}` });
+    } catch {
+      toast({ title: "일정 변경에 실패했습니다.", description: "네트워크 연결을 확인한 뒤 다시 시도해주세요.", variant: "destructive" });
+    }
+  };
   const editQuickLink = (link: (typeof quickLinks)[number]) => {
     setEditingQuickLink({ id: link.id, key: link.key, label: link.label, url: link.url });
     setQuickLinkDialogOpen(true);
@@ -366,7 +390,7 @@ const WorkBoard = () => {
       <Card className="overflow-hidden">
         <CardHeader className="bg-muted/30">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><CardTitle className="flex items-center gap-2 text-lg"><CalendarDays className="h-5 w-5 text-primary" />이번 달 업무 달력</CardTitle><p className="mt-1 text-xs text-muted-foreground">날짜를 누르면 일정을 등록하고, 색상 일정 선을 누르면 수정·삭제할 수 있습니다.</p></div>
+            <div><CardTitle className="flex items-center gap-2 text-lg"><CalendarDays className="h-5 w-5 text-primary" />이번 달 업무 달력</CardTitle><p className="mt-1 text-xs text-muted-foreground">일정을 끌어 옮기고, 양끝 조절점을 끌어 기간을 바꿀 수 있습니다. 연간 연동 일정은 연간 일정 현황에서 수정하세요.</p></div>
             <div className="flex items-center gap-1"><Button variant="outline" size="icon" aria-label="이전 달" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft className="h-4 w-4" /></Button><Button variant="ghost" className="min-w-28 font-bold" onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{calendarMonth.getFullYear()}년 {calendarMonth.getMonth() + 1}월</Button><Button variant="outline" size="icon" aria-label="다음 달" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight className="h-4 w-4" /></Button></div>
           </div>
         </CardHeader>
@@ -375,14 +399,19 @@ const WorkBoard = () => {
           <div className="grid grid-cols-7 gap-px bg-border">{calendarDays.map((day, dayIndex) => {
             const dayEvents = eventsForCalendarDay(calendarEventsWithLanes, day.date);
             const laneCount = dayEvents.length ? Math.max(...dayEvents.map((event) => event.lane)) + 1 : 0;
-            return <div key={day.date} role="button" tabIndex={0} className={cn("min-h-28 min-w-0 bg-background p-1 transition hover:bg-muted/30", !day.inMonth && "bg-muted/20 text-muted-foreground")} onClick={() => setSelectedCalendarDate(day.date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedCalendarDate(day.date); }}>
+            return <div key={day.date} role="button" tabIndex={0} className={cn("min-h-28 min-w-0 bg-background p-1 transition hover:bg-muted/30", !day.inMonth && "bg-muted/20 text-muted-foreground", calendarDropDate === day.date && "bg-primary/10 ring-2 ring-inset ring-primary")} onClick={() => setSelectedCalendarDate(day.date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedCalendarDate(day.date); }} onDragOver={(event) => { if (!calendarDrag) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; }} onDragEnter={(event) => { if (!calendarDrag) return; event.preventDefault(); setCalendarDropDate(day.date); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setCalendarDropDate(null); }} onDrop={(event) => { event.preventDefault(); event.stopPropagation(); void dropCalendarEvent(day.date); }}>
               <div className={cn("mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs", day.date === today && "bg-primary font-bold text-primary-foreground", dayIndex % 7 === 0 && day.date !== today && "text-rose-500", dayIndex % 7 === 6 && day.date !== today && "text-blue-500")}>{day.day}</div>
               <div className="space-y-0.5">{Array.from({ length: laneCount }, (_, lane) => {
                 const event = dayEvents.find((item) => item.lane === lane);
                 if (!event) return <div key={lane} className="h-5" />;
                 const starts = event.startDate === day.date;
                 const ends = event.endDate === day.date;
-                return <button key={event.id} type="button" title={`${event.title}${event.startTime ? ` · ${event.startTime}~${event.endTime}` : ""}${event.note ? ` · ${event.note}` : ""}`} className={cn("block h-5 w-[calc(100%+4px)] truncate px-1 text-left text-[10px] font-semibold leading-5 shadow-sm", calendarColorClass[event.color], starts && "ml-0 rounded-l-md", !starts && "-ml-1", ends && "w-full rounded-r-md")} onClick={(clickEvent) => { clickEvent.stopPropagation(); setSelectedCalendarEvent(event); }}>{starts || dayIndex % 7 === 0 || day.day === 1 ? `${event.startTime ? `${event.startTime} ` : ""}${event.title}` : ""}</button>;
+                const canDrag = event.source !== "annual";
+                return <div key={event.id} role="button" tabIndex={0} draggable={canDrag} title={`${event.title}${event.startTime ? ` · ${event.startTime}~${event.endTime}` : ""}${event.note ? ` · ${event.note}` : ""}`} className={cn("relative flex h-5 w-[calc(100%+4px)] items-center overflow-hidden px-1 text-left text-[10px] font-semibold leading-5 shadow-sm", calendarColorClass[event.color], canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer", starts && "ml-0 rounded-l-md", !starts && "-ml-1", ends && "w-full rounded-r-md")} onDragStart={(dragEvent) => canDrag && startCalendarDrag(dragEvent, event.id, "move", day.date)} onDragEnd={() => { setCalendarDrag(null); setCalendarDropDate(null); }} onClick={(clickEvent) => { clickEvent.stopPropagation(); setSelectedCalendarEvent(event); }} onKeyDown={(keyEvent) => { if (keyEvent.key === "Enter" || keyEvent.key === " ") setSelectedCalendarEvent(event); }}>
+                  {canDrag && starts && <span draggable className="mr-1 flex h-full w-2 shrink-0 cursor-ew-resize items-center justify-center border-r border-white/60" title="시작일 조절" onDragStart={(dragEvent) => startCalendarDrag(dragEvent, event.id, "start", day.date)}>‹</span>}
+                  <span className="min-w-0 flex-1 truncate">{starts || dayIndex % 7 === 0 || day.day === 1 ? `${event.startTime ? `${event.startTime} ` : ""}${event.title}` : ""}</span>
+                  {canDrag && ends && <span draggable className="ml-1 flex h-full w-2 shrink-0 cursor-ew-resize items-center justify-center border-l border-white/60" title="종료일 조절" onDragStart={(dragEvent) => startCalendarDrag(dragEvent, event.id, "end", day.date)}>›</span>}
+                </div>;
               })}</div>
             </div>;
           })}</div>

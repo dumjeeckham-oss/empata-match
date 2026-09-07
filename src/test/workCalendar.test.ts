@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay } from "@/lib/workCalendar";
+import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, moveCalendarEvent, resizeCalendarEvent } from "@/lib/workCalendar";
 import type { WorkCalendarEvent } from "@/types";
 
 const event = (id: string, title: string, startDate: string, endDate: string): WorkCalendarEvent & { id: string } => ({
@@ -36,5 +36,17 @@ describe("work calendar", () => {
     expect(events.map((item) => item.startDate)).toEqual(["2026-09-02", "2026-09-05"]);
     expect(events.every((item) => item.source === "annual" && item.color === "green")).toBe(true);
     expect(events[1].title).toContain("기안 작성");
+  });
+
+  it("moves an event while preserving its duration", () => {
+    expect(moveCalendarEvent(event("a", "이동", "2026-09-03", "2026-09-05"), "2026-09-04", "2026-09-10"))
+      .toEqual({ startDate: "2026-09-09", endDate: "2026-09-11" });
+  });
+
+  it("resizes either edge without reversing the date range", () => {
+    const item = event("a", "조절", "2026-09-03", "2026-09-05");
+    expect(resizeCalendarEvent(item, "start", "2026-09-01")).toEqual({ startDate: "2026-09-01", endDate: "2026-09-05" });
+    expect(resizeCalendarEvent(item, "end", "2026-09-08")).toEqual({ startDate: "2026-09-03", endDate: "2026-09-08" });
+    expect(resizeCalendarEvent(item, "start", "2026-09-10")).toEqual({ startDate: "2026-09-05", endDate: "2026-09-05" });
   });
 });

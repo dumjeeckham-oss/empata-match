@@ -13,6 +13,29 @@ export function toLocalYmd(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function addDays(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  return toLocalYmd(date);
+}
+
+function dayDifference(from: string, to: string): number {
+  const [fromYear, fromMonth, fromDay] = from.split("-").map(Number);
+  const [toYear, toMonth, toDay] = to.split("-").map(Number);
+  return Math.round((Date.UTC(toYear, toMonth - 1, toDay) - Date.UTC(fromYear, fromMonth - 1, fromDay)) / 86400000);
+}
+
+export function moveCalendarEvent(event: WorkCalendarEvent, grabbedDate: string, targetDate: string): Pick<WorkCalendarEvent, "startDate" | "endDate"> {
+  const offset = dayDifference(grabbedDate, targetDate);
+  return { startDate: addDays(event.startDate, offset), endDate: addDays(event.endDate, offset) };
+}
+
+export function resizeCalendarEvent(event: WorkCalendarEvent, edge: "start" | "end", targetDate: string): Pick<WorkCalendarEvent, "startDate" | "endDate"> {
+  if (edge === "start") return { startDate: targetDate <= event.endDate ? targetDate : event.endDate, endDate: event.endDate };
+  return { startDate: event.startDate, endDate: targetDate >= event.startDate ? targetDate : event.startDate };
+}
+
 export function buildMonthGrid(year: number, monthIndex: number): CalendarDay[] {
   const first = new Date(year, monthIndex, 1);
   const cursor = new Date(year, monthIndex, 1 - first.getDay());
