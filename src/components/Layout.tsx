@@ -1,9 +1,11 @@
-import { Link, useLocation } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { InstallAppButton } from "@/components/InstallAppButton";
+import { getAdjacentPath, getSwipeDirection, type SwipePoint } from "@/lib/swipeNavigation";
 
 const navItems = [
   { path: "/", label: "대시보드", icon: "📊" },
@@ -20,6 +22,33 @@ const navItems = [
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
+  const touchStart = useRef<SwipePoint | null>(null);
+  const [swipeDirection, setSwipeDirection] = useState<"left" | "right" | null>(null);
+
+  useEffect(() => setSwipeDirection(null), [location.pathname]);
+
+  const ignoreSwipeTarget = (target: EventTarget | null) =>
+    target instanceof Element && Boolean(target.closest("input, textarea, select, button, a, [data-no-swipe]"));
+
+  const handleTouchStart = (event: React.TouchEvent<HTMLElement>) => {
+    if (window.innerWidth >= 768 || event.touches.length !== 1 || ignoreSwipeTarget(event.target)) return;
+    const touch = event.touches[0];
+    touchStart.current = { x: touch.clientX, y: touch.clientY, at: Date.now() };
+  };
+
+  const handleTouchEnd = (event: React.TouchEvent<HTMLElement>) => {
+    const start = touchStart.current;
+    touchStart.current = null;
+    if (!start || event.changedTouches.length !== 1) return;
+    const touch = event.changedTouches[0];
+    const direction = getSwipeDirection(start, { x: touch.clientX, y: touch.clientY, at: Date.now() });
+    if (!direction) return;
+    const nextPath = getAdjacentPath(navItems.map((item) => item.path), location.pathname, direction);
+    if (!nextPath) return;
+    setSwipeDirection(direction);
+    window.setTimeout(() => navigate(nextPath), 120);
+  };
 
   const renderNavLink = (item: (typeof navItems)[number], mobile = false) => {
     const isActive = location.pathname === item.path;
@@ -82,8 +111,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
         </nav>
       </header>
 
-      <main className="flex-1 overflow-auto">
-        <div className="p-4 md:p-6 max-w-7xl mx-auto animate-fade-in">{children}</div>
+      <main className="flex-1 overflow-auto" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+        <div className={cn("p-4 md:p-6 max-w-7xl mx-auto animate-fade-in transition-all duration-150", swipeDirection === "left" && "-translate-x-4 opacity-60", swipeDirection === "right" && "translate-x-4 opacity-60")}>{children}</div>
       </main>
     </div>
   );

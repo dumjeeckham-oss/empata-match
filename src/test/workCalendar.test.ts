@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay } from "@/lib/workCalendar";
+import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay } from "@/lib/workCalendar";
 import type { WorkCalendarEvent } from "@/types";
 
 const event = (id: string, title: string, startDate: string, endDate: string): WorkCalendarEvent & { id: string } => ({
@@ -25,5 +25,16 @@ describe("work calendar", () => {
     expect(laidOut.find((item) => item.id === "b")?.lane).toBe(1);
     expect(laidOut.find((item) => item.id === "c")?.lane).toBe(0);
     expect(eventsForCalendarDay(laidOut, "2026-09-05").map((item) => item.id)).toEqual(["a", "b"]);
+  });
+
+  it("turns annual preparation and milestone dates into linked calendar events", () => {
+    const events = annualSchedulesToCalendarEvents([{
+      id: "schedule-1", projectName: "안전 조사", status: "진행중", preparationStartDate: "2026-09-02",
+      milestones: [{ id: "plan", label: "기안 작성", date: "2026-09-05" }],
+      scheduleDate: "", note: "준비", manager: "김담당",
+    }]);
+    expect(events.map((item) => item.startDate)).toEqual(["2026-09-02", "2026-09-05"]);
+    expect(events.every((item) => item.source === "annual" && item.color === "green")).toBe(true);
+    expect(events[1].title).toContain("기안 작성");
   });
 });

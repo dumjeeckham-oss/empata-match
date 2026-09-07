@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SpellCheckButton } from "@/components/SpellCheckButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
@@ -333,12 +334,13 @@ export default function Handovers() {
       {printDoc && (
         <div className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-auto">
           <style>{`
-            @page { size: A4; margin: 10mm 12mm; }
+            @page { size: A4 portrait; margin: 15mm 12mm 15mm 12mm; }
             @media print {
-              html, body { margin: 0 !important; padding: 0 !important; }
+              html, body { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; }
+              *, *::before, *::after { box-sizing: border-box !important; }
               .handover-print-sheet {
-                width: 100%;
-                min-height: 277mm;
+                width: 186mm;
+                min-height: 267mm;
                 color: #000;
                 font-family: 'Malgun Gothic', 'Dotum', sans-serif;
                 font-size: 10px;
@@ -349,10 +351,10 @@ export default function Handovers() {
               .handover-print-sheet th { background: #f2f2f2 !important; font-weight: 700; text-align: center; }
               .handover-print-sheet .print-textbox { min-height: 33mm; white-space: pre-wrap; word-break: keep-all; vertical-align: top; }
               .handover-print-sheet .print-important { min-height: 22mm; white-space: pre-wrap; word-break: keep-all; vertical-align: top; }
-              .handover-print-sheet > * { page-break-inside: avoid; }
+              .handover-print-sheet > * { break-inside: avoid; page-break-inside: avoid; }
             }
           `}</style>
-          <div className="handover-print-sheet p-8">
+          <div className="handover-print-sheet">
             <h1 className="text-2xl font-bold text-center mb-4 underline decoration-double underline-offset-8">업무 인계 · 인수서</h1>
 
             <h2 className="text-base font-bold mb-2">1. 인적사항</h2>
@@ -610,15 +612,18 @@ export default function Handovers() {
           <div className="flex flex-col">
             <Label>인계사유 *</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="예: 담당 활동지원사 변경, 개인사정, 기관변경 등" />
+            <SpellCheckButton value={reason} onApply={setReason} />
           </div>
           <div className="flex flex-col">
             <Label>인계 인수 업무사항</Label>
             <Textarea value={handoverTasks} onChange={(e) => setHandoverTasks(e.target.value)} placeholder="장문의 업무 내용 입력" />
+            <SpellCheckButton value={handoverTasks} onApply={setHandoverTasks} />
           </div>
 
           <div>
             <Label>서비스 제공시 유의 사항 및 중요 문제점</Label>
             <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <SpellCheckButton value={notes} onApply={setNotes} />
           </div>
 
           <div className="flex justify-end gap-2">

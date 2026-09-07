@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SpellCheckButton } from "@/components/SpellCheckButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -108,11 +109,14 @@ const Counseling = () => {
         printWindow.document.write(`
           <html><head><title>종결승인서</title>
           <style>
-            body { font-family: 'Malgun Gothic', sans-serif; padding: 40px; }
-            table { border-collapse: collapse; width: 100%; }
+            @page { size: A4 portrait; margin: 15mm 12mm 15mm 12mm; }
+            html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; }
+            *, *::before, *::after { box-sizing: border-box; }
+            body { font-family: 'Malgun Gothic', sans-serif; color: #000; font-size: 10pt; line-height: 1.45; }
+            table { border-collapse: collapse; width: 100%; table-layout: fixed; break-inside: avoid; page-break-inside: avoid; }
             td, th { border: 1px solid #333; padding: 8px; }
             .logo { max-height: 60px; }
-            @media print { body { padding: 20px; } }
+            @media print { .no-print { display: none !important; } }
           </style></head><body>${printRef.current.innerHTML}</body></html>
         `);
         printWindow.document.close();
@@ -132,15 +136,18 @@ const Counseling = () => {
       printWindow.document.write(`
         <html><head><title>상담일지 - ${r.targetName}</title>
         <style>
-          body { font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #333; }
+          @page { size: A4 portrait; margin: 15mm 12mm 15mm 12mm; }
+          html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; }
+          *, *::before, *::after { box-sizing: border-box; }
+          body { font-family: 'Malgun Gothic', sans-serif; line-height: 1.45; color: #000; font-size: 10pt; }
           .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 30px; }
-          .title { font-size: 24px; font-bold; }
-          .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .title { font-size: 20px; font-weight: 700; }
+          .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 14px; break-inside: avoid; page-break-inside: avoid; }
           .info-table th, .info-table td { border: 1px solid #333; padding: 10px; text-align: left; }
           .info-table th { background-color: #f5f5f5; width: 20%; }
-          .content-box { border: 1px solid #333; padding: 20px; min-height: 200px; white-space: pre-wrap; }
-          .footer { margin-top: 50px; text-align: right; }
-          @media print { body { padding: 20px; } .no-print { display: none; } }
+          .content-box { border: 1px solid #333; padding: 10px; min-height: 48mm; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
+          .footer { margin-top: 20px; text-align: right; }
+          @media print { .no-print { display: none !important; } }
         </style></head><body>
           <div class="header">
             <div class="title">상담일지</div>
@@ -226,7 +233,7 @@ const Counseling = () => {
                     ))}
                   </div>
                 </div>
-                <div><Label>종결 사유 상세</Label><Textarea value={termForm.reasonDetail} onChange={(e) => setTermForm((f) => ({ ...f, reasonDetail: e.target.value }))} placeholder="상세 사유를 입력하세요..." /></div>
+                <div><Label>종결 사유 상세</Label><Textarea value={termForm.reasonDetail} onChange={(e) => setTermForm((f) => ({ ...f, reasonDetail: e.target.value }))} placeholder="상세 사유를 입력하세요..." /><SpellCheckButton value={termForm.reasonDetail} onApply={(reasonDetail) => setTermForm((f) => ({ ...f, reasonDetail }))} /></div>
                 <div className="grid grid-cols-2 gap-4">
                   <div><Label>담당 결재자</Label><Input value={termForm.approverDandang} onChange={(e) => setTermForm((f) => ({ ...f, approverDandang: e.target.value }))} /></div>
                   <div><Label>센터장 결재자</Label><Input value={termForm.approverCenterJang} onChange={(e) => setTermForm((f) => ({ ...f, approverCenterJang: e.target.value }))} /></div>
@@ -383,8 +390,8 @@ const Counseling = () => {
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>상담 내용</Label><Textarea rows={3} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="상담 내용을 입력하세요..." /></div>
-                <div><Label>상담 결과</Label><Textarea rows={3} value={form.result} onChange={(e) => setForm((f) => ({ ...f, result: e.target.value }))} placeholder="상담 결과를 입력하세요..." /></div>
+                <div><Label>상담 내용</Label><Textarea rows={3} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="상담 내용을 입력하세요..." /><SpellCheckButton value={form.content} onApply={(content) => setForm((f) => ({ ...f, content }))} /></div>
+                <div><Label>상담 결과</Label><Textarea rows={3} value={form.result} onChange={(e) => setForm((f) => ({ ...f, result: e.target.value }))} placeholder="상담 결과를 입력하세요..." /><SpellCheckButton value={form.result} onApply={(result) => setForm((f) => ({ ...f, result }))} /></div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
                   <Button onClick={handleSaveRecord}>저장</Button>

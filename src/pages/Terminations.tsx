@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { SpellCheckButton } from "@/components/SpellCheckButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -277,15 +278,16 @@ export default function Terminations() {
         <div className="hidden print:block fixed inset-0 bg-white z-[9999]">
           <style>{`
             @page {
-              size: A4;
-              margin: 5mm 6mm;
+              size: A4 portrait;
+              margin: 15mm 12mm 15mm 12mm;
             }
             @media print {
-              html, body { margin: 0 !important; padding: 0 !important; }
+              html, body { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; }
+              *, *::before, *::after { box-sizing: border-box !important; }
               .print-sheet {
-                width: 198mm;
-                min-height: 287mm;
-                max-height: 287mm;
+                width: 186mm;
+                min-height: 267mm;
+                max-height: 267mm;
                 box-sizing: border-box;
                 overflow: hidden;
                 font-size: 9.5px;
@@ -293,8 +295,8 @@ export default function Terminations() {
                 color: #000;
                 font-family: 'Malgun Gothic', 'Dotum', sans-serif;
               }
-              .print-sheet > * { page-break-inside: avoid; }
-              .print-sheet table { border-collapse: collapse; width: 100%; }
+              .print-sheet > * { break-inside: avoid; page-break-inside: avoid; }
+              .print-sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; break-inside: avoid; page-break-inside: avoid; }
               .print-sheet table td,
               .print-sheet table th {
                 border: 1px solid #000;
@@ -581,6 +583,7 @@ export default function Terminations() {
                   ? "기타에 해당하는 구체적인 사유를 작성해주세요."
                   : "종결 사유에 대한 상세 내용을 작성해주세요."}
               />
+              <SpellCheckButton value={form.reasonDetail} onApply={(reasonDetail) => setForm((f) => ({ ...f, reasonDetail }))} />
             </div>
           </div>
 
@@ -602,6 +605,7 @@ export default function Terminations() {
           <div>
             <Label>인계 메모(선택)</Label>
             <Textarea value={form.handoverNote || ""} onChange={(e) => setForm((f) => ({ ...f, handoverNote: e.target.value }))} />
+            <SpellCheckButton value={form.handoverNote || ""} onApply={(handoverNote) => setForm((f) => ({ ...f, handoverNote }))} />
           </div>
 
           <div className="flex justify-end gap-2">

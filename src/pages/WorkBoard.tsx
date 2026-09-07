@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
-import { assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, toLocalYmd } from "@/lib/workCalendar";
+import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, toLocalYmd, type CalendarDisplayEvent } from "@/lib/workCalendar";
 import { formatScheduleMilestones, formatScheduleSummary, getAssignmentCount, getBoardRecommendations, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION, WORK_CALENDAR_EVENTS_COLLECTION, WORK_QUICK_LINKS_COLLECTION,
@@ -56,7 +56,7 @@ const EMPTY_WORKERS: (Worker & { id: string })[] = [];
 const EMPTY_CALENDAR_EVENTS: (WorkCalendarEvent & { id: string })[] = [];
 const EMPTY_QUICK_LINK_OVERRIDES: (WorkQuickLink & { id: string })[] = [];
 const emptyCalendarEvent = (date: string): Omit<WorkCalendarEvent, "id" | "createdAt" | "updatedAt"> => ({
-  title: "", note: "", startDate: date, endDate: date, color: "blue",
+  title: "", note: "", startDate: date, endDate: date, startTime: "09:00", endTime: "10:00", color: "blue",
 });
 const calendarColorClass: Record<CalendarEventColor, string> = {
   blue: "bg-blue-500 text-white", green: "bg-emerald-500 text-white", amber: "bg-amber-400 text-amber-950",
@@ -99,6 +99,8 @@ const WorkBoard = () => {
   const [editingQuickLink, setEditingQuickLink] = useState<{ id?: string; key: string; label: string; url: string } | null>(null);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [calendarDialogOpen, setCalendarDialogOpen] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState<string | null>(null);
+  const [selectedCalendarEvent, setSelectedCalendarEvent] = useState<CalendarDisplayEvent | null>(null);
   const [editingCalendarEventId, setEditingCalendarEventId] = useState<string | null>(null);
   const [calendarForm, setCalendarForm] = useState(() => emptyCalendarEvent(toLocalYmd(new Date())));
   useEffect(() => {
@@ -158,7 +160,12 @@ const WorkBoard = () => {
     matchingItems.map((item) => [item.id, getBoardRecommendations(item, users, workers)]),
   );
   const calendarDays = buildMonthGrid(calendarMonth.getFullYear(), calendarMonth.getMonth());
-  const calendarEventsWithLanes = assignCalendarEventLanes(calendarEvents);
+  const calendarDisplayEvents: CalendarDisplayEvent[] = [
+    ...calendarEvents.map((event) => ({ ...event, source: "calendar" as const })),
+    ...annualSchedulesToCalendarEvents(schedules),
+  ];
+  const calendarEventsWithLanes = assignCalendarEventLanes(calendarDisplayEvents);
+  const selectedDayEvents = selectedCalendarDate ? eventsForCalendarDay(calendarEventsWithLanes, selectedCalendarDate) : [];
   const today = toLocalYmd(new Date());
   const defaultLinkKeys = new Set<string>(defaultQuickLinks.map((link) => link.key));
   const quickLinks = [...defaultQuickLinks.map((defaultLink) => {
@@ -247,16 +254,20 @@ const WorkBoard = () => {
   };
   const openCalendarDialog = (date: string, event?: WorkCalendarEvent & { id: string }) => {
     setEditingCalendarEventId(event?.id || null);
-    setCalendarForm(event ? { title: event.title, note: event.note || "", startDate: event.startDate, endDate: event.endDate, color: event.color } : emptyCalendarEvent(date));
+    setCalendarForm(event ? { title: event.title, note: event.note || "", startDate: event.startDate, endDate: event.endDate, startTime: event.startTime || "09:00", endTime: event.endTime || "10:00", color: event.color } : emptyCalendarEvent(date));
     setCalendarDialogOpen(true);
   };
   const saveCalendarEvent = async () => {
-    if (!calendarForm.title.trim() || !calendarForm.startDate || !calendarForm.endDate) {
-      toast({ title: "일정 제목과 시작일·종료일을 입력해주세요.", variant: "destructive" });
+    if (!calendarForm.title.trim() || !calendarForm.startDate || !calendarForm.endDate || !calendarForm.startTime || !calendarForm.endTime) {
+      toast({ title: "일정 제목, 날짜, 시작·종료 시간을 모두 입력해주세요.", variant: "destructive" });
       return;
     }
     if (calendarForm.startDate > calendarForm.endDate) {
       toast({ title: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
+      return;
+    }
+    if (calendarForm.startDate === calendarForm.endDate && calendarForm.startTime >= calendarForm.endTime) {
+      toast({ title: "종료 시간은 시작 시간보다 늦어야 합니다.", variant: "destructive" });
       return;
     }
     const payload = { ...calendarForm, title: calendarForm.title.trim(), note: calendarForm.note.trim() };
@@ -364,14 +375,14 @@ const WorkBoard = () => {
           <div className="grid grid-cols-7 gap-px bg-border">{calendarDays.map((day, dayIndex) => {
             const dayEvents = eventsForCalendarDay(calendarEventsWithLanes, day.date);
             const laneCount = dayEvents.length ? Math.max(...dayEvents.map((event) => event.lane)) + 1 : 0;
-            return <div key={day.date} role="button" tabIndex={0} className={cn("min-h-28 min-w-0 bg-background p-1 transition hover:bg-muted/30", !day.inMonth && "bg-muted/20 text-muted-foreground")} onClick={() => openCalendarDialog(day.date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") openCalendarDialog(day.date); }}>
+            return <div key={day.date} role="button" tabIndex={0} className={cn("min-h-28 min-w-0 bg-background p-1 transition hover:bg-muted/30", !day.inMonth && "bg-muted/20 text-muted-foreground")} onClick={() => setSelectedCalendarDate(day.date)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedCalendarDate(day.date); }}>
               <div className={cn("mb-1 flex h-6 w-6 items-center justify-center rounded-full text-xs", day.date === today && "bg-primary font-bold text-primary-foreground", dayIndex % 7 === 0 && day.date !== today && "text-rose-500", dayIndex % 7 === 6 && day.date !== today && "text-blue-500")}>{day.day}</div>
               <div className="space-y-0.5">{Array.from({ length: laneCount }, (_, lane) => {
                 const event = dayEvents.find((item) => item.lane === lane);
                 if (!event) return <div key={lane} className="h-5" />;
                 const starts = event.startDate === day.date;
                 const ends = event.endDate === day.date;
-                return <button key={event.id} type="button" title={`${event.title}${event.note ? ` · ${event.note}` : ""}`} className={cn("block h-5 w-[calc(100%+4px)] truncate px-1 text-left text-[10px] font-semibold leading-5 shadow-sm", calendarColorClass[event.color], starts && "ml-0 rounded-l-md", !starts && "-ml-1", ends && "w-full rounded-r-md")} onClick={(clickEvent) => { clickEvent.stopPropagation(); openCalendarDialog(day.date, event); }}>{starts || dayIndex % 7 === 0 || day.day === 1 ? event.title : ""}</button>;
+                return <button key={event.id} type="button" title={`${event.title}${event.startTime ? ` · ${event.startTime}~${event.endTime}` : ""}${event.note ? ` · ${event.note}` : ""}`} className={cn("block h-5 w-[calc(100%+4px)] truncate px-1 text-left text-[10px] font-semibold leading-5 shadow-sm", calendarColorClass[event.color], starts && "ml-0 rounded-l-md", !starts && "-ml-1", ends && "w-full rounded-r-md")} onClick={(clickEvent) => { clickEvent.stopPropagation(); setSelectedCalendarEvent(event); }}>{starts || dayIndex % 7 === 0 || day.day === 1 ? `${event.startTime ? `${event.startTime} ` : ""}${event.title}` : ""}</button>;
               })}</div>
             </div>;
           })}</div>
@@ -422,9 +433,31 @@ const WorkBoard = () => {
 
       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingScheduleId ? "연간 일정 수정" : "신규 연간 일정"}</DialogTitle></DialogHeader><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2 sm:col-span-2"><Label>연간사업명 *</Label><Input value={scheduleForm.projectName} onChange={(event) => setScheduleForm({ ...scheduleForm, projectName: event.target.value })} placeholder="유해위험요인 조사" /></div><div className="space-y-2"><Label>상태</Label><Select value={scheduleForm.status} onValueChange={(value) => setScheduleForm({ ...scheduleForm, status: value as AnnualScheduleStatus })}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="진행중">진행중</SelectItem><SelectItem value="예정">예정</SelectItem><SelectItem value="완료">완료</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>담당 *</Label><Input value={scheduleForm.manager} onChange={(event) => setScheduleForm({ ...scheduleForm, manager: event.target.value })} placeholder="김광민" /></div><div className="space-y-2 sm:col-span-2"><Label>업무준비 시작일 *</Label><Input type="date" value={scheduleForm.preparationStartDate || ""} onChange={(event) => setScheduleForm({ ...scheduleForm, preparationStartDate: event.target.value })} /></div><div className="space-y-3 sm:col-span-2"><div className="flex items-center justify-between gap-3"><div><Label>세부 시행 일정 *</Label><p className="text-xs text-muted-foreground">사업계획, 기안 작성, 조사, 예약, 시행일, 평가 등 필요한 단계를 자유롭게 추가하세요.</p></div><Button type="button" variant="outline" size="sm" className="shrink-0" onClick={() => setScheduleForm((current) => ({ ...current, milestones: [...(current.milestones || []), createMilestone()] }))}><Plus className="mr-1 h-4 w-4" />일정 추가</Button></div>{!(scheduleForm.milestones || []).length && scheduleForm.scheduleDate && <p className="rounded-md bg-muted p-3 text-xs text-muted-foreground">기존 시행날짜: {scheduleForm.scheduleDate}<br />수정 저장하려면 세부 일정을 하나 이상 추가해주세요.</p>}<div className="space-y-2">{(scheduleForm.milestones || []).map((milestone) => <div key={milestone.id} className="grid grid-cols-[minmax(0,1fr)_150px_36px] gap-2"><Input value={milestone.label} onChange={(event) => updateMilestone(milestone.id, { label: event.target.value })} placeholder="예: 기안 작성" /><Input type="date" value={milestone.date} onChange={(event) => updateMilestone(milestone.id, { date: event.target.value })} /><Button type="button" variant="ghost" size="icon" aria-label="세부 일정 삭제" onClick={() => removeMilestone(milestone.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div>)}</div></div><div className="space-y-2 sm:col-span-2"><Label>비고</Label><Textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} placeholder="-수요조사링크:6/29~7/3(일주일)" /></div></div><DialogFooter><Button variant="outline" onClick={() => setScheduleDialogOpen(false)}>취소</Button><Button onClick={() => void saveSchedule()}>{editingScheduleId ? "수정 저장" : "일정 추가"}</Button></DialogFooter></DialogContent></Dialog>
 
-      <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCalendarEventId ? "달력 일정 수정" : "달력 일정 등록"}</DialogTitle></DialogHeader><div className="space-y-4"><div className="space-y-2"><Label>일정 제목 *</Label><Input value={calendarForm.title} onChange={(event) => setCalendarForm({ ...calendarForm, title: event.target.value })} placeholder="예: 이용자 가정 방문" /></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label>시작일 *</Label><Input type="date" value={calendarForm.startDate} onChange={(event) => setCalendarForm({ ...calendarForm, startDate: event.target.value, endDate: calendarForm.endDate < event.target.value ? event.target.value : calendarForm.endDate })} /></div><div className="space-y-2"><Label>종료일 *</Label><Input type="date" min={calendarForm.startDate} value={calendarForm.endDate} onChange={(event) => setCalendarForm({ ...calendarForm, endDate: event.target.value })} /></div></div><div className="space-y-2"><Label>표시 색상</Label><div className="flex flex-wrap gap-2">{(Object.keys(calendarColorClass) as CalendarEventColor[]).map((color) => <button key={color} type="button" className={cn("rounded-full border-2 px-3 py-1 text-xs font-semibold", calendarColorClass[color], calendarForm.color === color ? "border-foreground ring-2 ring-ring ring-offset-2" : "border-transparent")} onClick={() => setCalendarForm({ ...calendarForm, color })}>{calendarColorLabel[color]}</button>)}</div></div><div className="space-y-2"><Label>메모</Label><Textarea value={calendarForm.note} onChange={(event) => setCalendarForm({ ...calendarForm, note: event.target.value })} placeholder="준비사항이나 참고 내용을 자유롭게 입력하세요." /></div></div><DialogFooter className="gap-2 sm:justify-between"><div>{editingCalendarEventId && <Button variant="destructive" onClick={() => void deleteCalendarEvent()}><Trash2 className="mr-1 h-4 w-4" />삭제</Button>}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>취소</Button><Button onClick={() => void saveCalendarEvent()}>{editingCalendarEventId ? "수정 저장" : "일정 등록"}</Button></div></DialogFooter></DialogContent></Dialog>
+      <Dialog open={calendarDialogOpen} onOpenChange={setCalendarDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingCalendarEventId ? "달력 일정 수정" : "달력 일정 등록"}</DialogTitle></DialogHeader><div className="space-y-4"><div className="space-y-2"><Label>일정 제목 *</Label><Input value={calendarForm.title} onChange={(event) => setCalendarForm({ ...calendarForm, title: event.target.value })} placeholder="예: 이용자 가정 방문" /></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label>시작일 *</Label><Input type="date" value={calendarForm.startDate} onChange={(event) => setCalendarForm({ ...calendarForm, startDate: event.target.value, endDate: calendarForm.endDate < event.target.value ? event.target.value : calendarForm.endDate })} /></div><div className="space-y-2"><Label>종료일 *</Label><Input type="date" min={calendarForm.startDate} value={calendarForm.endDate} onChange={(event) => setCalendarForm({ ...calendarForm, endDate: event.target.value })} /></div></div><div className="grid grid-cols-2 gap-3"><div className="space-y-2"><Label>시작 시간 *</Label><Input type="time" value={calendarForm.startTime || ""} onChange={(event) => setCalendarForm({ ...calendarForm, startTime: event.target.value })} /></div><div className="space-y-2"><Label>종료 시간 *</Label><Input type="time" value={calendarForm.endTime || ""} onChange={(event) => setCalendarForm({ ...calendarForm, endTime: event.target.value })} /></div></div><div className="space-y-2"><Label>표시 색상</Label><div className="flex flex-wrap gap-2">{(Object.keys(calendarColorClass) as CalendarEventColor[]).map((color) => <button key={color} type="button" className={cn("rounded-full border-2 px-3 py-1 text-xs font-semibold", calendarColorClass[color], calendarForm.color === color ? "border-foreground ring-2 ring-ring ring-offset-2" : "border-transparent")} onClick={() => setCalendarForm({ ...calendarForm, color })}>{calendarColorLabel[color]}</button>)}</div></div><div className="space-y-2"><Label>메모</Label><Textarea value={calendarForm.note} onChange={(event) => setCalendarForm({ ...calendarForm, note: event.target.value })} placeholder="준비사항이나 참고 내용을 자유롭게 입력하세요." /></div></div><DialogFooter className="gap-2 sm:justify-between"><div>{editingCalendarEventId && <Button variant="destructive" onClick={() => void deleteCalendarEvent()}><Trash2 className="mr-1 h-4 w-4" />삭제</Button>}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setCalendarDialogOpen(false)}>취소</Button><Button onClick={() => void saveCalendarEvent()}>{editingCalendarEventId ? "수정 저장" : "일정 등록"}</Button></div></DialogFooter></DialogContent></Dialog>
 
       <Dialog open={quickLinkDialogOpen} onOpenChange={setQuickLinkDialogOpen}><DialogContent className="sm:max-w-lg"><DialogHeader><DialogTitle>{editingQuickLink && !editingQuickLink.id && editingQuickLink.key.startsWith("custom-") ? "새 바로가기 추가" : "바로가기 수정"}</DialogTitle></DialogHeader>{editingQuickLink && <div className="space-y-4"><div className="space-y-2"><Label>바로가기 이름 *</Label><Input value={editingQuickLink.label} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, label: event.target.value })} placeholder="예: 기관 업무 시스템" /></div><div className="space-y-2"><Label>링크 주소 *</Label><Input type="url" value={editingQuickLink.url} onChange={(event) => setEditingQuickLink({ ...editingQuickLink, url: event.target.value })} placeholder="https://..." /><p className="text-xs text-muted-foreground">http:// 또는 https://로 시작하는 전체 주소를 입력하세요. 저장 내용은 모든 사용자에게 동일하게 표시됩니다.</p></div></div>}<DialogFooter><Button variant="outline" onClick={() => setQuickLinkDialogOpen(false)}>취소</Button><Button onClick={() => void saveQuickLink()}>{editingQuickLink && !editingQuickLink.id && editingQuickLink.key.startsWith("custom-") ? "바로가기 추가" : "수정 저장"}</Button></DialogFooter></DialogContent></Dialog>
+      <Dialog open={Boolean(selectedCalendarDate)} onOpenChange={(open) => { if (!open) setSelectedCalendarDate(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>{selectedCalendarDate} 일정</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            {selectedDayEvents.length ? selectedDayEvents.map((event) => (
+              <button key={event.id} type="button" className="flex w-full items-start gap-3 rounded-lg border p-3 text-left hover:bg-muted/40" onClick={() => { setSelectedCalendarDate(null); setSelectedCalendarEvent(event); }}>
+                <span className={cn("mt-1 h-3 w-3 shrink-0 rounded-full", calendarColorClass[event.color].split(" ")[0])} />
+                <span className="min-w-0"><span className="block font-semibold">{event.title}</span><span className="block text-xs text-muted-foreground">{event.startTime ? `${event.startTime} ~ ${event.endTime}` : "연간 일정"}{event.note ? ` · ${event.note}` : ""}</span></span>
+              </button>
+            )) : <p className="py-6 text-center text-sm text-muted-foreground">등록된 일정이 없습니다.</p>}
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setSelectedCalendarDate(null)}>닫기</Button><Button onClick={() => { const date = selectedCalendarDate || today; setSelectedCalendarDate(null); openCalendarDialog(date); }}><Plus className="mr-1 h-4 w-4" />새 일정 등록</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(selectedCalendarEvent)} onOpenChange={(open) => { if (!open) setSelectedCalendarEvent(null); }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>일정 상세</DialogTitle></DialogHeader>
+          {selectedCalendarEvent && <div className="space-y-4"><div className="flex items-center gap-2"><span className={cn("h-3 w-3 rounded-full", calendarColorClass[selectedCalendarEvent.color].split(" ")[0])} /><h3 className="font-semibold">{selectedCalendarEvent.title}</h3>{selectedCalendarEvent.source === "annual" && <Badge variant="outline">연간 일정 연동</Badge>}</div><dl className="grid grid-cols-[90px_1fr] gap-x-3 gap-y-2 text-sm"><dt className="text-muted-foreground">기간</dt><dd>{selectedCalendarEvent.startDate}{selectedCalendarEvent.endDate !== selectedCalendarEvent.startDate ? ` ~ ${selectedCalendarEvent.endDate}` : ""}</dd><dt className="text-muted-foreground">시간</dt><dd>{selectedCalendarEvent.startTime ? `${selectedCalendarEvent.startTime} ~ ${selectedCalendarEvent.endTime}` : "종일"}</dd><dt className="text-muted-foreground">내용</dt><dd className="whitespace-pre-wrap">{selectedCalendarEvent.note || "-"}</dd></dl></div>}
+          <DialogFooter><Button variant="outline" onClick={() => setSelectedCalendarEvent(null)}>닫기</Button>{selectedCalendarEvent?.source !== "annual" && <Button onClick={() => { const event = selectedCalendarEvent; setSelectedCalendarEvent(null); if (event) openCalendarDialog(event.startDate, event); }}><Pencil className="mr-1 h-4 w-4" />수정</Button>}</DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

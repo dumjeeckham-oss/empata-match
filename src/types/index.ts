@@ -335,9 +335,12 @@ export interface WorkCalendarEvent {
   id?: string;
   title: string;
   note: string;
-  startDate: string;
-  endDate: string;
-  color: CalendarEventColor;
+    startDate: string;
+    endDate: string;
+    /** 기존 일정은 시간이 없을 수 있지만 신규 달력 일정은 두 시간을 모두 입력합니다. */
+    startTime?: string;
+    endTime?: string;
+    color: CalendarEventColor;
   createdAt?: unknown;
   updatedAt?: unknown;
 }

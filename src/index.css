@@ -68,7 +68,13 @@
 
 
 @media print {
+  @page { size: A4 portrait; margin: 15mm 12mm 15mm 12mm; }
+  html, body { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; }
+  *, *::before, *::after { box-sizing: border-box !important; }
   .no-print { display: none !important; }
   body { background: white !important; }
+  table, tr, .print-avoid { break-inside: avoid; page-break-inside: avoid; }
+  table { width: 100%; table-layout: fixed; }
+  td, th { overflow-wrap: anywhere; }
 }
 
