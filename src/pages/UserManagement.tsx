@@ -1614,7 +1614,7 @@ const UserManagement = () => {
     const data = filtered.map((u) => ({
       이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
       장애유형: u.disabilityType, 바우처구간: u.voucherTier,
-      "월바우처시간": VOUCHER_HOURS[u.voucherTier] || 0,
+      "월바우처시간": getVoucherBaseHours(u),
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
       지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
       가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
@@ -2051,6 +2051,17 @@ const UserManagement = () => {
                     >
                       + 신규 활동지원사 등록
                     </Button>
+                    <div className="mt-3 flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                      <Checkbox
+                        id="pre-matched"
+                        checked={form.isPreMatched === true}
+                        onCheckedChange={(checked) => setForm((f) => ({ ...f, isPreMatched: checked === true }))}
+                      />
+                      <div className="space-y-0.5">
+                        <label htmlFor="pre-matched" className="text-sm font-medium">사전매칭</label>
+                        <p className="text-xs text-muted-foreground">기관 매칭이 아니라 이용자와 활동지원사가 이미 매칭된 상태로 계약한 경우에만 체크하세요.</p>
+                      </div>
+                    </div>
                   </div>
                   {editingId && (
                     <div className="col-span-2 space-y-3">
