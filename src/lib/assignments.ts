@@ -162,6 +162,7 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     phoneOwnerName: String(raw.phoneOwnerName ?? raw["연락처소유자"] ?? raw["연락처주체"] ?? ""),
     voucherHours: Number(raw.voucherHours ?? raw["바우처시간"] ?? raw["월바우처시간"] ?? 0) || undefined,
     additionalHours: Number(raw.additionalHours ?? raw["추가시간"] ?? 0) || 0,
+    isPreMatched: Boolean(raw.isPreMatched ?? raw["사전매칭"] ?? false),
     needsSchoolSupport: Boolean(raw.needsSchoolSupport ?? raw["학교내지원"] ?? false),
     gender: String(raw.gender ?? raw.txtUSex ?? ""),
     txtUSex: String(raw.txtUSex ?? raw.gender ?? ""),
@@ -172,7 +173,8 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     // 엑셀/Firestore의 날짜 형식을 YYYY-MM-DD로 통일하여 화면 Input(type=date)에 즉시 반영
     serviceStartDate,
     resignationDate: userResignationDate,
-    matchingHistory: Array.isArray(raw.matchingHistory) ? (raw.matchingHistory as ServiceUser["matchingHistory"]) : [],
+
+    matchingHistory: Array.isArray(raw.matchingHistory) ? (raw.matchingHistory as ServiceUser["matchingHistory"]) : [],
 
   } as Partial<ServiceUser>;
 }

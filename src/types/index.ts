@@ -62,9 +62,12 @@ export interface ServiceUser {
   /** 본인 번호가 아닐 때 연락처 소유자 이름 */
   phoneOwnerName?: string;
   disabilityType: string;
+  /** 바우처 등급 구간 (0 = 기타/직접입력) */
   voucherTier: number;
   voucherHours?: number;
   additionalHours?: number;
+  /** 기관 매칭이 아니라 이용자·활동지원사가 이미 매칭된 상태로 계약한 경우 */
+  isPreMatched?: boolean;
   requiredDays: string;
   requiredHours: string;
   weeklySchedule?: WeeklySchedule[];

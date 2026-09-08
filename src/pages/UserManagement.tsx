@@ -97,7 +97,7 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
-  terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [],
+  terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [], isPreMatched: false,
   hasPet: false,
   livingWith: "",
   needsVehicle: false,
@@ -1614,7 +1614,7 @@ const UserManagement = () => {
     const data = filtered.map((u) => ({
       이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
       장애유형: u.disabilityType, 바우처구간: u.voucherTier,
-      "월바우처시간": VOUCHER_HOURS[u.voucherTier] || 0,
+      "월바우처시간": getVoucherBaseHours(u),
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
       지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
       가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
@@ -1871,12 +1871,16 @@ const UserManagement = () => {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.keys(VOUCHER_HOURS).map(v => <SelectItem key={v} value={v}>{v}구간 ({VOUCHER_HOURS[Number(v)]}시간)</SelectItem>)}
+                        <SelectItem value="0">기타 (시간 직접 입력)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>바우처 기본시간</Label>
+                    <Label>{form.voucherTier === 0 ? "기타 시간 직접 입력" : "바우처 기본시간"}</Label>
                     <Input type="number" min={0} value={form.voucherHours ?? VOUCHER_HOURS[form.voucherTier] ?? 0} onChange={(e) => setForm((f) => ({ ...f, voucherHours: Number(e.target.value) || 0 }))} />
+                    {form.voucherTier === 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">등급 구간에 없는 시간은 여기에 직접 입력하세요.</p>
+                    )}
                   </div>
                   <div>
                     <Label>추가시간</Label>
@@ -2047,6 +2051,17 @@ const UserManagement = () => {
                     >
                       + 신규 활동지원사 등록
                     </Button>
+                    <div className="mt-3 flex items-start gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                      <Checkbox
+                        id="pre-matched"
+                        checked={form.isPreMatched === true}
+                        onCheckedChange={(checked) => setForm((f) => ({ ...f, isPreMatched: checked === true }))}
+                      />
+                      <div className="space-y-0.5">
+                        <label htmlFor="pre-matched" className="text-sm font-medium">사전매칭</label>
+                        <p className="text-xs text-muted-foreground">기관 매칭이 아니라 이용자와 활동지원사가 이미 매칭된 상태로 계약한 경우에만 체크하세요.</p>
+                      </div>
+                    </div>
                   </div>
                   {editingId && (
                     <div className="col-span-2 space-y-3">
