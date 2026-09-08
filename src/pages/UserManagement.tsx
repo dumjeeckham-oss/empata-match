@@ -97,7 +97,7 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
-  terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [],
+  terminationReason: "", assignedHelperIds: [], assignedHelperNames: [], assignedHelperPhones: [], isPreMatched: false,
   hasPet: false,
   livingWith: "",
   needsVehicle: false,
@@ -1871,12 +1871,16 @@ const UserManagement = () => {
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.keys(VOUCHER_HOURS).map(v => <SelectItem key={v} value={v}>{v}구간 ({VOUCHER_HOURS[Number(v)]}시간)</SelectItem>)}
+                        <SelectItem value="0">기타 (시간 직접 입력)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <Label>바우처 기본시간</Label>
+                    <Label>{form.voucherTier === 0 ? "기타 시간 직접 입력" : "바우처 기본시간"}</Label>
                     <Input type="number" min={0} value={form.voucherHours ?? VOUCHER_HOURS[form.voucherTier] ?? 0} onChange={(e) => setForm((f) => ({ ...f, voucherHours: Number(e.target.value) || 0 }))} />
+                    {form.voucherTier === 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">등급 구간에 없는 시간은 여기에 직접 입력하세요.</p>
+                    )}
                   </div>
                   <div>
                     <Label>추가시간</Label>

@@ -22,8 +22,8 @@ export const EXPERIENCE_OPTIONS = [
 ] as const;
 
 export const TERMINATION_REASONS = [
-  "사망", "이용자퇴소", "기관변경", "타서비스전환",
-  "품목변경", "법령변경기인임", "시설변경", "가족희망",
+  "사망", "이중서비스", "기관변경", "타서비스전환",
+  "등급변경", "병원장기입원", "사업변경", "가족활동가",
   "개인사정", "기타",
 ] as const;
 
@@ -62,9 +62,12 @@ export interface ServiceUser {
   /** 본인 번호가 아닐 때 연락처 소유자 이름 */
   phoneOwnerName?: string;
   disabilityType: string;
+  /** 바우처 등급 구간 (0 = 기타/직접입력) */
   voucherTier: number;
   voucherHours?: number;
   additionalHours?: number;
+  /** 기관 매칭이 아니라 이용자·활동지원사가 이미 매칭된 상태로 계약한 경우 */
+  isPreMatched?: boolean;
   requiredDays: string;
   requiredHours: string;
   weeklySchedule?: WeeklySchedule[];
@@ -335,9 +338,12 @@ export interface WorkCalendarEvent {
   id?: string;
   title: string;
   note: string;
-  startDate: string;
-  endDate: string;
-  color: CalendarEventColor;
+    startDate: string;
+    endDate: string;
+    /** 기존 일정은 시간이 없을 수 있지만 신규 달력 일정은 두 시간을 모두 입력합니다. */
+    startTime?: string;
+    endTime?: string;
+    color: CalendarEventColor;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
