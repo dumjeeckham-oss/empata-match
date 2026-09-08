@@ -65,7 +65,12 @@ export interface ServiceUser {
   /** 바우처 등급 구간 (0 = 기타/직접입력) */
   voucherTier: number;
   voucherHours?: number;
+  /** 시도 추가시간 + 시군구 추가시간 합계 */
   additionalHours?: number;
+  /** 시도 추가시간 */
+  provinceAdditionalHours?: number;
+  /** 시군구 추가시간 */
+  cityAdditionalHours?: number;
   /** 기관 매칭이 아니라 이용자·활동지원사가 이미 매칭된 상태로 계약한 경우 */
   isPreMatched?: boolean;
   requiredDays: string;
