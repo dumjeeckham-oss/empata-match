@@ -161,7 +161,12 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
     phoneOwnerRelation: String(raw.phoneOwnerRelation ?? raw["연락처관계"] ?? raw["관계"] ?? ""),
     phoneOwnerName: String(raw.phoneOwnerName ?? raw["연락처소유자"] ?? raw["연락처주체"] ?? ""),
     voucherHours: Number(raw.voucherHours ?? raw["바우처시간"] ?? raw["월바우처시간"] ?? 0) || undefined,
-    additionalHours: Number(raw.additionalHours ?? raw["추가시간"] ?? 0) || 0,
+    provinceAdditionalHours: Number(raw.provinceAdditionalHours ?? raw["시도추가시간"] ?? raw["시도 추가시간"] ?? 0) || 0,
+    cityAdditionalHours: Number(raw.cityAdditionalHours ?? raw["시군구추가시간"] ?? raw["시군구 추가시간"] ?? 0) || 0,
+    additionalHours:
+      (Number(raw.provinceAdditionalHours ?? raw["시도추가시간"] ?? raw["시도 추가시간"] ?? 0) || 0) +
+        (Number(raw.cityAdditionalHours ?? raw["시군구추가시간"] ?? raw["시군구 추가시간"] ?? 0) || 0) ||
+      Number(raw.additionalHours ?? raw["추가시간"] ?? 0) || 0,
     isPreMatched: Boolean(raw.isPreMatched ?? raw["사전매칭"] ?? false),
     needsSchoolSupport: Boolean(raw.needsSchoolSupport ?? raw["학교내지원"] ?? false),
     gender: String(raw.gender ?? raw.txtUSex ?? ""),

@@ -93,7 +93,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
 
-  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", voucherTier: 1, voucherHours: VOUCHER_HOURS[1], additionalHours: 0,
+  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", voucherTier: 1, voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
@@ -145,12 +145,26 @@ const getVoucherBaseHours = (user: Pick<ServiceUser, "voucherTier" | "voucherHou
   return manual > 0 ? manual : VOUCHER_HOURS[user.voucherTier] || 0;
 };
 
-const getAdditionalHours = (user: Pick<ServiceUser, "additionalHours">): number => toNumber(user.additionalHours);
+type AdditionalHoursSource = Pick<ServiceUser, "additionalHours" | "provinceAdditionalHours" | "cityAdditionalHours">;
 
-const formatVoucherHours = (user: Pick<ServiceUser, "voucherTier" | "voucherHours" | "additionalHours">): string => {
+const getProvinceAdditionalHours = (user: AdditionalHoursSource): number => toNumber(user.provinceAdditionalHours);
+const getCityAdditionalHours = (user: AdditionalHoursSource): number => toNumber(user.cityAdditionalHours);
+
+/** 시도 + 시군구 추가시간 합계 (구분 입력이 없는 기존 데이터는 기존 추가시간 사용) */
+const getAdditionalHours = (user: AdditionalHoursSource): number => {
+  const split = getProvinceAdditionalHours(user) + getCityAdditionalHours(user);
+  return split > 0 ? split : toNumber(user.additionalHours);
+};
+
+const formatVoucherHours = (user: Pick<ServiceUser, "voucherTier" | "voucherHours"> & AdditionalHoursSource): string => {
   const base = getVoucherBaseHours(user);
+  const province = getProvinceAdditionalHours(user);
+  const city = getCityAdditionalHours(user);
   const extra = getAdditionalHours(user);
-  return `${base + extra}시간 (${base}시간 + ${extra}시간)`;
+  const detail = province > 0 || city > 0
+    ? `${base}시간 + 시도 ${province}시간 + 시군구 ${city}시간`
+    : `${base}시간 + ${extra}시간`;
+  return `${base + extra}시간 (${detail})`;
 };
 
 const formatUserContact = (user: Pick<ServiceUser, "phone" | "isOwnPhone" | "phoneOwnerRelation" | "phoneOwnerName">): string => {
@@ -180,6 +194,8 @@ const USER_PARTIAL_UPDATE_FIELDS = [
   { key: "voucherTier", label: "바우처구간", aliases: ["활동지원구간", "구간"], parse: partialParsers.number },
   { key: "voucherHours", label: "바우처시간", aliases: ["월바우처시간", "기본시간", "월지원시간"], parse: partialParsers.number },
   { key: "additionalHours", label: "추가시간", aliases: ["추가 시간", "부가시간"], parse: partialParsers.number },
+  { key: "provinceAdditionalHours", label: "시도 추가시간", aliases: ["시도추가시간", "시도시간"], parse: partialParsers.number },
+  { key: "cityAdditionalHours", label: "시군구 추가시간", aliases: ["시군구추가시간", "시군구시간"], parse: partialParsers.number },
   { key: "receiptDate", label: "최초접수일", aliases: ["접수일", "신규접수일"], parse: partialParsers.date },
   { key: "serviceStartDate", label: "최초서비스제공일", aliases: ["서비스시작일", "계약일", "시작일"], parse: partialParsers.date },
   { key: "resignationDate", label: "해지일", aliases: ["종결일", "계약해지일", "서비스종료일"], parse: partialParsers.date },
@@ -515,6 +531,8 @@ const UserManagement = () => {
       txtUMemostop: form.terminationReason,
       receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
       voucherHours: getVoucherBaseHours(form),
+      provinceAdditionalHours: getProvinceAdditionalHours(form),
+      cityAdditionalHours: getCityAdditionalHours(form),
       additionalHours: getAdditionalHours(form),
     };
     // 계약해지/타기관 계약/보류는 사용자가 직접 지정한 상태이므로 자동 전환하지 않음
@@ -1615,6 +1633,9 @@ const UserManagement = () => {
       이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
       장애유형: u.disabilityType, 바우처구간: u.voucherTier,
       "월바우처시간": getVoucherBaseHours(u),
+      "시도추가시간": getProvinceAdditionalHours(u),
+      "시군구추가시간": getCityAdditionalHours(u),
+      "합산시간": getVoucherBaseHours(u) + getAdditionalHours(u),
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
       지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
       가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
@@ -1883,8 +1904,22 @@ const UserManagement = () => {
                     )}
                   </div>
                   <div>
-                    <Label>추가시간</Label>
-                    <Input type="number" min={0} value={form.additionalHours ?? 0} onChange={(e) => setForm((f) => ({ ...f, additionalHours: Number(e.target.value) || 0 }))} />
+                    <Label>시도 추가시간</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.provinceAdditionalHours ?? 0}
+                      onChange={(e) => setForm((f) => ({ ...f, provinceAdditionalHours: Number(e.target.value) || 0 }))}
+                    />
+                  </div>
+                  <div>
+                    <Label>시군구 추가시간</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.cityAdditionalHours ?? 0}
+                      onChange={(e) => setForm((f) => ({ ...f, cityAdditionalHours: Number(e.target.value) || 0 }))}
+                    />
                   </div>
                   <div className="col-span-2 rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium">
                     합산시간: {formatVoucherHours(form)}
