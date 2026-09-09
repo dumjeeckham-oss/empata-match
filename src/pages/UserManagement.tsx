@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
+import { buildWaitingUserLedgerWorkbook } from "@/lib/waitingUserLedger";
 import { Trash2, PhoneCall, Edit3, Search } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
@@ -1651,6 +1652,20 @@ const UserManagement = () => {
     XLSX.writeFile(wb, `이용자목록_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const downloadWaitingMatchingLedger = () => {
+    const waitingUsers = users.filter((user) => {
+      const isUnmatched = (user.assignedHelperIds ?? user.assigned_workers ?? []).filter(Boolean).length === 0;
+      return effectiveUserStatus(user) === "대기" && isUnmatched;
+    });
+    if (waitingUsers.length === 0) {
+      toast({ title: "저장할 대기 이용자가 없습니다." });
+      return;
+    }
+    const workbook = buildWaitingUserLedgerWorkbook(waitingUsers, counselingLogs);
+    XLSX.writeFile(workbook, `이용자_매칭_상담대장_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast({ title: `대기 이용자 ${waitingUsers.length}명의 상담대장을 저장했습니다.` });
+  };
+
   const downloadTemplate = () => {
     const template = [{
       이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1,
@@ -1794,6 +1809,7 @@ const UserManagement = () => {
             getPreviewValue={getUserPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
+          <Button variant="outline" size="sm" onClick={downloadWaitingMatchingLedger}>📋 대기 매칭대장</Button>
           <PartialUpdateDialog<ServiceUser & { id: string }> title="이용자 일괄 정보 업데이트" existing={users} fields={USER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtUSex: updates.gender } : {}), ...(updates.terminationReason ? { txtUMemostop: updates.terminationReason } : {}) })} />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
