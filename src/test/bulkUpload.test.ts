@@ -3,6 +3,7 @@ import {
   buildHeaderMap,
   makeUniqueKey,
   rowToWorker,
+  rowToServiceUser,
 } from "@/lib/bulkUpload";
 import { normalizeWorker } from "@/lib/assignments";
 import { partialParsers } from "@/components/PartialUpdateDialog";
@@ -61,6 +62,16 @@ describe("worker bulk upload mapping", () => {
 
     expect(worker.serviceStartDate).toBe("2021-08-16");
     expect(worker.contractStatus).toBe("대기");
+  });
+
+  it("preserves a directly entered voucher tier label", () => {
+    const headers = ["이름", "연락처", "바우처구간", "바우처구간명", "바우처시간"];
+    const headerMap = buildHeaderMap(headers);
+    const user = rowToServiceUser(["홍길동", "010-1234-5678", "0", "특례 지원 구간", "120"], headerMap, []);
+
+    expect(user.voucherTier).toBe(0);
+    expect(user.voucherTierLabel).toBe("특례 지원 구간");
+    expect(user.voucherHours).toBe(120);
   });
 
   it("uses a stable fallback key when phone is missing", () => {

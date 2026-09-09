@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
+import { formatVoucherTier } from "@/lib/userVoucher";
 
 const FAILURE_REASONS = ["거주지 거리 멀음", "시간대 불일치", "이용자 거부", "지원사 거부", "케어 난이도", "기타"] as const;
 const FAILURE_SCORE_DELTA = 25;
@@ -550,7 +551,7 @@ const Matching = () => {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm border-t pt-3">
                     <span><strong>성별/나이:</strong> {selectedUser.gender} / {selectedUser.age}세</span>
                     <span><strong>장애유형:</strong> {selectedUser.disabilityType}</span>
-                    <span><strong>바우처:</strong> {selectedUser.voucherTier}구간 ({VOUCHER_HOURS[selectedUser.voucherTier]}시간)</span>
+                    <span><strong>바우처:</strong> {formatVoucherTier(selectedUser)} ({selectedUser.voucherHours || VOUCHER_HOURS[selectedUser.voucherTier] || 0}시간)</span>
                     <span><strong>필요요일:</strong> {selectedUser.requiredDays}</span>
                     <span><strong>필요시간:</strong> {selectedUser.requiredHours}</span>
                     <span><strong>가족구성:</strong> {selectedUser.familyMembers || "정보없음"}</span>
@@ -773,15 +774,3 @@ const Matching = () => {
 };
 
 export default Matching;
-
-
-
-
-
-
-
-
-
-
-
-

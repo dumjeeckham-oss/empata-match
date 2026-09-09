@@ -15,6 +15,7 @@ import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
 import { syncUserToWorkers } from "@/lib/assignments";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
+import { formatVoucherTier } from "@/lib/userVoucher";
 
 import { Printer, Search, X, Edit2, Trash2 } from "lucide-react";
 import {
@@ -189,6 +190,7 @@ export default function Handovers() {
         userPhone: selectedUser.phone,
         userAddress: selectedUser.address,
         voucherTier: selectedUser.voucherTier,
+        voucherTierLabel: selectedUser.voucherTierLabel || "",
         disabilityType: selectedUser.disabilityType,
         reason: reason.trim(),
         handoverPersonName: handoverPersonName.trim(),
@@ -404,7 +406,7 @@ export default function Handovers() {
               <tbody>
                 <tr>
                   <th>바우처 구간</th>
-                  <td>{printDoc.voucherTier ? `${printDoc.voucherTier}구간` : "—"}</td>
+                  <td>{formatVoucherTier({ voucherTier: printDoc.voucherTier, voucherTierLabel: printDoc.voucherTierLabel })}</td>
                   <th>시간</th>
                   <td>{getHandoverVoucherHours(printDoc)}</td>
                 </tr>
@@ -577,7 +579,7 @@ export default function Handovers() {
               <div>성명: {selectedUser?.name || "—"}</div>
               <div>연락처: {selectedUser?.phone || "—"}</div>
               <div className="truncate">주소: {selectedUser?.address || "—"}</div>
-              <div>바우처구간: {selectedUser?.voucherTier ?? "—"}구간</div>
+              <div>바우처구간: {selectedUser ? formatVoucherTier(selectedUser) : "—"}</div>
               <div>장애유형: {selectedUser?.disabilityType || "—"}</div>
               <div className="pt-1 text-xs text-muted-foreground">
                 현재 담당(전임): {prevWorker ? labelWithLast4(prevWorker?.name || "이름없음", prevWorker?.phone || "") : "미배정"}
@@ -673,7 +675,3 @@ export default function Handovers() {
     </div>
   );
 }
-
-
-
-

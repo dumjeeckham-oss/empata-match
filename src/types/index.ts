@@ -64,6 +64,8 @@ export interface ServiceUser {
   disabilityType: string;
   /** 바우처 등급 구간 (0 = 기타/직접입력) */
   voucherTier: number;
+  /** 직접 입력한 바우처 구간명 */
+  voucherTierLabel?: string;
   voucherHours?: number;
   /** 시도 추가시간 + 시군구 추가시간 합계 */
   additionalHours?: number;
@@ -229,6 +231,7 @@ export interface HandoverDocument {
   userPhone: string;
   userAddress: string;
   voucherTier: number;
+  voucherTierLabel?: string;
   disabilityType: string;
   reason: string;
   handoverPersonName: string;

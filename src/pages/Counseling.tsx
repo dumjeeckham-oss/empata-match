@@ -17,6 +17,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/hooks/use-toast";
 import { Printer } from "lucide-react";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { formatVoucherTier } from "@/lib/userVoucher";
 
 const Counseling = () => {
   const { data: records, add: addRecord } = useCollection<CounselingRecord>("counseling");
@@ -337,7 +338,7 @@ const Counseling = () => {
                       <div className="bg-muted rounded p-3 text-xs grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                         <span className="font-bold sm:col-span-2 text-primary border-b pb-1 mb-1">이용자 정보</span>
                         <span>이름: {u?.name || "—"} ({u?.gender || "-"})</span><span>연락처: {u?.phone || "—"}</span>
-                        <span>바우처: {u?.voucherTier ?? "—"}구간</span><span>장애유형: {u?.disabilityType || "—"}</span>
+                        <span>바우처: {u ? formatVoucherTier(u) : "—"}</span><span>장애유형: {u?.disabilityType || "—"}</span>
                         <span className="sm:col-span-2">주소: {u?.address || "—"}</span>
                         <span>서비스시작일: {u?.serviceStartDate || "—"}</span>
                         <span className="sm:col-span-2">보호자: {u?.guardianName || "—"} ({u?.guardianRelation || "-"}) {u?.guardianPhone || ""}</span>

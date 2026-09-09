@@ -51,6 +51,7 @@ import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
+import { formatVoucherTier } from "@/lib/userVoucher";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
   Command,
@@ -94,7 +95,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
 
-  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", voucherTier: 1, voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
+  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", voucherTier: 1, voucherTierLabel: "", voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
@@ -193,6 +194,7 @@ const USER_PARTIAL_UPDATE_FIELDS = [
   { key: "age", label: "나이", aliases: ["연령", "만나이"], parse: partialParsers.number },
   { key: "disabilityType", label: "장애유형", aliases: ["장애", "장애명"] },
   { key: "voucherTier", label: "바우처구간", aliases: ["활동지원구간", "구간"], parse: partialParsers.number },
+  { key: "voucherTierLabel", label: "바우처구간명", aliases: ["직접입력구간", "구간명", "바우처구간명"] },
   { key: "voucherHours", label: "바우처시간", aliases: ["월바우처시간", "기본시간", "월지원시간"], parse: partialParsers.number },
   { key: "additionalHours", label: "추가시간", aliases: ["추가 시간", "부가시간"], parse: partialParsers.number },
   { key: "provinceAdditionalHours", label: "시도 추가시간", aliases: ["시도추가시간", "시도시간"], parse: partialParsers.number },
@@ -1256,108 +1258,6 @@ const UserManagement = () => {
     setMatchingPeriodDrafts(next);
   };
 
-  const updateMatchingPeriodDraft = (workerId: string, patch: Partial<MatchingPeriodDraft>) => {
-    setMatchingPeriodDrafts((prev) => ({
-      ...prev,
-      [workerId]: {
-        ...(prev[workerId] || { serviceStartDate: "", serviceEndDate: "", isCurrent: true, workerStatus: "대기", reason: "추가", reasonDetail: "" }),
-        ...patch,
-      },
-    }));
-  };
-
-  const saveMatchingPeriod = async (user: ServiceUser & { id: string }, workerId: string) => {
-    const draft = matchingPeriodDrafts[workerId];
-    const worker = workers.find((w) => w.id === workerId);
-    if (!draft || !worker) return;
-    if (!draft.serviceStartDate) {
-      toast({ title: "서비스 시작일을 입력해주세요", variant: "destructive" });
-      return;
-    }
-    if (!draft.isCurrent && !draft.serviceEndDate) {
-      toast({ title: "종료 처리하려면 서비스 종료일을 입력해주세요", variant: "destructive" });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const existingEntries = getDocumentMatchingEntries(user);
-    const nextEntry: DocumentMatchingHistoryEntry = {
-      id: existingEntries.find((entry) => entry.workerId === workerId)?.id || `${workerId}-${Date.now()}`,
-      workerId,
-      workerName: worker.name,
-      workerPhone: worker.phone,
-      serviceStartDate: draft.serviceStartDate,
-      serviceEndDate: draft.isCurrent ? null : draft.serviceEndDate,
-      reason: draft.reason,
-      reasonDetail: draft.reasonDetail,
-      updatedAt: now,
-    };
-    const nextHistory = [
-      ...existingEntries.filter((entry) => entry.workerId !== workerId),
-      nextEntry,
-    ];
-    const activeEntries = nextHistory
-      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
-      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
-    const activeIds = draft.isCurrent
-      ? [workerId]
-      : activeEntries.filter((entry) => entry.workerId !== workerId).slice(0, 1).map((entry) => entry.workerId);
-    const arrays = buildHelperArraysFromIds(activeIds, workers);
-    const nextStatus = user.contractStatus === "계약해지" || user.contractStatus === "타기관 계약" || user.contractStatus === "보류"
-      ? user.contractStatus
-      : arrays.ids.length > 0
-        ? "서비스중"
-        : "대기";
-    const payload: Partial<ServiceUser> = {
-      assignedHelperIds: arrays.ids,
-      assigned_workers: arrays.ids,
-      assignedHelperNames: arrays.names,
-      assignedHelperPhones: arrays.phones,
-      matchingHistory: nextHistory,
-      contractStatus: nextStatus,
-    };
-
-    await update(user.id, payload);
-    await syncUserToWorkers(user.id, { ...user, ...payload }, workers, user.assignedHelperIds || [], updateWorker);
-    if (draft.isCurrent) {
-      await updateWorker(workerId, { contractStatus: "근무중", serviceStartDate: draft.serviceStartDate, serviceEndDate: null, retirementDate: "", resignationDate: "" });
-    } else {
-      await updateWorker(workerId, {
-        contractStatus: draft.workerStatus,
-        serviceEndDate: draft.serviceEndDate,
-        retirementDate: draft.workerStatus === "퇴사" ? draft.serviceEndDate : "",
-        resignationDate: draft.workerStatus === "퇴사" ? draft.serviceEndDate : "",
-      });
-    }
-    await addMatchingHistory({
-      type: draft.isCurrent ? "매칭" : "해제",
-      userId: user.id,
-      userName: user.name,
-      userPhone: user.phone,
-      workerId,
-      workerName: worker.name,
-      workerPhone: worker.phone,
-      date: draft.serviceStartDate,
-      endDate: draft.isCurrent ? undefined : draft.serviceEndDate,
-      reason: draft.reason,
-      reasonDetail: draft.reasonDetail,
-      notes: draft.reasonDetail || draft.reason,
-    } as any);
-
-    const updatedUser = { ...user, ...payload } as ServiceUser & { id: string };
-    if (detailTarget?.id === user.id) setDetailTarget(updatedUser);
-    if (editingId === user.id) setForm((prev) => ({ ...prev, ...payload }));
-    resetMatchingPeriodDrafts(updatedUser);
-    toast({ title: draft.isCurrent ? "현재 담당으로 저장했습니다" : "종료 이력으로 전환했습니다" });
-    if (!draft.isCurrent && draft.serviceEndDate) {
-      setPostServiceEndTarget({
-        userId: user.id,
-        workerId,
-        endDate: draft.serviceEndDate,
-      });
-    }
-  };
-
   const openServiceCloseDialog = (user: ServiceUser & { id: string }, entry: DocumentMatchingHistoryEntry) => {
     const draft = matchingPeriodDrafts[entry.workerId];
     setServiceCloseTarget({ user, entry });
@@ -1449,95 +1349,27 @@ const UserManagement = () => {
     toast({ title: "서비스 종료/교체 처리 완료", description: `${worker.name} 지원사를 현재 담당에서 제외했습니다.` });
   };
   const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
-    const entries = getDocumentMatchingEntries(user);
-    const currentCount = entries.filter((entry) => {
-      const draft = matchingPeriodDrafts[entry.workerId];
-      return draft ? draft.isCurrent : entry.serviceEndDate === null || entry.serviceEndDate === "";
-    }).length;
-
-    if (entries.length === 0) {
-      return <p className="text-sm text-muted-foreground">연결된 활동지원사가 없습니다.</p>;
-    }
-
+    const entries = getDocumentMatchingEntries(user)
+      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
+    if (entries.length === 0) return <p className="text-sm text-muted-foreground">연결된 활동지원사가 없습니다.</p>;
     return (
       <div className="space-y-3">
-        {currentCount > 1 && (
-          <Alert variant="destructive">
-            <AlertTitle>현재 서비스 중인 지원사가 2명 이상입니다.</AlertTitle>
-            <AlertDescription>실제 담당자 1명만 '서비스 중'으로 유지하거나 기간을 정리해 주세요.</AlertDescription>
-          </Alert>
-        )}
+        <p className="text-xs text-muted-foreground">기간은 매칭 이력에서 관리됩니다. 기본정보는 하단의 수정 버튼을 이용하세요.</p>
         {entries.map((entry) => {
-          const draft = matchingPeriodDrafts[entry.workerId] || {
-            serviceStartDate: entry.serviceStartDate || "",
-            serviceEndDate: entry.serviceEndDate || "",
-            isCurrent: entry.serviceEndDate === null || entry.serviceEndDate === "",
-            workerStatus: "대기" as const,
-            reason: entry.reason || "추가",
-            reasonDetail: entry.reasonDetail || "",
-          };
+          const isCurrent = entry.serviceEndDate === null || entry.serviceEndDate === "";
           return (
-            <div key={entry.workerId} className="border rounded-lg p-3 space-y-3">
-              <div className="flex items-start justify-between gap-3">
+            <div key={`${entry.workerId}-${entry.serviceStartDate}`} className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-medium">{entry.workerName || entry.workerId}</p>
                   <p className="text-xs text-muted-foreground">{entry.workerPhone || "연락처 없음"}</p>
+                  <p className="mt-2 text-sm">{entry.serviceStartDate || "시작일 미등록"} ~ {isCurrent ? "서비스 중" : entry.serviceEndDate}</p>
+                  {(entry.reason || entry.reasonDetail) && <p className="mt-1 text-xs text-muted-foreground">{[entry.reason, entry.reasonDetail].filter(Boolean).join(" · ")}</p>}
                 </div>
                 <div className="flex flex-col items-end gap-2">
-                  <Badge variant={draft.isCurrent ? "default" : "secondary"}>{draft.isCurrent ? "서비스 중" : "종료(이력)"}</Badge>
-                  <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>
-                  <Button size="sm" variant="destructive" onClick={() => openServiceCloseDialog(user, entry)}>배정 해제</Button>
+                  <Badge variant={isCurrent ? "default" : "secondary"}>{isCurrent ? "서비스 중" : "종료 이력"}</Badge>
+                  {isCurrent && <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>}
                 </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div className="space-y-2">
-                  <Label>서비스 시작일</Label>
-                  <Input type="date" value={draft.serviceStartDate} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { serviceStartDate: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label>현재 서비스 중</Label>
-                  <div className="h-10 flex items-center gap-2">
-                    <Checkbox
-                      checked={draft.isCurrent}
-                      onCheckedChange={(checked) => updateMatchingPeriodDraft(entry.workerId, { isCurrent: checked === true, serviceEndDate: checked === true ? "" : draft.serviceEndDate })}
-                    />
-                    <span className="text-sm">서비스 중</span>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>서비스 종료일</Label>
-                  <Input type="date" disabled={draft.isCurrent} value={draft.serviceEndDate} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { serviceEndDate: e.target.value })} />
-                </div>
-                {!draft.isCurrent && (
-                  <div className="space-y-2">
-                    <Label>종료 후 지원사 상태</Label>
-                    <Select value={draft.workerStatus} onValueChange={(v) => updateMatchingPeriodDraft(entry.workerId, { workerStatus: v as "대기" | "퇴사" })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="대기">대기</SelectItem>
-                        <SelectItem value="퇴사">퇴사</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-2">
-                  <Label>변경 사유</Label>
-                  <Select value={draft.reason} onValueChange={(v) => updateMatchingPeriodDraft(entry.workerId, { reason: v as MatchingHistoryReason })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {MATCH_REASON_OPTIONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2 md:col-span-2">
-                  <Label>상세 사유(선택)</Label>
-                  <Input value={draft.reasonDetail} onChange={(e) => updateMatchingPeriodDraft(entry.workerId, { reasonDetail: e.target.value })} placeholder="필요 시 간단히 입력" />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button size="sm" onClick={() => saveMatchingPeriod(user, entry.workerId)}>기간 저장</Button>
               </div>
             </div>
           );
@@ -1632,7 +1464,7 @@ const UserManagement = () => {
     const filtered = getFilteredUsers();
     const data = filtered.map((u) => ({
       이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
-      장애유형: u.disabilityType, 바우처구간: u.voucherTier,
+      장애유형: u.disabilityType, 바우처구간: u.voucherTier, 바우처구간명: u.voucherTierLabel || "",
       "월바우처시간": getVoucherBaseHours(u),
       "시도추가시간": getProvinceAdditionalHours(u),
       "시군구추가시간": getCityAdditionalHours(u),
@@ -1677,7 +1509,7 @@ const UserManagement = () => {
 
   const downloadTemplate = () => {
     const template = [{
-      이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1,
+      이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1, 바우처구간명: "",
       필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "",
       가족구성원: "", 주소: "", 선호도: "", 담당활동지원사: "홍길동, 김철수", 담당지원사연락처: "",
       계약상태: "서비스중", 중단사유: "", 계약해지날짜: "", 최초서비스제공일: "2025-01-01",
@@ -1913,7 +1745,7 @@ const UserManagement = () => {
                     </Select>
                   </div>
                   <div><Label>바우처 등급</Label>
-                    <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v), voucherHours: VOUCHER_HOURS[Number(v)] || f.voucherHours || 0 }))}>
+                    <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v), voucherTierLabel: Number(v) === 0 ? f.voucherTierLabel || "" : "", voucherHours: VOUCHER_HOURS[Number(v)] || f.voucherHours || 0 }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {Object.keys(VOUCHER_HOURS).map(v => <SelectItem key={v} value={v}>{v}구간 ({VOUCHER_HOURS[Number(v)]}시간)</SelectItem>)}
@@ -1925,7 +1757,7 @@ const UserManagement = () => {
                     <Label>{form.voucherTier === 0 ? "기타 시간 직접 입력" : "바우처 기본시간"}</Label>
                     <Input type="number" min={0} value={form.voucherHours ?? VOUCHER_HOURS[form.voucherTier] ?? 0} onChange={(e) => setForm((f) => ({ ...f, voucherHours: Number(e.target.value) || 0 }))} />
                     {form.voucherTier === 0 && (
-                      <p className="mt-1 text-xs text-muted-foreground">등급 구간에 없는 시간은 여기에 직접 입력하세요.</p>
+                      <div className="mt-2 space-y-1"><Label>바우처 구간명 직접 입력</Label><Input value={form.voucherTierLabel || ""} onChange={(e) => setForm((f) => ({ ...f, voucherTierLabel: e.target.value }))} placeholder="예: 특례 구간, 별도 지원 구간" /><p className="text-xs text-muted-foreground">입력한 구간명과 기본시간이 이용자 목록·상세 화면에 함께 표시됩니다.</p></div>
                     )}
                   </div>
                   <div>
@@ -2263,7 +2095,7 @@ const UserManagement = () => {
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
-                      <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({user.voucherTier || "-"}구간)</p>
+                      <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({formatVoucherTier(user)})</p>
                       <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
                       <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? `총 ${getFormattedDuration(user.serviceStartDate)}째 서비스 중` : "미등록"}</p>
                       <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelperPreview(user as ServiceUser & { id: string }) || "없음"}</p>
@@ -2723,7 +2555,7 @@ const UserManagement = () => {
                     <div><p className="text-sm text-muted-foreground">연락처</p><p className="font-medium">{formatUserContact(detailTarget)}</p></div>
                     <div><p className="text-sm text-muted-foreground">장애유형</p><p className="font-medium">{detailTarget.disabilityType || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">지원 종류</p><p className="font-medium">{joinNonEmpty(detailTarget.supportTypes || [])}</p></div>
-                    <div><p className="text-sm text-muted-foreground">바우처 구간</p><p className="font-medium">{detailTarget.voucherTier || "-"}구간</p></div>
+                    <div><p className="text-sm text-muted-foreground">바우처 구간</p><p className="font-medium">{formatVoucherTier(detailTarget)}</p></div>
                     <div><p className="text-sm text-muted-foreground">서비스 시작일 / 해지일</p><p className="font-medium">{joinNonEmpty([detailTarget.serviceStartDate, detailTarget.resignationDate])}</p></div>
                     <div className="md:col-span-2"><p className="text-sm text-muted-foreground">주소</p><p className="font-medium">{detailTarget.address || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">거주자</p><p className="font-medium">{detailTarget.livingWith || "미등록"}</p></div>

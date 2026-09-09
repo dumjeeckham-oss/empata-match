@@ -34,6 +34,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { OFFICIAL_TERMINATION_PROJECT_NAME, resolveTerminationWorkerRefs } from "@/lib/terminationWorkers";
+import { formatVoucherTier } from "@/lib/userVoucher";
 
 function safeMsg(e: unknown): string {
   if (e instanceof Error) return e.message;
@@ -45,10 +47,11 @@ export default function Terminations() {
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: docsRaw, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
-  const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: matchingHistoryRaw, add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const docs = docsRaw || [];
+  const matchingLogs = matchingHistoryRaw || [];
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -65,7 +68,7 @@ export default function Terminations() {
     handoverNote: "",
     approverDandang: "",
     approverCenterJang: "",
-    projectName: "동백 장애인활동지원센터",
+    projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
     residentNumber: "",
     approvalDate: new Date().toISOString().slice(0, 10),
     assignedWorkerName: "",
@@ -76,19 +79,17 @@ export default function Terminations() {
     [users, form.userId]
   );
   const getLinkedWorkersForUser = (user: ServiceUser | undefined) => {
-    if (!user) return [];
-    const ids = new Set((user.assignedHelperIds || user.assigned_workers || []).filter(Boolean));
-    const names = new Set((user.assignedHelperNames || []).map((name) => String(name || "").trim()).filter(Boolean));
-    return workers.filter((worker) => {
-      if (worker.id && ids.has(worker.id)) return true;
-      return names.has(String(worker.name || "").trim());
-    });
+    const refs = resolveTerminationWorkerRefs(user, matchingLogs);
+    const ids = new Set(refs.map((ref) => ref.id).filter(Boolean));
+    const names = new Set(refs.map((ref) => ref.name).filter(Boolean));
+    return workers.filter((worker) => (worker.id ? ids.has(worker.id) : false) || names.has(String(worker.name || "").trim()));
   };
 
   const getAssignedWorkerNames = (user: ServiceUser | undefined) => {
+    const refs = resolveTerminationWorkerRefs(user, matchingLogs);
     const linked = getLinkedWorkersForUser(user).map((worker) => worker.name).filter(Boolean);
-    const fallback = (user?.assignedHelperNames || []).map((name) => String(name || "").trim()).filter(Boolean);
-    return Array.from(new Set(linked.length > 0 ? linked : fallback));
+    const historical = refs.map((ref) => ref.name).filter(Boolean);
+    return Array.from(new Set([...linked, ...historical]));
   };
 
   const applyLinkedWorkerTerminationStatus = async (user: ServiceUser | undefined, endDate: string) => {
@@ -132,6 +133,12 @@ export default function Terminations() {
     }
   }, [searchParams, users, form.userId]);
 
+
+  useEffect(() => {
+    if (!selectedUser || form.assignedWorkerName.trim()) return;
+    const names = getAssignedWorkerNames(selectedUser).join(", ");
+    if (names) setForm((current) => ({ ...current, assignedWorkerName: names }));
+  }, [selectedUser, matchingLogs, workers, form.assignedWorkerName]);
 
   const toggleReason = (reason: string) => {
     setForm((f) => ({
@@ -184,6 +191,7 @@ export default function Terminations() {
         // 수정 모드
         const payload: Partial<TerminationDocument> = {
           ...form,
+          projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
           updatedAt: Timestamp.now(),
         };
         await updateDoc(editingId, payload);
@@ -196,6 +204,7 @@ export default function Terminations() {
         // 신규 저장 모드
         const payload: Omit<TerminationDocument, "id"> = {
           ...form,
+          projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
         };
@@ -246,7 +255,7 @@ export default function Terminations() {
       handoverNote: doc.handoverNote || "",
       approverDandang: doc.approverDandang || "",
       approverCenterJang: doc.approverCenterJang || "",
-      projectName: doc.projectName || "동백 장애인활동지원센터",
+      projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
       residentNumber: doc.residentNumber || "",
       approvalDate: doc.approvalDate || doc.date || new Date().toISOString().slice(0, 10),
       assignedWorkerName: doc.assignedWorkerName || getAssignedWorkerNames(users.find((u) => u.id === doc.userId)).join(", "),
@@ -282,7 +291,7 @@ export default function Terminations() {
       handoverNote: "",
       approverDandang: "",
       approverCenterJang: "",
-      projectName: "동백 장애인활동지원센터",
+      projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
       residentNumber: "",
       approvalDate: new Date().toISOString().slice(0, 10),
       assignedWorkerName: "",
@@ -381,7 +390,7 @@ export default function Terminations() {
               <tbody>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", width: "18%", textAlign: "center" }}>사 업 명</th>
-                  <td style={{ width: "32%" }}>{printDoc?.projectName || "동백 장애인활동지원센터"}</td>
+                  <td style={{ width: "32%" }}>{OFFICIAL_TERMINATION_PROJECT_NAME}</td>
                   <th style={{ backgroundColor: "#f5f5f5", width: "18%", textAlign: "center" }}>담당 활동지원사</th>
                   <td style={{ width: "32%" }}>{printDoc?.assignedWorkerName || getAssignedWorkerNames(users.find(u => u.id === printDoc?.userId)).join(", ") || "—"}</td>
                 </tr>
@@ -493,12 +502,6 @@ export default function Terminations() {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* ── 사업명 ── */}
-          <div>
-            <Label>사업명</Label>
-            <Input value={form.projectName || ""} onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))} placeholder="동백 장애인활동지원센터" />
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>이용 종결자 선택 *</Label>
@@ -541,7 +544,7 @@ export default function Terminations() {
               </div>
               {selectedUser && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  주소: {selectedUser.address || "—"} / 바우처: {selectedUser.voucherTier}구간 / 장애유형: {selectedUser.disabilityType || "—"}
+                  주소: {selectedUser.address || "—"} / 바우처: {formatVoucherTier(selectedUser)} / 장애유형: {selectedUser.disabilityType || "—"}
                 </p>
               )}
             </div>
@@ -683,16 +686,3 @@ export default function Terminations() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

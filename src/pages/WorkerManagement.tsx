@@ -50,6 +50,7 @@ import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
+import { preserveWorkerDateOnStatusChange } from "@/lib/workerDatePreservation";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -397,6 +398,9 @@ const WorkerManagement = () => {
     }
     if (!form.lat && form.address) await handleGeocode();
 
+    const existingWorker = editingId ? workers.find((worker) => worker.id === editingId) : undefined;
+    const statusChanged = !!existingWorker && existingWorker.contractStatus !== form.contractStatus;
+
     const uniqueUserIds = Array.from(new Set(form.assignedUserIds || []));
     const arrays = buildUserArraysFromIds(uniqueUserIds, users);
     const payload = {
@@ -406,7 +410,11 @@ const WorkerManagement = () => {
       assignedUserNames: arrays.names,
       assignedUserPhones: arrays.phones,
       txtHSex: form.gender,
-      receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
+      receiptDate: preserveWorkerDateOnStatusChange(form.receiptDate, existingWorker?.receiptDate, statusChanged) || new Date().toISOString().slice(0, 10),
+      certificateDate: preserveWorkerDateOnStatusChange(form.certificateDate, existingWorker?.certificateDate, statusChanged),
+      serviceStartDate: preserveWorkerDateOnStatusChange(form.serviceStartDate, existingWorker?.serviceStartDate, statusChanged),
+      psychiatricCheckDate: form.psychiatricCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.psychiatricCheckDate, existingWorker?.psychiatricCheckDate, statusChanged),
+      workplaceCheckDate: form.workplaceCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.workplaceCheckDate, existingWorker?.workplaceCheckDate, statusChanged),
       // 퇴사 선택 시 퇴사일 자동 보정, 퇴사가 아니면 퇴사일 제거
       // (담당 이용자 배정은 유지되어 이력이 끊기지 않음)
       resignationDate:

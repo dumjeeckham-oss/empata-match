@@ -14,6 +14,7 @@ import {
   WidthType,
 } from "docx";
 import type { MatchingHistoryRecord, ServiceUser, WeeklySchedule } from "@/types";
+import { formatVoucherTier } from "@/lib/userVoucher";
 
 const MINIMUM_CONSULTATION_ROWS = 5;
 const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
@@ -107,7 +108,7 @@ export function buildWaitingUserLedgerRows(users: ServiceUser[], matchingRecords
       return {
         userId: text(user.id),
         name: [user.name, user.gender, user.age ? `${user.age}세` : ""].filter(Boolean).join("\n"),
-        disabilityVoucher: [user.disabilityType, voucherTotal(user) ? `${voucherTotal(user)}시간` : ""].filter(Boolean).join("\n"),
+        disabilityVoucher: [user.disabilityType, formatVoucherTier(user), voucherTotal(user) ? `${voucherTotal(user)}시간` : ""].filter(Boolean).join("\n"),
         supportTypes: supportChecklist(user),
         desiredServiceTime: formatDesiredServiceTime(user),
         stage: index === 0 ? "초기 상담" : `${index}차 상담`,

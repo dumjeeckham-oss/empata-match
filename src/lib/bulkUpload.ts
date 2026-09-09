@@ -35,6 +35,7 @@ export type FieldKey =
   | "age"
   | "disabilityType"
   | "voucherTier"
+  | "voucherTierLabel"
   | "voucherHours"
   | "additionalHours"
   | "requiredDays"
@@ -83,7 +84,8 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "phoneOwnerName", patterns: [/연락처.*소유자/, /연락처주체/, /연락처.*이름/] },
   { field: "age", patterns: [/나이/, /연령/, /^age$/i, /출생/] },
   { field: "disabilityType", patterns: [/장애/, /장애유형/] },
-  { field: "voucherTier", patterns: [/바우처.*구간/, /구간/] },
+  { field: "voucherTierLabel", patterns: [/바우처.*구간명/, /직접입력구간/, /^구간명$/] },
+  { field: "voucherTier", patterns: [/바우처.*구간/, /^구간$/] },
   { field: "voucherHours", patterns: [/바우처.*시간/, /월바우처시간/, /기본시간/] },
   { field: "additionalHours", patterns: [/추가시간/, /추가.*시간/] },
   { field: "requiredDays", patterns: [/필요요일/, /서비스요일/, /이용요일/] },
@@ -410,6 +412,8 @@ export function rowToServiceUser(
 
   const gender = getCell(row, headerMap, "gender") || "남성";
   const terminationReason = getCell(row, headerMap, "terminationReason");
+  const voucherTierLabel = getCell(row, headerMap, "voucherTierLabel");
+  const parsedVoucherTier = Number(getCell(row, headerMap, "voucherTier"));
 
   return {
     name: getCell(row, headerMap, "name"),
@@ -421,7 +425,8 @@ export function rowToServiceUser(
     phoneOwnerRelation: getCell(row, headerMap, "phoneOwnerRelation"),
     phoneOwnerName: getCell(row, headerMap, "phoneOwnerName"),
     disabilityType: getCell(row, headerMap, "disabilityType"),
-    voucherTier: Number(getCell(row, headerMap, "voucherTier")) || 1,
+    voucherTier: voucherTierLabel ? (Number.isFinite(parsedVoucherTier) ? parsedVoucherTier : 0) : parsedVoucherTier || 1,
+    voucherTierLabel,
     voucherHours: Number(getCell(row, headerMap, "voucherHours")) || undefined,
     additionalHours: Number(getCell(row, headerMap, "additionalHours")) || 0,
     requiredDays: getCell(row, headerMap, "requiredDays"),
@@ -880,13 +885,3 @@ export async function upsertByNamePhoneBatch<T extends { name: string; phone: st
 
   return { inserted, updated, skipped };
 }
-
-
-
-
-
-
-
-
-
-

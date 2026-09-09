@@ -4,7 +4,7 @@ import type { MatchingHistoryRecord, ServiceUser } from "@/types";
 
 const user = {
   id: "user-1", name: "홍길동", age: 60, gender: "남성", disabilityType: "뇌병변",
-  voucherTier: 1, voucherHours: 90, provinceAdditionalHours: 10, cityAdditionalHours: 5,
+  voucherTier: 0, voucherTierLabel: "특례 지원 구간", voucherHours: 90, provinceAdditionalHours: 10, cityAdditionalHours: 5,
   receiptDate: "2026-08-26", requiredDays: "월·금", requiredHours: "오전 9~12시",
   weeklySchedule: [{ day: "월", slots: [18, 19, 20, 21, 22, 23] }, { day: "금", slots: [28, 29, 30, 31] }],
   supportTypes: ["신체지원", "가사지원", "목욕"], movementNote: "휠체어 이동",
@@ -37,6 +37,7 @@ describe("waiting user Word ledger data", () => {
     expect(rows[0].consultationDate).toBe("2026-08-26");
     expect(rows[0].desiredServiceTime).toContain("월 09:00~12:00");
     expect(rows[0].supportTypes).toContain("■ 목욕");
+    expect(rows[0].disabilityVoucher).toContain("특례 지원 구간");
     expect(rows[0].consultationContent).toContain("[이동 시 유의점] 휠체어 이동");
     expect(rows[1]).toMatchObject({ stage: "1차 상담", consultationDate: "2026-09-01", consultationContent: "유선 연락 후 검토 중" });
     expect(rows[2]).toMatchObject({ stage: "2차 상담", consultationDate: "2026-09-05", consultationContent: "시간대 불일치" });

@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { TerminationDocument } from "@/types";
+import { OFFICIAL_TERMINATION_PROJECT_NAME } from "@/lib/terminationWorkers";
 
 const PRINT_REASONS = [
   ["사망", "이중서비스", "기관변경", "타서비스전환"],
@@ -41,7 +42,7 @@ export function TerminationPrintSheet({ document, address, workerNames, logoSrc 
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", marginBottom: "5mm" }}>
           <tbody>
-            <tr><th style={label}>사업명</th><Cell>{document.projectName || "동백장애인활동지원센터"}</Cell><th style={label}>담당활동지원사</th><Cell>{workerNames || document.assignedWorkerName || ""}</Cell></tr>
+            <tr><th style={label}>사업명</th><Cell>{OFFICIAL_TERMINATION_PROJECT_NAME}</Cell><th style={label}>담당활동지원사</th><Cell>{workerNames || document.assignedWorkerName || ""}</Cell></tr>
             <tr><th style={label}>종결자</th><Cell>{document.userName || ""}</Cell><th style={label}>주민번호</th><Cell>{document.residentNumber || ""}</Cell></tr>
             <tr><th style={label}>주 소</th><Cell colSpan={3}>{address || ""}</Cell></tr>
             <tr><th style={label}>종결 일시</th><Cell colSpan={3}><span style={{ marginLeft: "8mm" }}>{endDate.year}</span><span style={{ marginLeft: "10mm" }}>년</span><span style={{ marginLeft: "10mm" }}>{endDate.month}</span><span style={{ marginLeft: "8mm" }}>월</span><span style={{ marginLeft: "10mm" }}>{endDate.day}</span><span style={{ marginLeft: "8mm" }}>일</span></Cell></tr>
@@ -51,8 +52,8 @@ export function TerminationPrintSheet({ document, address, workerNames, logoSrc 
           <tbody>
             <tr><th rowSpan={4} style={{ ...label, fontWeight: 700 }}>종결<br />종류</th>{PRINT_REASONS[0].map((reason) => <Cell key={reason} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], reason))} {reason}</Cell>)}</tr>
             <tr>{PRINT_REASONS[1].map((reason) => <Cell key={reason} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], reason))} {reason}</Cell>)}</tr>
-            <tr><Cell colSpan={4} style={{ height: "23mm" }}>{checkbox(isSelected(document.reasons || [], "개인사정"))} 개인사정 <span style={{ color: "#f00", fontSize: "9.5pt" }}>(예시:대상자 가정 내 개인사정으로 인하여 종결요청.<br />이후 서비스 여부는 집안사정이 괜찮아지면 연락주겠다고 종결요청함.)</span></Cell></tr>
-            <tr><Cell colSpan={4} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], "기타"))} 기타 <span style={{ color: "#f00", fontSize: "9.5pt", marginLeft: "8mm" }}>예시: 활동지원사의 개인사정 / 활동지원사와의갈등으로 종결요청</span></Cell></tr>
+            <tr><Cell colSpan={4} style={{ height: "23mm" }}>{checkbox(isSelected(document.reasons || [], "개인사정"))} 개인사정</Cell></tr>
+            <tr><Cell colSpan={4} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], "기타"))} 기타</Cell></tr>
             <tr><th style={{ ...label, height: "64mm", fontWeight: 700 }}>종결<br />사유</th><Cell colSpan={4} style={{ verticalAlign: "top", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.reasonDetail || ""}</Cell></tr>
           </tbody>
         </table>
