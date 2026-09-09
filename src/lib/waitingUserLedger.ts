@@ -1,9 +1,26 @@
-import * as XLSX from "xlsx";
-import type { CounselingRecord, ServiceUser } from "@/types";
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  Packer,
+  PageOrientation,
+  Paragraph,
+  Table,
+  TableCell,
+  TableRow,
+  TextRun,
+  VerticalAlign,
+  VerticalMergeType,
+  WidthType,
+} from "docx";
+import type { MatchingHistoryRecord, ServiceUser, WeeklySchedule } from "@/types";
 
-const CONSULTATION_STAGES = ["초기상담", "2차상담", "3차상담", "4차상담", "5차상담"] as const;
+const MINIMUM_CONSULTATION_ROWS = 5;
+const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
 
-function text(value: unknown): string { return String(value ?? "").trim(); }
+function text(value: unknown): string {
+  return String(value ?? "").trim();
+}
 
 function voucherTotal(user: ServiceUser): number {
   const base = Number(user.voucherHours) || 0;
@@ -19,15 +36,42 @@ function supportChecklist(user: ServiceUser): string {
   return [...rows, ...others.map((item) => `■ ${item}`)].join("\n");
 }
 
-function counselingChannel(record?: CounselingRecord): "phone" | "face" | "none" {
-  if (!record) return "none";
-  return /대면|방문/.test(`${record.category || ""} ${record.content || ""}`) ? "face" : "phone";
+function slotTime(slot: number): string {
+  const minutes = slot * 30;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function ranges(slots: number[]): string[] {
+  const sorted = [...new Set(slots)].filter((slot) => slot >= 0 && slot <= 47).sort((a, b) => a - b);
+  if (sorted.length === 0) return [];
+  const result: string[] = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+  for (const slot of sorted.slice(1)) {
+    if (slot === previous + 1) {
+      previous = slot;
+      continue;
+    }
+    result.push(`${slotTime(start)}~${slotTime(previous + 1)}`);
+    start = slot;
+    previous = slot;
+  }
+  result.push(`${slotTime(start)}~${slotTime(previous + 1)}`);
+  return result;
+}
+
+export function formatDesiredServiceTime(user: Pick<ServiceUser, "weeklySchedule" | "requiredDays" | "requiredHours">): string {
+  const schedule = [...(user.weeklySchedule || [])].sort((a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day));
+  const primary = schedule.flatMap((day: WeeklySchedule) => ranges(day.slots || []).map((range) => `${day.day} ${range}`));
+  const alternatives = schedule.flatMap((day: WeeklySchedule) => ranges(day.alternativeSlots || []).map((range) => `${day.day} ${range}`));
+  if (primary.length || alternatives.length) {
+    return [primary.join("\n"), alternatives.length ? `2안\n${alternatives.join("\n")}` : ""].filter(Boolean).join("\n");
+  }
+  return [text(user.requiredDays), text(user.requiredHours)].filter(Boolean).join("\n") || "미등록";
 }
 
 function profileConsultationContent(user: ServiceUser): string {
-  const requiredTime = [user.requiredDays, user.requiredHours].filter(Boolean).join(" · ");
   return [
-    `[필요시간] ${requiredTime || "미등록"}`,
     `[이동 시 유의점] ${text(user.movementNote) || "없음"}`,
     `[가사 지원 시 유의점] ${text(user.houseworkNote) || "없음"}`,
     `[희망 활동지원사] ${text(user.preferredWorkerTraits) || "미등록"}`,
@@ -35,43 +79,131 @@ function profileConsultationContent(user: ServiceUser): string {
   ].join("\n");
 }
 
-export function buildWaitingUserLedgerWorkbook(users: ServiceUser[], counselingRecords: CounselingRecord[]): XLSX.WorkBook {
-  const rows: unknown[][] = [["이용자 매칭 상담 대장"], [], ["이름", "장애유형 / 바우처", "지원 필요", "희망 제공시간", "상담차수", "상담일", "유선상담", "대면상담", "상담내용", "비고"]];
-  const merges: XLSX.Range[] = [XLSX.utils.decode_range("A1:J1")];
+function attemptResult(record?: MatchingHistoryRecord): string {
+  if (!record) return "";
+  return text(record.attemptResult) || text(record.notes) || text(record.failureReason) || text(record.reasonDetail);
+}
 
-  users.forEach((user) => {
-    const startRow = rows.length;
-    const records = counselingRecords.filter((record) => record.targetType === "이용자" && record.targetId === user.id).sort((a, b) => text(a.date).localeCompare(text(b.date))).slice(0, CONSULTATION_STAGES.length);
-    CONSULTATION_STAGES.forEach((stage, index) => {
-      const record = records[index];
-      const channel = counselingChannel(record);
-      const savedCounseling = record
-        ? ["[상담기록]", record.content, record.result ? `[상담결과] ${record.result}` : ""].filter(Boolean).join("\n")
-        : "";
-      rows.push([
-        index === 0 ? [user.name, user.gender, user.age ? `${user.age}세` : ""].filter(Boolean).join("\n") : "",
-        index === 0 ? [user.disabilityType, voucherTotal(user) ? `${voucherTotal(user)}시간` : ""].filter(Boolean).join("\n") : "",
-        index === 0 ? supportChecklist(user) : "",
-        index === 0 ? [user.requiredDays, user.requiredHours].filter(Boolean).join("\n") : "",
-        stage, record?.date || "",
-        channel === "phone" ? "■ 유선상담" : "□ 유선상담",
-        channel === "face" ? "■ 대면상담" : "□ 대면상담",
-        [index === 0 ? profileConsultationContent(user) : "", savedCounseling].filter(Boolean).join("\n\n"),
-        index === 0 ? user.notes || "" : "",
-      ]);
+export interface WaitingLedgerRow {
+  userId: string;
+  name: string;
+  disabilityVoucher: string;
+  supportTypes: string;
+  desiredServiceTime: string;
+  stage: string;
+  consultationDate: string;
+  consultationContent: string;
+  note: string;
+}
+
+export function buildWaitingUserLedgerRows(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[]): WaitingLedgerRow[] {
+  return users.flatMap((user) => {
+    const attempts = matchingRecords
+      .filter((record) => record.userId === user.id && (record.type === "시도" || record.type === "실패"))
+      .sort((a, b) => text(a.attemptDate || a.date).localeCompare(text(b.attemptDate || b.date)));
+    const rowCount = Math.max(MINIMUM_CONSULTATION_ROWS, attempts.length + 1);
+    return Array.from({ length: rowCount }, (_, index) => {
+      const attempt = index > 0 ? attempts[index - 1] : undefined;
+      return {
+        userId: text(user.id),
+        name: [user.name, user.gender, user.age ? `${user.age}세` : ""].filter(Boolean).join("\n"),
+        disabilityVoucher: [user.disabilityType, voucherTotal(user) ? `${voucherTotal(user)}시간` : ""].filter(Boolean).join("\n"),
+        supportTypes: supportChecklist(user),
+        desiredServiceTime: formatDesiredServiceTime(user),
+        stage: index === 0 ? "초기 상담" : `${index}차 상담`,
+        consultationDate: index === 0 ? text(user.receiptDate) : text(attempt?.attemptDate || attempt?.date),
+        consultationContent: index === 0 ? profileConsultationContent(user) : attemptResult(attempt),
+        note: index === 0 ? text(user.notes) : attempt?.type === "실패" ? "매칭 실패" : attempt ? "매칭 시도" : "",
+      };
     });
-    const endRow = startRow + CONSULTATION_STAGES.length - 1;
-    [0, 1, 2, 3, 9].forEach((column) => merges.push({ s: { r: startRow, c: column }, e: { r: endRow, c: column } }));
+  });
+}
+
+const border = { style: BorderStyle.SINGLE, size: 4, color: "333333" };
+const borders = { top: border, bottom: border, left: border, right: border };
+
+function paragraphs(value: string, bold = false, center = false): Paragraph[] {
+  const lines = String(value || "").split("\n");
+  return lines.map((line) => new Paragraph({
+    alignment: center ? AlignmentType.CENTER : AlignmentType.LEFT,
+    spacing: { before: 0, after: 0, line: 240 },
+    children: [new TextRun({ text: line, bold, size: 18, font: "맑은 고딕" })],
+  }));
+}
+
+function cell(value: string, width: number, options?: { header?: boolean; center?: boolean; merge?: (typeof VerticalMergeType)[keyof typeof VerticalMergeType] }): TableCell {
+  return new TableCell({
+    width: { size: width, type: WidthType.DXA },
+    borders,
+    verticalAlign: VerticalAlign.CENTER,
+    verticalMerge: options?.merge,
+    shading: options?.header ? { fill: "E9EEF5" } : undefined,
+    margins: { top: 70, bottom: 70, left: 70, right: 70 },
+    children: paragraphs(value, options?.header, options?.center),
+  });
+}
+
+export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[]): Document {
+  const rows = buildWaitingUserLedgerRows(users, matchingRecords);
+  const seen = new Map<string, number>();
+  const tableRows = rows.map((row) => {
+    const occurrence = seen.get(row.userId) || 0;
+    seen.set(row.userId, occurrence + 1);
+    const merge = occurrence === 0 ? VerticalMergeType.RESTART : VerticalMergeType.CONTINUE;
+    return new TableRow({
+      cantSplit: true,
+      children: [
+        cell(row.name, 900, { center: true, merge }),
+        cell(row.disabilityVoucher, 1200, { center: true, merge }),
+        cell(row.supportTypes, 1100, { merge }),
+        cell(row.desiredServiceTime, 1500, { center: true, merge }),
+        cell(row.stage, 850, { center: true }),
+        cell(row.consultationDate, 1050, { center: true }),
+        cell(row.consultationContent, 4600),
+        cell(row.note, 1000, { center: true }),
+      ],
+    });
   });
 
-  const worksheet = XLSX.utils.aoa_to_sheet(rows);
-  worksheet["!merges"] = merges;
-  worksheet["!cols"] = [{ wch: 11 }, { wch: 18 }, { wch: 15 }, { wch: 18 }, { wch: 11 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 65 }, { wch: 18 }];
-  worksheet["!rows"] = rows.map((_, index) => ({ hpt: index === 0 ? 30 : index === 2 ? 24 : index > 2 ? 42 : 10 }));
-  worksheet["!autofilter"] = { ref: `A3:J${Math.max(rows.length, 3)}` };
-  worksheet["!margins"] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
-  worksheet["!pageSetup"] = { orientation: "landscape", fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "대기 이용자 상담대장");
-  return workbook;
+  return new Document({
+    styles: { default: { document: { run: { font: "맑은 고딕", size: 18 } } } },
+    sections: [{
+      properties: {
+        page: {
+          size: { orientation: PageOrientation.LANDSCAPE, width: 11906, height: 16838 },
+          margin: { top: 500, right: 450, bottom: 500, left: 450 },
+        },
+      },
+      children: [
+        new Paragraph({
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 180 },
+          children: [new TextRun({ text: "이용자 매칭 상담 대장", bold: true, size: 34, font: "맑은 고딕" })],
+        }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: [
+            new TableRow({
+              tableHeader: true,
+              children: [
+                cell("이름", 900, { header: true, center: true }),
+                cell("장애유형 / 바우처", 1200, { header: true, center: true }),
+                cell("지원종류", 1100, { header: true, center: true }),
+                cell("희망 제공시간", 1500, { header: true, center: true }),
+                cell("상담차수", 850, { header: true, center: true }),
+                cell("상담일", 1050, { header: true, center: true }),
+                cell("상담내용 / 매칭시도 결과", 4600, { header: true, center: true }),
+                cell("비고", 1000, { header: true, center: true }),
+              ],
+            }),
+            ...tableRows,
+          ],
+        }),
+      ],
+    }],
+  });
+}
+
+export async function buildWaitingUserLedgerBlob(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[]): Promise<Blob> {
+  return Packer.toBlob(buildWaitingUserLedgerDocument(users, matchingRecords));
 }

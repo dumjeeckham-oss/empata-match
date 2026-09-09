@@ -273,6 +273,8 @@ export interface MatchingHistoryRecord {
   workerPhone: string;
   date: string; // YYYY-MM-DD (시작일 또는 이벤트일)
   endDate?: string; // YYYY-MM-DD (종료일, 해제 시에만)
+  attemptDate?: string; // YYYY-MM-DD (매칭 시도/실패 기록일)
+  attemptResult?: string; // 매칭 시도 결과
   reason?: MatchingHistoryReason;
   reasonDetail?: string;
   failureReason?: string;
@@ -352,13 +354,3 @@ export interface WorkCalendarEvent {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
-
-
-
-
-
-
-
-
-
-

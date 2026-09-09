@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
+import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, type DocumentMatchingHistoryEntry, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
@@ -271,7 +271,7 @@ const WorkerManagement = () => {
   }, [displayWorkers, detailTarget?.id]);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; attemptDate: string; attemptResult: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -1554,7 +1554,7 @@ const WorkerManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", notes: ""});
+                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", notes: ""});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -1571,12 +1571,12 @@ const WorkerManagement = () => {
                               <p className="text-sm text-muted-foreground">{match.userName} · {match.userPhone}</p>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
-                            <div className="mt-3 text-sm whitespace-pre-wrap">{match.notes || "상세 없음"}</div>
+                            <div className="mt-3 text-sm whitespace-pre-wrap">{match.attemptResult || match.notes || "상세 없음"}</div>
                           )}
                         </div>
                       ))
@@ -1627,18 +1627,23 @@ const WorkerManagement = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-sm font-medium">시작일</label>
-                      <Input type="date" value={matchHistoryForm?.date || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, date: e.target.value})} />
-                    </div>
-                    {matchHistoryForm?.type === "해제" && (
+                  {matchHistoryForm?.type === "시도" || matchHistoryForm?.type === "실패" ? (
+                    <div className="space-y-3 rounded-md border p-3">
                       <div>
-                        <label className="text-sm font-medium">종료일</label>
-                        <Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value})} />
+                        <label className="text-sm font-medium">매칭시도일</label>
+                        <Input type="date" value={matchHistoryForm.attemptDate} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptDate: e.target.value})} />
                       </div>
-                    )}
-                  </div>
+                      <div>
+                        <label className="text-sm font-medium">매칭시도의 결과</label>
+                        <Textarea placeholder="연락 결과, 거절 사유, 다음 조치 등을 입력" value={matchHistoryForm.attemptResult} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptResult: e.target.value})} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><label className="text-sm font-medium">시작일</label><Input type="date" value={matchHistoryForm?.date || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, date: e.target.value})} /></div>
+                      <div><label className="text-sm font-medium">종료일</label><Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value, type: e.target.value ? "해제" : matchHistoryForm.type})} /></div>
+                    </div>
+                  )}
                   <div>
                     <label className="text-sm font-medium">비고</label>
                     <Input placeholder="비고 입력" value={matchHistoryForm?.notes || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, notes: e.target.value})} />
@@ -1646,27 +1651,75 @@ const WorkerManagement = () => {
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setMatchHistoryDialogOpen(false)}>취소</Button>
-                  <Button disabled={!matchHistoryForm?.userId || !matchHistoryForm?.date} onClick={async () => {
+                  <Button disabled={!matchHistoryForm?.userId || ((matchHistoryForm?.type === "시도" || matchHistoryForm?.type === "실패") ? !matchHistoryForm?.attemptDate || !matchHistoryForm?.attemptResult.trim() : !matchHistoryForm?.date)} onClick={async () => {
                     if (!matchHistoryForm || !detailTarget) return;
-                    const u = users.find(x => x.id === matchHistoryForm.userId);
-                    const payload: any = {
-                      type: matchHistoryForm.type,
-                      userId: matchHistoryForm.userId,
-                      userName: u?.name || "",
-                      userPhone: u?.phone || "",
+                    const selectedUser = users.find((user) => user.id === matchHistoryForm.userId);
+                    if (!selectedUser?.id) return;
+                    const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
+                    const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
+                    const eventDate = isAttempt ? matchHistoryForm.attemptDate : matchHistoryForm.date;
+                    const payload: Partial<MatchingHistoryRecord> = {
+                      type: isEnded ? "해제" : matchHistoryForm.type as MatchingHistoryRecord["type"],
+                      userId: selectedUser.id,
+                      userName: selectedUser.name || "",
+                      userPhone: selectedUser.phone || "",
                       workerId: detailTarget.id,
                       workerName: detailTarget.name,
                       workerPhone: detailTarget.phone,
-                      date: matchHistoryForm.date,
-                      endDate: matchHistoryForm.endDate || undefined,
-                      notes: matchHistoryForm.notes || undefined,
+                      date: eventDate,
+                      endDate: isAttempt ? undefined : matchHistoryForm.endDate || undefined,
+                      attemptDate: isAttempt ? matchHistoryForm.attemptDate : undefined,
+                      attemptResult: isAttempt ? matchHistoryForm.attemptResult : undefined,
+                      notes: matchHistoryForm.notes || (isAttempt ? matchHistoryForm.attemptResult : undefined),
                     };
                     if (editingMatchHistoryId) {
                       await updateMatchingHistory(editingMatchHistoryId, payload);
                       toast({ title: "매칭 이력 수정 완료" });
                     } else {
-                      await addMatchingHistory(payload);
+                      await addMatchingHistory(payload as MatchingHistoryRecord);
                       toast({ title: "매칭 이력 추가 완료" });
+                    }
+
+                    if (!isAttempt) {
+                      const previousUserIds = detailTarget.assignedUserIds ?? detailTarget.assigned_users ?? [];
+                      const nextUserIds = isEnded
+                        ? previousUserIds.filter((id) => id !== selectedUser.id)
+                        : Array.from(new Set([...previousUserIds, selectedUser.id]));
+                      const arrays = buildUserArraysFromIds(nextUserIds, users);
+                      const workerPayload: Partial<Worker> = {
+                        assignedUserIds: arrays.ids,
+                        assigned_users: arrays.ids,
+                        assignedUserNames: arrays.names,
+                        assignedUserPhones: arrays.phones,
+                        contractStatus: arrays.ids.length > 0 ? "근무중" : "대기",
+                        serviceStartDate: isEnded ? detailTarget.serviceStartDate : matchHistoryForm.date,
+                        serviceEndDate: isEnded ? matchHistoryForm.endDate || matchHistoryForm.date : null,
+                      };
+                      await update(detailTarget.id, workerPayload);
+                      await syncWorkerToUsers(detailTarget.id, { ...detailTarget, ...workerPayload }, users, previousUserIds, updateUser);
+                      const remainingHelperIds = isEnded
+                        ? (selectedUser.assignedHelperIds || []).filter((id) => id !== detailTarget.id)
+                        : Array.from(new Set([...(selectedUser.assignedHelperIds || []), detailTarget.id]));
+                      const existingDocumentEntries = Array.isArray(selectedUser.matchingHistory)
+                        ? selectedUser.matchingHistory.filter((entry) => entry.workerId !== detailTarget.id)
+                        : [];
+                      const documentEntry: DocumentMatchingHistoryEntry = {
+                        id: editingMatchHistoryId || `${detailTarget.id}-${matchHistoryForm.date}`,
+                        workerId: detailTarget.id,
+                        workerName: detailTarget.name,
+                        workerPhone: detailTarget.phone,
+                        serviceStartDate: matchHistoryForm.date,
+                        serviceEndDate: isEnded ? matchHistoryForm.endDate || matchHistoryForm.date : null,
+                        reason: isEnded ? "종료" : "추가",
+                        reasonDetail: matchHistoryForm.notes || "",
+                        updatedAt: new Date().toISOString(),
+                      };
+                      await updateUser(selectedUser.id, {
+                        matchingHistory: [...existingDocumentEntries, documentEntry],
+                        contractStatus: remainingHelperIds.length > 0 ? "서비스중" : "대기",
+                        serviceStartDate: isEnded ? selectedUser.serviceStartDate : matchHistoryForm.date,
+                      });
+                      setDetailTarget({ ...detailTarget, ...workerPayload });
                     }
                     setMatchHistoryDialogOpen(false);
                     setMatchHistoryForm(null);
@@ -1679,45 +1732,3 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

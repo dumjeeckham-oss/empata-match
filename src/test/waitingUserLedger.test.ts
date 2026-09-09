@@ -1,38 +1,44 @@
 import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
-import { buildWaitingUserLedgerWorkbook } from "@/lib/waitingUserLedger";
-import type { CounselingRecord, ServiceUser } from "@/types";
+import { buildWaitingUserLedgerRows, formatDesiredServiceTime } from "@/lib/waitingUserLedger";
+import type { MatchingHistoryRecord, ServiceUser } from "@/types";
 
 const user = {
   id: "user-1", name: "홍길동", age: 60, gender: "남성", disabilityType: "뇌병변",
   voucherTier: 1, voucherHours: 90, provinceAdditionalHours: 10, cityAdditionalHours: 5,
-  requiredDays: "월·금", requiredHours: "오전 9~12시", supportTypes: ["신체지원", "가사지원"],
-  movementNote: "휠체어 이동", houseworkNote: "반찬 조리", preferredWorkerTraits: "여성 지원사", notes: "차량 지원 희망",
+  receiptDate: "2026-08-26", requiredDays: "월·금", requiredHours: "오전 9~12시",
+  weeklySchedule: [{ day: "월", slots: [18, 19, 20, 21, 22, 23] }, { day: "금", slots: [28, 29, 30, 31] }],
+  supportTypes: ["신체지원", "가사지원", "목욕"], movementNote: "휠체어 이동",
+  houseworkNote: "반찬 조리", preferredWorkerTraits: "여성 지원사", notes: "차량 지원 희망",
 } as ServiceUser;
-const counseling = {
-  targetType: "이용자", targetId: "user-1", targetName: "홍길동", counselorName: "담당자",
-  date: "2026-09-01", category: "방문상담", content: "초기 상담 내용", result: "매칭 대기",
-} as CounselingRecord;
 
-describe("buildWaitingUserLedgerWorkbook", () => {
-  it("creates five consultation rows per waiting user with merged profile cells", () => {
-    const workbook = buildWaitingUserLedgerWorkbook([user], [counseling]);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
-    expect(matrix).toHaveLength(8);
-    expect(matrix[0][0]).toBe("이용자 매칭 상담 대장");
-    expect(matrix[3][0]).toContain("홍길동");
-    expect(matrix[3][1]).toContain("105시간");
-    expect(matrix[3][2]).toContain("■ 신체지원");
-    expect(matrix[3][2]).toContain("■ 가사지원");
-    expect(matrix[3][8]).toContain("[필요시간] 월·금 · 오전 9~12시");
-    expect(matrix[3][8]).toContain("[이동 시 유의점] 휠체어 이동");
-    expect(matrix[3][8]).toContain("[가사 지원 시 유의점] 반찬 조리");
-    expect(matrix[3][8]).toContain("[희망 활동지원사] 여성 지원사");
-    expect(matrix[3][8]).toContain("[특이사항] 차량 지원 희망");
-    expect(matrix[3][4]).toBe("초기상담");
-    expect(matrix[3][7]).toBe("■ 대면상담");
-    expect(matrix[7][4]).toBe("5차상담");
-    expect(sheet["!merges"]).toContainEqual({ s: { r: 3, c: 0 }, e: { r: 7, c: 0 } });
+const attempts: MatchingHistoryRecord[] = [
+  {
+    id: "attempt-2", type: "실패", userId: "user-1", userName: "홍길동", userPhone: "",
+    workerId: "worker-2", workerName: "지원사2", workerPhone: "", date: "2026-09-05",
+    attemptDate: "2026-09-05", attemptResult: "시간대 불일치",
+  },
+  {
+    id: "attempt-1", type: "시도", userId: "user-1", userName: "홍길동", userPhone: "",
+    workerId: "worker-1", workerName: "지원사1", workerPhone: "", date: "2026-09-01",
+    attemptDate: "2026-09-01", attemptResult: "유선 연락 후 검토 중",
+  },
+];
+
+describe("waiting user Word ledger data", () => {
+  it("uses clicked weekly slots for 희망 제공시간", () => {
+    expect(formatDesiredServiceTime(user)).toBe("월 09:00~12:00\n금 14:00~16:00");
+  });
+
+  it("uses receipt date first, then ordered matching attempts and results", () => {
+    const rows = buildWaitingUserLedgerRows([user], attempts);
+    expect(rows).toHaveLength(5);
+    expect(rows[0].name).toContain("홍길동");
+    expect(rows[0].stage).toBe("초기 상담");
+    expect(rows[0].consultationDate).toBe("2026-08-26");
+    expect(rows[0].desiredServiceTime).toContain("월 09:00~12:00");
+    expect(rows[0].supportTypes).toContain("■ 목욕");
+    expect(rows[0].consultationContent).toContain("[이동 시 유의점] 휠체어 이동");
+    expect(rows[1]).toMatchObject({ stage: "1차 상담", consultationDate: "2026-09-01", consultationContent: "유선 연락 후 검토 중" });
+    expect(rows[2]).toMatchObject({ stage: "2차 상담", consultationDate: "2026-09-05", consultationContent: "시간대 불일치" });
   });
 });
