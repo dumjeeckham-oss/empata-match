@@ -1920,21 +1920,23 @@ const UserManagement = () => {
                     )}
                   </div>
                   <div>
-                    <Label>시도 추가시간</Label>
+                    <Label>시도 추가지원 시간 (직접 입력)</Label>
                     <Input
                       type="number"
                       min={0}
                       value={form.provinceAdditionalHours ?? 0}
-                      onChange={(e) => setForm((f) => ({ ...f, provinceAdditionalHours: Number(e.target.value) || 0 }))}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(e) => setForm((f) => ({ ...f, provinceAdditionalHours: toNumber(e.target.value) }))}
                     />
                   </div>
                   <div>
-                    <Label>시군구 추가시간</Label>
+                    <Label>시군구 추가지원 시간 (직접 입력)</Label>
                     <Input
                       type="number"
                       min={0}
                       value={form.cityAdditionalHours ?? 0}
-                      onChange={(e) => setForm((f) => ({ ...f, cityAdditionalHours: Number(e.target.value) || 0 }))}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(e) => setForm((f) => ({ ...f, cityAdditionalHours: toNumber(e.target.value) }))}
                     />
                   </div>
                   <div className="col-span-2 rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium">

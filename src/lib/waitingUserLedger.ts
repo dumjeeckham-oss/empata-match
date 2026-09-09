@@ -13,7 +13,7 @@ function voucherTotal(user: ServiceUser): number {
 
 function supportChecklist(user: ServiceUser): string {
   const selected = new Set(user.supportTypes || []);
-  const standard = ["신체활동", "사회활동", "가사활동"];
+  const standard = ["사회지원", "신체지원", "가사지원", "목욕"];
   const rows = standard.map((item) => `${selected.has(item) ? "■" : "□"} ${item}`);
   const others = [...selected].filter((item) => !standard.includes(item));
   return [...rows, ...others.map((item) => `■ ${item}`)].join("\n");
@@ -22,6 +22,17 @@ function supportChecklist(user: ServiceUser): string {
 function counselingChannel(record?: CounselingRecord): "phone" | "face" | "none" {
   if (!record) return "none";
   return /대면|방문/.test(`${record.category || ""} ${record.content || ""}`) ? "face" : "phone";
+}
+
+function profileConsultationContent(user: ServiceUser): string {
+  const requiredTime = [user.requiredDays, user.requiredHours].filter(Boolean).join(" · ");
+  return [
+    `[필요시간] ${requiredTime || "미등록"}`,
+    `[이동 시 유의점] ${text(user.movementNote) || "없음"}`,
+    `[가사 지원 시 유의점] ${text(user.houseworkNote) || "없음"}`,
+    `[희망 활동지원사] ${text(user.preferredWorkerTraits) || "미등록"}`,
+    `[특이사항] ${text(user.notes) || "없음"}`,
+  ].join("\n");
 }
 
 export function buildWaitingUserLedgerWorkbook(users: ServiceUser[], counselingRecords: CounselingRecord[]): XLSX.WorkBook {
@@ -34,6 +45,9 @@ export function buildWaitingUserLedgerWorkbook(users: ServiceUser[], counselingR
     CONSULTATION_STAGES.forEach((stage, index) => {
       const record = records[index];
       const channel = counselingChannel(record);
+      const savedCounseling = record
+        ? ["[상담기록]", record.content, record.result ? `[상담결과] ${record.result}` : ""].filter(Boolean).join("\n")
+        : "";
       rows.push([
         index === 0 ? [user.name, user.gender, user.age ? `${user.age}세` : ""].filter(Boolean).join("\n") : "",
         index === 0 ? [user.disabilityType, voucherTotal(user) ? `${voucherTotal(user)}시간` : ""].filter(Boolean).join("\n") : "",
@@ -42,7 +56,7 @@ export function buildWaitingUserLedgerWorkbook(users: ServiceUser[], counselingR
         stage, record?.date || "",
         channel === "phone" ? "■ 유선상담" : "□ 유선상담",
         channel === "face" ? "■ 대면상담" : "□ 대면상담",
-        record ? [record.content, record.result].filter(Boolean).join("\n") : "",
+        [index === 0 ? profileConsultationContent(user) : "", savedCounseling].filter(Boolean).join("\n\n"),
         index === 0 ? user.notes || "" : "",
       ]);
     });

@@ -6,7 +6,8 @@ import type { CounselingRecord, ServiceUser } from "@/types";
 const user = {
   id: "user-1", name: "홍길동", age: 60, gender: "남성", disabilityType: "뇌병변",
   voucherTier: 1, voucherHours: 90, provinceAdditionalHours: 10, cityAdditionalHours: 5,
-  requiredDays: "월·금", requiredHours: "오전 9~12시", supportTypes: ["신체활동"], notes: "차량 지원 희망",
+  requiredDays: "월·금", requiredHours: "오전 9~12시", supportTypes: ["신체지원", "가사지원"],
+  movementNote: "휠체어 이동", houseworkNote: "반찬 조리", preferredWorkerTraits: "여성 지원사", notes: "차량 지원 희망",
 } as ServiceUser;
 const counseling = {
   targetType: "이용자", targetId: "user-1", targetName: "홍길동", counselorName: "담당자",
@@ -22,6 +23,13 @@ describe("buildWaitingUserLedgerWorkbook", () => {
     expect(matrix[0][0]).toBe("이용자 매칭 상담 대장");
     expect(matrix[3][0]).toContain("홍길동");
     expect(matrix[3][1]).toContain("105시간");
+    expect(matrix[3][2]).toContain("■ 신체지원");
+    expect(matrix[3][2]).toContain("■ 가사지원");
+    expect(matrix[3][8]).toContain("[필요시간] 월·금 · 오전 9~12시");
+    expect(matrix[3][8]).toContain("[이동 시 유의점] 휠체어 이동");
+    expect(matrix[3][8]).toContain("[가사 지원 시 유의점] 반찬 조리");
+    expect(matrix[3][8]).toContain("[희망 활동지원사] 여성 지원사");
+    expect(matrix[3][8]).toContain("[특이사항] 차량 지원 희망");
     expect(matrix[3][4]).toBe("초기상담");
     expect(matrix[3][7]).toBe("■ 대면상담");
     expect(matrix[7][4]).toBe("5차상담");
