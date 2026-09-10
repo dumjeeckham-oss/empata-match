@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
 import { syncUserToWorkers } from "@/lib/assignments";
+import { closeMatchingEntries } from "@/lib/statusLifecycle";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { formatVoucherTier } from "@/lib/userVoucher";
 
@@ -139,7 +140,7 @@ export default function Handovers() {
           workerId: fromWorker.id,
           workerName: fromWorker.name,
           workerPhone: fromWorker.phone,
-          date: handoverDate,
+          date: user.matchingHistory?.find((entry) => entry.workerId === fromWorker.id)?.serviceStartDate || user.serviceStartDate || handoverDate,
           endDate: handoverDate,
           notes: note,
         } as any);
@@ -184,6 +185,27 @@ export default function Handovers() {
         return;
       }
 
+      const closedHistory = closeMatchingEntries(
+        selectedUser.matchingHistory,
+        prevWorker?.id ? [prevWorker.id] : [],
+        handoverDate,
+        reason.trim(),
+      );
+      const updatedDocumentHistory = [
+        ...closedHistory.filter((entry) => !(entry.workerId === nextWorker.id && entry.serviceStartDate === takeoverDate)),
+        {
+          id: "handover-" + selectedUser.id + "-" + nextWorker.id + "-" + takeoverDate,
+          workerId: nextWorker.id,
+          workerName: nextWorker.name,
+          workerPhone: nextWorker.phone,
+          serviceStartDate: takeoverDate,
+          serviceEndDate: null,
+          reason: "인계" as const,
+          reasonDetail: reason.trim(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
       const payload: Omit<HandoverDocument, "id"> = {
         userId: selectedUser.id!,
         userName: selectedUser.name,
@@ -219,6 +241,9 @@ export default function Handovers() {
           assigned_workers: newHelperIds,
           assignedHelperNames: [nextWorker.name],
           assignedHelperPhones: [nextWorker.phone],
+          matchingHistory: updatedDocumentHistory,
+          contractStatus: "서비스중",
+          resignationDate: "",
         };
         await updateUser(selectedUser.id!, updatedUserEdit as any);
         await syncUserToWorkers(
@@ -228,6 +253,21 @@ export default function Handovers() {
           prevHelperIds,
           updateWorker as any
         );
+        if (prevWorker?.id && prevWorker.id !== nextWorker.id) {
+          const remainingIds = (prevWorker.assignedUserIds || []).filter((id) => id !== selectedUser.id);
+          await updateWorker(prevWorker.id, {
+            contractStatus: remainingIds.length > 0 ? "근무중" : "대기",
+            waitingForMatch: remainingIds.length === 0,
+            serviceEndDate: remainingIds.length === 0 ? handoverDate : null,
+          });
+        }
+        await updateWorker(nextWorker.id, {
+          contractStatus: "근무중",
+          waitingForMatch: false,
+          serviceEndDate: null,
+          retirementDate: "",
+          resignationDate: "",
+        });
         await recordHandoverHistory(selectedUser, prevWorker, nextWorker);
         toast({ title: "업무 인계·인수서 수정 완료" });
 
@@ -243,6 +283,9 @@ export default function Handovers() {
           assigned_workers: newHelperIds,
           assignedHelperNames: [nextWorker.name],
           assignedHelperPhones: [nextWorker.phone],
+          matchingHistory: updatedDocumentHistory,
+          contractStatus: "서비스중",
+          resignationDate: "",
         };
         await updateUser(selectedUser.id!, updatedUser as any);
         await syncUserToWorkers(
@@ -252,6 +295,21 @@ export default function Handovers() {
           prevHelperIds,
           updateWorker as any
         );
+        if (prevWorker?.id && prevWorker.id !== nextWorker.id) {
+          const remainingIds = (prevWorker.assignedUserIds || []).filter((id) => id !== selectedUser.id);
+          await updateWorker(prevWorker.id, {
+            contractStatus: remainingIds.length > 0 ? "근무중" : "대기",
+            waitingForMatch: remainingIds.length === 0,
+            serviceEndDate: remainingIds.length === 0 ? handoverDate : null,
+          });
+        }
+        await updateWorker(nextWorker.id, {
+          contractStatus: "근무중",
+          waitingForMatch: false,
+          serviceEndDate: null,
+          retirementDate: "",
+          resignationDate: "",
+        });
         await recordHandoverHistory(selectedUser, prevWorker, nextWorker);
 
 

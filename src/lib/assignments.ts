@@ -138,7 +138,7 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
   );
   const contractStatus: ServiceUser["contractStatus"] =
     // 사용자가 직접 지정한 상태(계약해지/타기관 계약/보류)는 절대 자동 변경하지 않음
-    contractStatusRaw === "계약해지" || contractStatusRaw === "타기관 계약" || contractStatusRaw === "보류"
+    contractStatusRaw === "계약해지" || contractStatusRaw === "타기관 계약" || contractStatusRaw === "보류" || contractStatusRaw === "대기" || contractStatusRaw === "작성중"
       ? (contractStatusRaw as ServiceUser["contractStatus"])
       : terminationReason.trim() || userResignationDate
         ? "계약해지"
@@ -225,7 +225,9 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   const derivedStatus: Worker["contractStatus"] =
     rawStatus === "퇴사" || resignationDate
       ? "퇴사"
-      : serviceStartDate
+      : rawStatus === "대기"
+        ? "대기"
+        : serviceStartDate
         ? "근무중"
         : "대기";
 

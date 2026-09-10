@@ -47,6 +47,22 @@ export interface DocumentMatchingHistoryEntry {
   updatedAt?: string;
 }
 
+export interface ContractHistoryEntry {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  status: "서비스중" | "계약해지" | "대기";
+  reason?: string;
+}
+
+export interface EmploymentHistoryEntry {
+  id: string;
+  startDate: string;
+  endDate: string | null;
+  status: "재직중" | "퇴사";
+  reason?: string;
+}
+
 export interface ServiceUser {
   id?: string;
   name: string;
@@ -130,6 +146,8 @@ export interface ServiceUser {
   matchingPreferences?: Record<string, number>;
   /** 날짜별 바우처 변경 이력 */
   voucherChangeHistory?: VoucherChangeHistoryEntry[];
+  /** 재계약을 포함한 전체 계약 기간 이력 */
+  contractHistory?: ContractHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -193,6 +211,10 @@ export interface Worker {
   rejectionScores?: Record<string, number>;
   /** 실패 사유별 누적 비적합 피드백 */
   matchingPreferences?: Record<string, number>;
+  /** 담당 이용자가 없을 때 새 매칭을 기다리는 재직자 여부 */
+  waitingForMatch?: boolean;
+  /** 퇴사 후 재입사를 포함한 전체 입퇴사 이력 */
+  employmentHistory?: EmploymentHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -230,6 +252,8 @@ export interface TerminationDocument {
   approvalDate?: string;
   /** 담당 활동지원사명 (자동 채움) */
   assignedWorkerName?: string;
+  /** 문서 저장 완료 뒤 적용할 이용자 상태 */
+  completionAction?: "계약해지" | "대기";
   createdAt?: unknown;
   updatedAt?: unknown;
 }

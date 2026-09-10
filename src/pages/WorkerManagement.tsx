@@ -52,6 +52,7 @@ import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
 import { preserveWorkerDateOnStatusChange } from "@/lib/workerDatePreservation";
+import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerStatusBadges } from "@/lib/statusLifecycle";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -204,9 +205,11 @@ function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string
       ? "퇴사"
       : worker.contractStatus === "변경"
         ? "변경"
-        : hasServiceStartDate
-        ? "근무중"
-        : worker.contractStatus,
+        : worker.contractStatus === "대기"
+          ? "대기"
+          : hasServiceStartDate
+            ? "근무중"
+            : worker.contractStatus,
     experience: hasServiceStartDate
       ? calculateDisplayExperience(worker.serviceStartDate, worker.experience || "경력없음")
       : worker.experience,
@@ -265,6 +268,8 @@ const WorkerManagement = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [workerTransitionTarget, setWorkerTransitionTarget] = useState<(Worker & { id: string }) | null>(null);
+  const [workerTransitionDate, setWorkerTransitionDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     if (!detailTarget?.id) return;
@@ -426,6 +431,12 @@ const WorkerManagement = () => {
         form.contractStatus === "퇴사"
           ? form.resignationDate || new Date().toISOString().slice(0, 10)
           : "",
+      waitingForMatch: form.contractStatus !== "퇴사" && arrays.ids.length === 0,
+      employmentHistory: existingWorker
+        ? (form.contractStatus === "퇴사"
+          ? appendEmploymentTransition(existingWorker, form.resignationDate || new Date().toISOString().slice(0, 10))
+          : ensureOpenEmploymentHistory({ ...existingWorker, contractStatus: "근무중", serviceStartDate: form.serviceStartDate || existingWorker.serviceStartDate }))
+        : [],
     };
 
     const prevUserIds = editingId
@@ -1115,7 +1126,7 @@ const WorkerManagement = () => {
                       }
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
+                      <SelectContent><SelectItem value="근무중">재직중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
@@ -1162,7 +1173,7 @@ const WorkerManagement = () => {
                   <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
                     <TabsList className="min-w-max">
                       <TabsTrigger value="all" className="text-xs">전체 {displayWorkers.length}</TabsTrigger>
-                      <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
+                      <TabsTrigger value="근무중" className="text-xs">재직중 {workingCount}</TabsTrigger>
                       <TabsTrigger value="대기" className="text-xs">대기 {waitingCount}</TabsTrigger>
                       <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
                     </TabsList>
@@ -1202,10 +1213,9 @@ const WorkerManagement = () => {
                           {w.hasF5 && <Badge variant="outline">F5</Badge>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
-                          {effectiveWorkerStatus(w)}
-                        </Badge>
+                      <div className="flex items-center gap-2">                        <div className="flex flex-wrap gap-1">
+                          {getWorkerStatusBadges(w).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
+                        </div>
 
                         <button
                           type="button"
@@ -1461,13 +1471,63 @@ const WorkerManagement = () => {
 
 
 
+      <AlertDialog open={!!workerTransitionTarget} onOpenChange={(open) => !open && setWorkerTransitionTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>퇴사/대기 전환</AlertDialogTitle>
+            <AlertDialogDescription>
+              담당 이용자가 있으면 먼저 인계인수서 또는 종결승인서를 저장해야 배정과 서비스 이력이 안전하게 종료됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3">
+            <div><Label>전환 기준일</Label><Input type="date" value={workerTransitionDate} onChange={(event) => setWorkerTransitionDate(event.target.value)} /></div>
+            {(workerTransitionTarget?.assignedUserIds || []).length > 0 ? (
+              <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50 p-3">
+                <p className="text-sm font-medium text-orange-800">담당 이용자 문서를 먼저 작성해 주세요.</p>
+                {(workerTransitionTarget?.assignedUserIds || []).map((userId) => {
+                  const user = users.find((item) => item.id === userId);
+                  if (!user) return null;
+                  return <div key={userId} className="flex flex-wrap items-center justify-between gap-2 rounded bg-white p-2">
+                    <span className="text-sm">{user.name}</span>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setWorkerTransitionTarget(null); setDetailTarget(null); navigate("/handovers?userId=" + encodeURIComponent(userId) + "&prevWorkerId=" + encodeURIComponent(workerTransitionTarget?.id || "")); }}>인계인수서 작성</Button>
+                      <Button size="sm" variant="outline" onClick={() => { setWorkerTransitionTarget(null); setDetailTarget(null); navigate("/terminations?userId=" + encodeURIComponent(userId) + "&action=termination&endDate=" + encodeURIComponent(workerTransitionDate)); }}>종결승인서 작성</Button>
+                    </div>
+                  </div>;
+                })}
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <Button variant="outline" className="border-orange-300 text-orange-700" onClick={async () => {
+                  if (!workerTransitionTarget) return;
+                  await update(workerTransitionTarget.id, { contractStatus: "대기", waitingForMatch: true, serviceEndDate: workerTransitionDate, retirementDate: "", resignationDate: "", employmentHistory: ensureOpenEmploymentHistory({ ...workerTransitionTarget, contractStatus: "근무중" }) });
+                  setWorkerTransitionTarget(null);
+                  toast({ title: "재직중 + 대기 상태로 전환했습니다." });
+                }}>매칭 필요 대기상태 전환</Button>
+                <Button variant="destructive" onClick={async () => {
+                  if (!workerTransitionTarget) return;
+                  await update(workerTransitionTarget.id, { contractStatus: "퇴사", waitingForMatch: false, serviceEndDate: workerTransitionDate, retirementDate: workerTransitionDate, resignationDate: workerTransitionDate, employmentHistory: appendEmploymentTransition(workerTransitionTarget, workerTransitionDate) });
+                  setWorkerTransitionTarget(null);
+                  toast({ title: "퇴사 처리를 완료했습니다." });
+                }}>퇴사 처리</Button>
+              </div>
+            )}
+          </div>
+          <AlertDialogFooter><AlertDialogCancel>닫기</AlertDialogCancel></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
         <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "활동지원사 상세"}</DialogTitle>
-          </DialogHeader>
-          {detailTarget && (
+          </DialogHeader>          {detailTarget && (
             <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3">
+                <div className="flex flex-wrap gap-1">
+                  {getWorkerStatusBadges(detailTarget).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
+                </div>
+                <Button variant="outline" onClick={() => { setWorkerTransitionDate(new Date().toISOString().slice(0, 10)); setWorkerTransitionTarget(detailTarget); }}>퇴사/대기 전환</Button>
+              </div>
               <div className="bg-muted/30 rounded-lg p-4 space-y-3">
                 <span className="text-sm font-bold text-primary block border-b pb-1 mb-2">업무별 가능/거부 현황</span>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -1494,7 +1554,7 @@ const WorkerManagement = () => {
                   <p className="font-medium">{detailTarget.receiptDate || "미등록"}</p>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">근무상태</p>
+                  <p className="text-sm text-muted-foreground">재직/서비스 상태</p>
                   <p className="font-medium">{detailTarget.contractStatus}</p>
                 </div>
                 <div className="space-y-2">
@@ -1533,8 +1593,17 @@ const WorkerManagement = () => {
                     <p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.notes || "미등록"}</p>
                   </div>
                 </CardContent>
+              </Card>              <Card>
+                <CardHeader><CardTitle className="text-sm font-semibold">입퇴사 이력 (History)</CardTitle></CardHeader>
+                <CardContent className="space-y-2">
+                  {formatPeriodHistory(
+                    ensureOpenEmploymentHistory(detailTarget).length > 0
+                      ? ensureOpenEmploymentHistory(detailTarget)
+                      : [{ startDate: detailTarget.serviceStartDate || detailTarget.receiptDate, endDate: detailTarget.retirementDate || detailTarget.resignationDate || null, status: effectiveWorkerStatus(detailTarget), reason: effectiveWorkerStatus(detailTarget) === "퇴사" ? "퇴사" : "" }],
+                    "재직중",
+                  ).map((line) => <p key={line} className="rounded-md border-l-4 border-blue-500 bg-muted/30 px-3 py-2 text-sm">{line}</p>)}
+                </CardContent>
               </Card>
-
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>

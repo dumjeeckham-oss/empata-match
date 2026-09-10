@@ -52,6 +52,7 @@ import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { formatServiceProviderHistory } from "@/lib/serviceHistory";
+import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, isServiceHistoryRecord, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
@@ -79,19 +80,15 @@ function labelWithLast4(name: string, phone?: string): string {
 
 /** 화면 표시용 계약상태: 계약해지일 또는 중단사유가 있으면 항상 "계약해지" 목록으로 이동 */
 function effectiveUserStatus(user: ServiceUser): string {
-  const raw = String(user.contractStatus || "");
-  if (raw === "타기관 계약" || raw === "보류") return raw;
+  const raw = String(user.contractStatus || "").trim();
+  if (raw === "계약해지" || raw === "타기관 계약" || raw === "보류" || raw === "대기" || raw === "작성중") return raw;
   const hasResign = String(user.resignationDate ?? "").trim() !== "";
   const hasReason = String(user.terminationReason ?? user.txtUMemostop ?? "").trim() !== "";
-  if (raw === "계약해지" || hasResign || hasReason) return "계약해지";
+  if (hasResign || hasReason) return "계약해지";
   const helperCount = (user.assignedHelperIds ?? user.assigned_workers ?? []).filter(Boolean).length;
   if (raw === "서비스중" && helperCount === 0) return "작성중";
-  // 최초서비스제공일이 입력되면 서비스중, 공란이면 대기로 표시
-  const hasServiceStart = String(user.serviceStartDate ?? "").trim() !== "";
-  if (hasServiceStart) return "서비스중";
-  if (!raw) return "대기";
-  if (raw === "서비스중") return "대기";
-  return raw;
+  if (raw === "서비스중" && helperCount > 0) return "서비스중";
+  return String(user.serviceStartDate ?? "").trim() && helperCount > 0 ? "서비스중" : "대기";
 }
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
@@ -259,6 +256,7 @@ const UserManagement = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [terminationFlowTarget, setTerminationFlowTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
   const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; attemptDate: string; attemptResult: string; failureReason: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
@@ -567,7 +565,17 @@ const UserManagement = () => {
         payload.contractStatus = payload.serviceStartDate?.trim() && arrays.ids.length > 0 ? "서비스중" : payload.contractStatus === "작성중" ? "작성중" : "대기";
       }
     }
-
+    const existingUser = editingId ? users.find((user) => user.id === editingId) : undefined;
+    if (existingUser && payload.contractStatus === "계약해지" && effectiveUserStatus(existingUser) !== "계약해지") {
+      setDialogOpen(false);
+      setTerminationFlowTarget(existingUser);
+      toast({
+        title: "종결승인서 작성이 필요합니다",
+        description: "종결승인서를 최종 저장해야 계약해지와 담당 지원사 서비스 종료가 함께 반영됩니다.",
+      });
+      return;
+    }
+    payload.contractHistory = ensureOpenContractHistory(payload as ServiceUser);
 
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
@@ -2028,8 +2036,7 @@ const UserManagement = () => {
                         <span className="font-bold text-lg">{user.name}</span>
                         <span className="text-sm text-muted-foreground ml-2">{user.gender} · {user.age}세</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={effectiveUserStatus(user) === "서비스중" ? "default" : effectiveUserStatus(user) === "대기" ? "secondary" : "destructive"}>
+                      <div className="flex items-center gap-2">                        <Badge className={getUserStatusBadgeClass(effectiveUserStatus(user))}>
                           {effectiveUserStatus(user)}
                         </Badge>
 
@@ -2065,8 +2072,7 @@ const UserManagement = () => {
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {[user.disabilityType, user.secondaryDisabilityType].filter(Boolean).join(" / ")}</p>
                       <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({formatVoucherTier(user)})</p>
-                      <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
-                      <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? `총 ${getFormattedDuration(user.serviceStartDate)}째 서비스 중` : "미등록"}</p>
+                      <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>                      <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? (effectiveUserStatus(user) === "서비스중" ? "총 " + getFormattedDuration(user.serviceStartDate) + "째 서비스 중" : user.serviceStartDate + " ~ " + (user.resignationDate || "종료일 미등록") + " (" + effectiveUserStatus(user) + ")") : "미등록"}</p>
                       <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelperPreview(user as ServiceUser & { id: string }) || "없음"}</p>
                       <p><span className="text-muted-foreground">담당지원사 이력:</span> {getHelperHistoryLabel(user)}</p>
                       {(user.assignedHelperIds?.length || 0) > 1 && (
@@ -2476,13 +2482,46 @@ const UserManagement = () => {
 
 
 
+      <AlertDialog open={!!terminationFlowTarget} onOpenChange={(open) => !open && setTerminationFlowTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>이용자 종결 절차 선택</AlertDialogTitle>
+            <AlertDialogDescription>종결승인서를 저장하기 전에는 이용자 상태와 담당 지원사 배정이 변경되지 않습니다.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid gap-3 py-2">
+            <Button variant="destructive" onClick={() => {
+              if (!terminationFlowTarget) return;
+              const target = terminationFlowTarget;
+              setTerminationFlowTarget(null);
+              setDetailTarget(null);
+              navigate("/terminations?userId=" + encodeURIComponent(target.id) + "&action=termination");
+            }}>계약해지 종결승인서 작성</Button>
+            <Button variant="outline" className="border-orange-300 text-orange-700" onClick={() => {
+              if (!terminationFlowTarget) return;
+              const target = terminationFlowTarget;
+              setTerminationFlowTarget(null);
+              setDetailTarget(null);
+              navigate("/terminations?userId=" + encodeURIComponent(target.id) + "&action=waiting");
+            }}>매칭을 위한 대기 종결승인서 작성</Button>
+          </div>
+          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
         <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "이용자 상세"}</DialogTitle>
-          </DialogHeader>
-          {detailTarget && (
+          </DialogHeader>          {detailTarget && (
             <div className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-center gap-2">
+                  <Badge className={getUserStatusBadgeClass(effectiveUserStatus(detailTarget))}>{effectiveUserStatus(detailTarget)}</Badge>
+                  {detailTarget.resignationDate && <span className="text-sm text-muted-foreground">해지일 {detailTarget.resignationDate}</span>}
+                </div>
+                <Button variant={effectiveUserStatus(detailTarget) === "계약해지" ? "outline" : "destructive"} onClick={() => effectiveUserStatus(detailTarget) === "계약해지" ? navigate("/terminations?userId=" + encodeURIComponent(detailTarget.id)) : setTerminationFlowTarget(detailTarget)}>
+                  {effectiveUserStatus(detailTarget) === "계약해지" ? "종결승인서 작성/보기" : "종결"}
+                </Button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">이름</p>
@@ -2543,8 +2582,19 @@ const UserManagement = () => {
                     <WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly />
                   </div>
                 </CardContent>
+              </Card>              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-semibold">계약 이력 (History)</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {formatPeriodHistory(
+                    ensureOpenContractHistory(detailTarget).length > 0
+                      ? ensureOpenContractHistory(detailTarget)
+                      : [{ startDate: detailTarget.serviceStartDate || detailTarget.receiptDate, endDate: detailTarget.resignationDate || null, status: effectiveUserStatus(detailTarget), reason: detailTarget.terminationReason || detailTarget.txtUMemostop }],
+                    "서비스중",
+                  ).map((line) => <p key={line} className="rounded-md border-l-4 border-primary bg-muted/30 px-3 py-2 text-sm">{line}</p>)}
+                </CardContent>
               </Card>
-
 
               <Card>
                 <CardHeader>
