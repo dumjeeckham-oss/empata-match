@@ -38,8 +38,15 @@ describe("waiting user Word ledger data", () => {
     expect(rows[0].desiredServiceTime).toContain("월 09:00~12:00");
     expect(rows[0].supportTypes).toContain("■ 목욕");
     expect(rows[0].disabilityVoucher).toContain("특례 지원 구간");
-    expect(rows[0].consultationContent).toContain("[이동 시 유의점] 휠체어 이동");
-    expect(rows[1]).toMatchObject({ stage: "1차 상담", consultationDate: "2026-09-01", consultationContent: "유선 연락 후 검토 중" });
-    expect(rows[2]).toMatchObject({ stage: "2차 상담", consultationDate: "2026-09-05", consultationContent: "시간대 불일치" });
+    expect(rows[0].consultationContent).toContain("[주소]");
+    expect(rows[1]).toMatchObject({ stage: "2차 상담", consultationDate: "2026-09-01" });
+    expect(rows[1].consultationContent).toContain("2차: 활동지원사 지원사1 매칭 시도");
+    expect(rows[2]).toMatchObject({ stage: "3차 상담", consultationDate: "2026-09-05" });
+    expect(rows[2].consultationContent).toContain("3차: 활동지원사 지원사2 매칭 실패");
+  });
+
+  it("filters users by receipt or attempt date in the selected range", () => {
+    expect(buildWaitingUserLedgerRows([user], attempts, { startDate: "2026-09-01", endDate: "2026-09-03" })[1].consultationDate).toBe("2026-09-01");
+    expect(buildWaitingUserLedgerRows([user], attempts, { startDate: "2027-01-01", endDate: "2027-01-31" })).toEqual([]);
   });
 });

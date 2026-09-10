@@ -45,13 +45,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
-import { buildWaitingUserLedgerBlob } from "@/lib/waitingUserLedger";
 import { Trash2, PhoneCall, Edit3, Search } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
+import { formatServiceProviderHistory } from "@/lib/serviceHistory";
+import { hasFailureWithoutSuccess, recordMatchingFailure, isServiceHistoryRecord, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
   Command,
@@ -95,7 +96,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
 
-  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", voucherTier: 1, voucherTierLabel: "", voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
+  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", secondaryDisabilityType: "", birthDate: "", disabilityDegree: "", voucherTier: 1, voucherTierLabel: "", voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
@@ -260,7 +261,7 @@ const UserManagement = () => {
   const [detailTarget, setDetailTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; attemptDate: string; attemptResult: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; attemptDate: string; attemptResult: string; failureReason: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [isMatchWorkerSearchOpen, setIsMatchWorkerSearchOpen] = useState(false);
@@ -508,6 +509,10 @@ const UserManagement = () => {
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {
+      const fieldId = !form.name ? "user-name" : "user-phone";
+      const field = document.getElementById(fieldId);
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      (field as HTMLElement | null)?.focus();
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
@@ -658,7 +663,7 @@ const UserManagement = () => {
               workerId: w.id,
               workerName: w.name,
               workerPhone: w.phone,
-              date: new Date().toISOString().slice(0, 10),
+              date: payload.serviceStartDate || new Date().toISOString().slice(0, 10),
               notes: "활동지원사 배정",
             } as any);
           }
@@ -1084,6 +1089,7 @@ const UserManagement = () => {
     const today = new Date().toISOString().slice(0, 10);
 
     for (const entry of user.matchingHistory || []) {
+      if (hasFailureWithoutSuccess(matchingLogs, user.id, entry.workerId, entry.serviceStartDate)) continue;
       if (!entry.workerId) continue;
       const worker = workers.find((w) => w.id === entry.workerId);
       byWorker.set(entry.workerId, {
@@ -1101,7 +1107,7 @@ const UserManagement = () => {
 
     const logsByWorker = new Map<string, MatchingHistoryRecord & { id?: string }>();
     for (const log of matchingLogs
-      .filter((record) => record.userId === user.id && !!record.workerId && record.type !== "시도")
+      .filter((record) => record.userId === user.id && !!record.workerId && isServiceHistoryRecord(record))
       .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)))) {
       if (log.workerId && !logsByWorker.has(log.workerId)) logsByWorker.set(log.workerId, log);
     }
@@ -1110,6 +1116,8 @@ const UserManagement = () => {
       const worker = workers.find((w) => w.id === workerId);
       const existing = byWorker.get(workerId);
       const matchingLog = logsByWorker.get(workerId);
+      const inferredStartDate = existing?.serviceStartDate || matchingLog?.date || user.serviceStartDate || today;
+      if (hasFailureWithoutSuccess(matchingLogs, user.id, workerId, inferredStartDate)) continue;
       const existingEnded = existing && existing.serviceEndDate !== null && existing.serviceEndDate !== "";
       byWorker.set(workerId, {
         id: existing?.id || `${workerId}-${user.serviceStartDate || today}`,
@@ -1124,7 +1132,7 @@ const UserManagement = () => {
       });
     }
 
-    for (const log of matchingLogs.filter((record) => record.userId === user.id)) {
+    for (const log of matchingLogs.filter((record) => record.userId === user.id && isServiceHistoryRecord(record))) {
       if (!log.workerId || byWorker.has(log.workerId)) continue;
       byWorker.set(log.workerId, {
         id: log.id || `${log.workerId}-${log.date || today}`,
@@ -1216,31 +1224,8 @@ const UserManagement = () => {
     if (chronologicalNames.length === 1) return chronologicalNames[0];
     return formatHelperList(user);
   };
-  const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string => {
-    const seenIds = new Set<string>();
-    const seenNames = new Set<string>();
-    const names: string[] = [];
-    const addNameOnce = (workerId: string | undefined, workerName: string | undefined) => {
-      const idKey = String(workerId || "").trim();
-      const nameKey = String(workerName || "").trim();
-      if (!idKey && !nameKey) return;
-      if ((idKey && seenIds.has(idKey)) || (nameKey && seenNames.has(nameKey))) return;
-      if (idKey) seenIds.add(idKey);
-      if (nameKey) seenNames.add(nameKey);
-      names.push(nameKey || idKey);
-    };
-    const chronological = matchingLogs
-      .filter((record) => record.userId === user.id && record.type !== "시도" && !!record.workerName)
-      .sort((a, b) => getComparableDateValue((a as any).startDate || a.date).localeCompare(getComparableDateValue((b as any).startDate || b.date)));
-
-    for (const record of chronological) {
-      addNameOnce(record.workerId, record.workerName);
-    }
-    (user.assignedHelperNames || []).forEach((name, index) => {
-      addNameOnce(user.assignedHelperIds?.[index], name);
-    });
-    return names.filter(Boolean).join(" → ") || "없음";
-  };
+  const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string =>
+    formatServiceProviderHistory(getUniqueEntriesByWorker(getDocumentMatchingEntries(user)));
   const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
     const next = Object.fromEntries(
       getDocumentMatchingEntries(user).map((entry) => [
@@ -1484,29 +1469,6 @@ const UserManagement = () => {
     XLSX.writeFile(wb, `이용자목록_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const downloadWaitingMatchingLedger = async () => {
-    const waitingUsers = users.filter((user) => effectiveUserStatus(user) === "대기");
-    if (waitingUsers.length === 0) {
-      toast({ title: "저장할 대기 이용자가 없습니다." });
-      return;
-    }
-    try {
-      const blob = await buildWaitingUserLedgerBlob(waitingUsers, matchingLogs);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `이용자_매칭_상담대장_${new Date().toISOString().slice(0, 10)}.docx`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-      toast({ title: `대기 이용자 ${waitingUsers.length}명의 Word 상담대장을 저장했습니다.` });
-    } catch (error) {
-      console.error(error);
-      toast({ title: "Word 상담대장 생성 실패", description: "잠시 후 다시 시도해 주세요.", variant: "destructive" });
-    }
-  };
-
   const downloadTemplate = () => {
     const template = [{
       이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1, 바우처구간명: "",
@@ -1650,7 +1612,7 @@ const UserManagement = () => {
             getPreviewValue={getUserPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <Button variant="outline" size="sm" onClick={downloadWaitingMatchingLedger}>📋 대기 매칭대장</Button>
+          <Button variant="outline" size="sm" onClick={() => navigate("/waiting-ledger")}>📋 대기 매칭대장 미리보기</Button>
           <PartialUpdateDialog<ServiceUser & { id: string }> title="이용자 일괄 정보 업데이트" existing={users} fields={USER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtUSex: updates.gender } : {}), ...(updates.terminationReason ? { txtUMemostop: updates.terminationReason } : {}) })} />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -1664,7 +1626,7 @@ const UserManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>이름 *</Label>
-                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                    <Input id="user-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
                     {nameChecking ? (
                       <p className="text-xs text-muted-foreground mt-1">동명이인 확인 중...</p>
                     ) : nameDuplicates.length > 0 ? (
@@ -1673,7 +1635,7 @@ const UserManagement = () => {
                       </p>
                     ) : null}
                   </div>
-                  <div className="space-y-2"><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /><div className="flex items-center gap-2"><Checkbox id="user-phone-self" checked={form.isOwnPhone !== false} onCheckedChange={(checked) => setForm((f) => ({ ...f, isOwnPhone: !!checked, phoneOwnerRelation: checked ? "" : f.phoneOwnerRelation, phoneOwnerName: checked ? "" : f.phoneOwnerName }))} /><Label htmlFor="user-phone-self" className="text-sm font-normal">본인</Label></div></div>
+                  <div className="space-y-2"><Label>연락처 *</Label><Input id="user-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /><div className="flex items-center gap-2"><Checkbox id="user-phone-self" checked={form.isOwnPhone !== false} onCheckedChange={(checked) => setForm((f) => ({ ...f, isOwnPhone: !!checked, phoneOwnerRelation: checked ? "" : f.phoneOwnerRelation, phoneOwnerName: checked ? "" : f.phoneOwnerName }))} /><Label htmlFor="user-phone-self" className="text-sm font-normal">본인</Label></div></div>
                   {form.isOwnPhone === false && (<><div><Label>연락처 관계</Label><Input value={form.phoneOwnerRelation || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerRelation: e.target.value }))} placeholder="보호자, 자녀, 배우자 등" /></div><div><Label>연락처 소유자</Label><Input value={form.phoneOwnerName || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerName: e.target.value }))} placeholder="예: 홍길동" /></div></>)}
                   <div>
                     <Label>나이 (생년 또는 생년월일 입력 시 자동변환)</Label>
@@ -1744,7 +1706,14 @@ const UserManagement = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div><Label>바우처 등급</Label>
+                  <div><Label>추가 장애유형</Label>
+                    <Select value={form.secondaryDisabilityType || "none"} onValueChange={(v) => setForm((f) => ({ ...f, secondaryDisabilityType: v === "none" ? "" : v }))}>
+                      <SelectTrigger><SelectValue placeholder="선택..." /></SelectTrigger>
+                      <SelectContent><SelectItem value="none">없음</SelectItem>{DISABILITY_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))} /></div>
+                  <div><Label>장애정도</Label><Input value={form.disabilityDegree || ""} onChange={(e) => setForm((f) => ({ ...f, disabilityDegree: e.target.value }))} placeholder="예: 중증" /></div>                  <div><Label>바우처 등급</Label>
                     <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v), voucherTierLabel: Number(v) === 0 ? f.voucherTierLabel || "" : "", voucherHours: VOUCHER_HOURS[Number(v)] || f.voucherHours || 0 }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -1971,7 +1940,7 @@ const UserManagement = () => {
               </div>
               <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
-                <Button onClick={handleSave}>저장</Button>
+                <Button onClick={() => void handleSave().catch((saveError) => { console.error(saveError); const field = document.getElementById(!form.name ? "user-name" : "user-phone"); field?.scrollIntoView({ behavior: "smooth", block: "center" }); (field as HTMLElement | null)?.focus(); toast({ title: "이용자 저장 실패", description: "입력값과 네트워크 상태를 확인해 주세요.", variant: "destructive" }); })}>저장</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -2094,7 +2063,7 @@ const UserManagement = () => {
                           {formatUserContact(user)}
                         </a>
                       </p>
-                      <p><span className="text-muted-foreground">장애유형:</span> {user.disabilityType}</p>
+                      <p><span className="text-muted-foreground">장애유형:</span> {[user.disabilityType, user.secondaryDisabilityType].filter(Boolean).join(" / ")}</p>
                       <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({formatVoucherTier(user)})</p>
                       <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>
                       <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? `총 ${getFormattedDuration(user.serviceStartDate)}째 서비스 중` : "미등록"}</p>
@@ -2553,7 +2522,7 @@ const UserManagement = () => {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                     <div><p className="text-sm text-muted-foreground">성별 / 나이</p><p className="font-medium">{joinNonEmpty([detailTarget.gender, detailTarget.age ? `${detailTarget.age}세` : ""])}</p></div>
                     <div><p className="text-sm text-muted-foreground">연락처</p><p className="font-medium">{formatUserContact(detailTarget)}</p></div>
-                    <div><p className="text-sm text-muted-foreground">장애유형</p><p className="font-medium">{detailTarget.disabilityType || "미등록"}</p></div>
+                    <div><p className="text-sm text-muted-foreground">장애유형</p><p className="font-medium">{[detailTarget.disabilityType, detailTarget.secondaryDisabilityType].filter(Boolean).join(" / ") || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">지원 종류</p><p className="font-medium">{joinNonEmpty(detailTarget.supportTypes || [])}</p></div>
                     <div><p className="text-sm text-muted-foreground">바우처 구간</p><p className="font-medium">{formatVoucherTier(detailTarget)}</p></div>
                     <div><p className="text-sm text-muted-foreground">서비스 시작일 / 해지일</p><p className="font-medium">{joinNonEmpty([detailTarget.serviceStartDate, detailTarget.resignationDate])}</p></div>
@@ -2617,7 +2586,7 @@ const UserManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", reason: "추가", reasonDetail: "", notes: ""});
+                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", failureReason: "기타", reason: "추가", reasonDetail: "", notes: ""});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -2642,7 +2611,7 @@ const UserManagement = () => {
                               </div>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
@@ -2659,6 +2628,7 @@ const UserManagement = () => {
 
               <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
                 <Button variant="destructive" onClick={() => { if (detailTarget) { setDeleteTarget(detailTarget); setDetailTarget(null); } }}>삭제</Button>
+                <Button variant="outline" onClick={() => detailTarget && navigate("/salary-changes?userId=" + detailTarget.id)}>급여변경</Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
               </div>
@@ -2729,6 +2699,16 @@ const UserManagement = () => {
                         <label className="text-sm font-medium">매칭시도일</label>
                         <Input type="date" value={matchHistoryForm.attemptDate} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptDate: e.target.value})} />
                       </div>
+                      {matchHistoryForm.type === "실패" && (
+                        <div>
+                          <label className="text-sm font-medium">매칭 실패 원인</label>
+                          <Select value={matchHistoryForm.failureReason} onValueChange={(failureReason) => setMatchHistoryForm({ ...matchHistoryForm, failureReason })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>{MATCHING_FAILURE_REASONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <p className="mt-1 text-xs text-muted-foreground">저장하면 해당 조합의 거부점수에 {MATCHING_FAILURE_SCORE_DELTA}점이 누적되어 다음 추천점수에서 차감됩니다.</p>
+                        </div>
+                      )}
                       <div>
                         <label className="text-sm font-medium">매칭시도의 결과</label>
                         <Textarea placeholder="연락 결과, 거절 사유, 다음 조치 등을 입력" value={matchHistoryForm.attemptResult} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptResult: e.target.value})} />
@@ -2788,6 +2768,9 @@ const UserManagement = () => {
                       endDate: isAttempt ? undefined : matchHistoryForm.endDate || undefined,
                       attemptDate: isAttempt ? matchHistoryForm.attemptDate : undefined,
                       attemptResult: isAttempt ? matchHistoryForm.attemptResult : undefined,
+                      status: matchHistoryForm.type === "실패" ? "매칭 실패" : matchHistoryForm.type === "시도" ? "매칭 시도중" : isEnded ? undefined : "매칭 완료",
+                      failureReason: matchHistoryForm.type === "실패" ? matchHistoryForm.failureReason : undefined,
+                      rejectionScoreDelta: matchHistoryForm.type === "실패" ? MATCHING_FAILURE_SCORE_DELTA : undefined,
                       reason: matchHistoryForm.reason || (isEnded ? "종료" : "추가"),
                       reasonDetail: matchHistoryForm.reasonDetail || undefined,
                       notes: matchHistoryForm.notes || matchHistoryForm.reasonDetail || undefined,
@@ -2795,6 +2778,9 @@ const UserManagement = () => {
                     if (editingMatchHistoryId) {
                       await updateMatchingHistory(editingMatchHistoryId, payload);
                       toast({ title: "매칭 이력 수정 완료" });
+                    } else if (matchHistoryForm.type === "실패") {
+                      await recordMatchingFailure(payload as MatchingHistoryRecord, detailTarget, w as Worker & { id: string });
+                      toast({ title: "매칭 실패 반영 완료", description: "공용 이력과 양쪽 거부점수가 한 번에 저장되어 향후 추천 적합도에서 차감됩니다." });
                     } else {
                       await addMatchingHistory(payload);
                       toast({ title: "매칭 이력 추가 완료" });

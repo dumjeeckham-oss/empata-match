@@ -14,7 +14,7 @@ export const ENVIRONMENT_TAGS = ["기저귀", "반려동물", "흡연", "와상"
 
 export const WORKER_REJECTION_TYPES = [
   "성인거부", "남성거부", "여성거부", "흡연자거부", "반려동물거부",
-  "와상거부", "기저귀거부", "요리거부", "목욕거부",
+  "와상거부", "기저귀거부", "요리거부", "목욕거부", "주말거부",
 ] as const;
 
 export const EXPERIENCE_OPTIONS = [
@@ -62,6 +62,10 @@ export interface ServiceUser {
   /** 본인 번호가 아닐 때 연락처 소유자 이름 */
   phoneOwnerName?: string;
   disabilityType: string;
+  /** 부장애 또는 추가 장애유형 */
+  secondaryDisabilityType?: string;
+  birthDate?: string;
+  disabilityDegree?: string;
   /** 바우처 등급 구간 (0 = 기타/직접입력) */
   voucherTier: number;
   /** 직접 입력한 바우처 구간명 */
@@ -122,6 +126,10 @@ export interface ServiceUser {
   matchingHistory?: DocumentMatchingHistoryEntry[];
   /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
   rejectionScores?: Record<string, number>;
+  /** 실패 사유별 누적 비적합 피드백 */
+  matchingPreferences?: Record<string, number>;
+  /** 날짜별 바우처 변경 이력 */
+  voucherChangeHistory?: VoucherChangeHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -183,6 +191,8 @@ export interface Worker {
   matchingHistory?: DocumentMatchingHistoryEntry[];
   /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
   rejectionScores?: Record<string, number>;
+  /** 실패 사유별 누적 비적합 피드백 */
+  matchingPreferences?: Record<string, number>;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -287,6 +297,49 @@ export interface MatchingHistoryRecord {
   updatedAt?: unknown;
 }
 
+export interface VoucherChangeHistoryEntry {
+  id: string;
+  documentId?: string;
+  changeDate: string;
+  previousTier: number;
+  previousTierLabel?: string;
+  previousHours: number;
+  nextTier: number;
+  nextTierLabel?: string;
+  nextHours: number;
+  previousSupportTypes: string[];
+  nextSupportTypes: string[];
+}
+
+export interface SalaryChangeDocument {
+  id?: string;
+  userId: string;
+  userName: string;
+  userPhone: string;
+  birthDate?: string;
+  gender: string;
+  disabilityType: string;
+  secondaryDisabilityType?: string;
+  disabilityDegree?: string;
+  address: string;
+  previousTier: number;
+  previousTierLabel?: string;
+  previousHours: number;
+  nextTier: number;
+  nextTierLabel?: string;
+  nextHours: number;
+  counselingNotes: string;
+  changeReason: string;
+  previousSupportTypes: string[];
+  nextSupportTypes: string[];
+  nextSupportDetail?: string;
+  confirmationItems: string[];
+  effectiveDate: string;
+  staffName: string;
+  writtenDate: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
 export interface WorkTodo {
   id?: string;
   title: string;

@@ -16,15 +16,16 @@ import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } fro
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
+import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 
-const FAILURE_REASONS = ["거주지 거리 멀음", "시간대 불일치", "이용자 거부", "지원사 거부", "케어 난이도", "기타"] as const;
-const FAILURE_SCORE_DELTA = 25;
+const FAILURE_REASONS = MATCHING_FAILURE_REASONS;
+const FAILURE_SCORE_DELTA = MATCHING_FAILURE_SCORE_DELTA;
 
 const getHistoryStatus = (record: MatchingHistoryRecord) => {
-  if (record.status) return record.status;
-  if (record.type === "매칭") return "매칭 완료";
   if (record.type === "실패") return "매칭 실패";
   if (record.type === "시도") return "매칭 시도중";
+  if (record.type === "매칭") return "매칭 완료";
+  if (record.status) return record.status;
   return "해제";
 };
 
@@ -40,7 +41,7 @@ const Matching = () => {
   const { data: usersRaw, update: updateUser, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
-  const { data: matchingHistoryRaw, add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
@@ -97,18 +98,8 @@ const Matching = () => {
   const saveMatchingFailure = async () => {
     if (!failureDialog) return;
     const { user, worker } = failureDialog;
-    const previousUserScores = user.rejectionScores || {};
-    const previousWorkerScores = worker.rejectionScores || {};
-    const nextUserScores = {
-      ...previousUserScores,
-      [worker.id]: Number(previousUserScores[worker.id] || 0) + FAILURE_SCORE_DELTA,
-    };
-    const nextWorkerScores = {
-      ...previousWorkerScores,
-      [user.id]: Number(previousWorkerScores[user.id] || 0) + FAILURE_SCORE_DELTA,
-    };
     const detail = failureDetail.trim();
-    await addMatchingHistory({
+    await recordMatchingFailure({
       type: "실패",
       status: "매칭 실패",
       userId: user.id,
@@ -122,9 +113,7 @@ const Matching = () => {
       reasonDetail: detail || undefined,
       rejectionScoreDelta: FAILURE_SCORE_DELTA,
       notes: [failureReason, detail].filter(Boolean).join(" - "),
-    });
-    await updateUser(user.id, { rejectionScores: nextUserScores });
-    await updateWorker(worker.id, { rejectionScores: nextWorkerScores });
+    }, user, worker);
     setFailureDialog(null);
     toast({ title: "매칭 실패 이력 저장", description: "이 조합의 거부점수가 추천 결과에 반영됩니다." });
   };
@@ -200,13 +189,11 @@ const Matching = () => {
   const manualSelected = allScored.find((r) => r.worker.id === manualWorkerId);
 
   const matchingSummary = useMemo(() => {
-    const successful = matchingHistory.filter((record) => record.type === "매칭" || record.status === "매칭 완료");
-    const attempts = matchingHistory.filter((record) => record.type === "시도" || record.status === "매칭 시도중");
+    const successful = matchingHistory.filter((record) => record.type === "매칭" && record.status !== "매칭 실패");
     const failures = matchingHistory.filter((record) => record.type === "실패" || record.status === "매칭 실패");
     const recentSuccessful = successful.filter((record) => isWithinRecentMonths(record.date));
-    const recentAttempts = attempts.filter((record) => isWithinRecentMonths(record.date));
     const recentFailures = failures.filter((record) => isWithinRecentMonths(record.date));
-    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentAttempts.length + recentFailures.length);
+    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentFailures.length);
     const durations = successful
       .map((record) => {
         const user = users.find((u) => u.id === record.userId);

@@ -7,6 +7,7 @@ import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
+import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import {
   rowsToEntities,
   rowToWorker,
@@ -272,7 +273,7 @@ const WorkerManagement = () => {
   }, [displayWorkers, detailTarget?.id]);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; attemptDate: string; attemptResult: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; attemptDate: string; attemptResult: string; failureReason: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -393,6 +394,10 @@ const WorkerManagement = () => {
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {
+      const fieldId = !form.name ? "worker-name" : "worker-phone";
+      const field = document.getElementById(fieldId);
+      field?.scrollIntoView({ behavior: "smooth", block: "center" });
+      (field as HTMLElement | null)?.focus();
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
@@ -922,7 +927,7 @@ const WorkerManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>이름 *</Label>
-                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                    <Input id="worker-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
                     {nameChecking ? (
                       <p className="text-xs text-muted-foreground mt-1">동명이인 확인 중...</p>
                     ) : nameDuplicates.length > 0 ? (
@@ -931,7 +936,7 @@ const WorkerManagement = () => {
                       </p>
                     ) : null}
                   </div>
-                  <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
+                  <div><Label>연락처 *</Label><Input id="worker-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
                   <div>
                     <Label>성별</Label>
                     <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
@@ -1135,7 +1140,7 @@ const WorkerManagement = () => {
               </div>
               <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
-                <Button onClick={handleSave}>저장</Button>
+                <Button onClick={() => void handleSave().catch((saveError) => { console.error(saveError); const field = document.getElementById(!form.name ? "worker-name" : "worker-phone"); field?.scrollIntoView({ behavior: "smooth", block: "center" }); (field as HTMLElement | null)?.focus(); toast({ title: "활동지원사 저장 실패", description: "입력값과 네트워크 상태를 확인해 주세요.", variant: "destructive" }); })}>저장</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -1562,7 +1567,7 @@ const WorkerManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", notes: ""});
+                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", failureReason: "기타", notes: ""});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -1579,7 +1584,7 @@ const WorkerManagement = () => {
                               <p className="text-sm text-muted-foreground">{match.userName} · {match.userPhone}</p>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
@@ -1641,6 +1646,16 @@ const WorkerManagement = () => {
                         <label className="text-sm font-medium">매칭시도일</label>
                         <Input type="date" value={matchHistoryForm.attemptDate} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptDate: e.target.value})} />
                       </div>
+                      {matchHistoryForm.type === "실패" && (
+                        <div>
+                          <label className="text-sm font-medium">매칭 실패 원인</label>
+                          <Select value={matchHistoryForm.failureReason} onValueChange={(failureReason) => setMatchHistoryForm({ ...matchHistoryForm, failureReason })}>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>{MATCHING_FAILURE_REASONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}</SelectContent>
+                          </Select>
+                          <p className="mt-1 text-xs text-muted-foreground">저장하면 해당 조합의 거부점수에 {MATCHING_FAILURE_SCORE_DELTA}점이 누적되어 다음 추천점수에서 차감됩니다.</p>
+                        </div>
+                      )}
                       <div>
                         <label className="text-sm font-medium">매칭시도의 결과</label>
                         <Textarea placeholder="연락 결과, 거절 사유, 다음 조치 등을 입력" value={matchHistoryForm.attemptResult} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptResult: e.target.value})} />
@@ -1678,11 +1693,17 @@ const WorkerManagement = () => {
                       endDate: isAttempt ? undefined : matchHistoryForm.endDate || undefined,
                       attemptDate: isAttempt ? matchHistoryForm.attemptDate : undefined,
                       attemptResult: isAttempt ? matchHistoryForm.attemptResult : undefined,
+                      status: matchHistoryForm.type === "실패" ? "매칭 실패" : matchHistoryForm.type === "시도" ? "매칭 시도중" : isEnded ? undefined : "매칭 완료",
+                      failureReason: matchHistoryForm.type === "실패" ? matchHistoryForm.failureReason : undefined,
+                      rejectionScoreDelta: matchHistoryForm.type === "실패" ? MATCHING_FAILURE_SCORE_DELTA : undefined,
                       notes: matchHistoryForm.notes || (isAttempt ? matchHistoryForm.attemptResult : undefined),
                     };
                     if (editingMatchHistoryId) {
                       await updateMatchingHistory(editingMatchHistoryId, payload);
                       toast({ title: "매칭 이력 수정 완료" });
+                    } else if (matchHistoryForm.type === "실패") {
+                      await recordMatchingFailure(payload as MatchingHistoryRecord, selectedUser, detailTarget);
+                      toast({ title: "매칭 실패 반영 완료", description: "공용 이력과 양쪽 거부점수가 한 번에 저장되어 향후 추천 적합도에서 차감됩니다." });
                     } else {
                       await addMatchingHistory(payload as MatchingHistoryRecord);
                       toast({ title: "매칭 이력 추가 완료" });

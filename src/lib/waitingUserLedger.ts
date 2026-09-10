@@ -72,17 +72,35 @@ export function formatDesiredServiceTime(user: Pick<ServiceUser, "weeklySchedule
 }
 
 function profileConsultationContent(user: ServiceUser): string {
+  const requests = [
+    user.needsAftercare ? "배변 뒤처리" : "",
+    user.wantsWeekendSupport ? "주말 지원" : "",
+    user.needsSchoolSupport ? "학교 내 지원" : "",
+    user.femaleOnly ? "여성 활동지원사" : "",
+    user.maleOnly ? "남성 활동지원사" : "",
+  ].filter(Boolean);
   return [
-    `[이동 시 유의점] ${text(user.movementNote) || "없음"}`,
-    `[가사 지원 시 유의점] ${text(user.houseworkNote) || "없음"}`,
-    `[희망 활동지원사] ${text(user.preferredWorkerTraits) || "미등록"}`,
-    `[특이사항] ${text(user.notes) || "없음"}`,
+    "[거주자] " + (text(user.livingWith || user.familyMembers) || "미등록"),
+    "[주소] " + (text(user.address) || "미등록"),
+    "[반려동물] " + (user.hasPet ? "있음" + (text(user.petNote) ? " (" + text(user.petNote) + ")" : "") : "없음"),
+    "[차량] " + (user.needsVehicle ? "필요" : "불필요"),
+    "[기저귀] " + (user.usesDiaper ? "사용" : "미사용"),
+    "[지원종류] " + ((user.supportTypes || []).join(", ") || "미등록"),
+    "[추가요청] " + (requests.join(", ") || "없음"),
+    "[비고] " + (text(user.notes) || "없음"),
   ].join("\n");
 }
 
-function attemptResult(record?: MatchingHistoryRecord): string {
+function attemptContent(record: MatchingHistoryRecord | undefined, sequence: number): string {
   if (!record) return "";
-  return text(record.attemptResult) || text(record.notes) || text(record.failureReason) || text(record.reasonDetail);
+  const status = record.type === "실패" ? "매칭 실패" : "매칭 시도";
+  const reason = Array.from(new Set([record.failureReason, record.attemptResult, record.reasonDetail, record.notes].map(text).filter(Boolean))).join(" - ");
+  return sequence + "차: 활동지원사 " + (text(record.workerName) || "미등록") + " " + status + (reason ? " (" + reason + ")" : "");
+}
+
+export interface WaitingLedgerRange {
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface WaitingLedgerRow {
@@ -94,32 +112,42 @@ export interface WaitingLedgerRow {
   stage: string;
   consultationDate: string;
   consultationContent: string;
-  note: string;
 }
 
-export function buildWaitingUserLedgerRows(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[]): WaitingLedgerRow[] {
+function isDateInRange(date: string, range?: WaitingLedgerRange): boolean {
+  if (!date) return !range?.startDate && !range?.endDate;
+  return (!range?.startDate || date >= range.startDate) && (!range?.endDate || date <= range.endDate);
+}
+
+export function buildWaitingUserLedgerRows(
+  users: ServiceUser[],
+  matchingRecords: MatchingHistoryRecord[],
+  range?: WaitingLedgerRange,
+): WaitingLedgerRow[] {
   return users.flatMap((user) => {
-    const attempts = matchingRecords
+    const allAttempts = matchingRecords
       .filter((record) => record.userId === user.id && (record.type === "시도" || record.type === "실패"))
       .sort((a, b) => text(a.attemptDate || a.date).localeCompare(text(b.attemptDate || b.date)));
+    const receiptInRange = isDateInRange(text(user.receiptDate), range);
+    const attempts = allAttempts.filter((record) => isDateInRange(text(record.attemptDate || record.date), range));
+    if ((range?.startDate || range?.endDate) && !receiptInRange && attempts.length === 0) return [];
     const rowCount = Math.max(MINIMUM_CONSULTATION_ROWS, attempts.length + 1);
     return Array.from({ length: rowCount }, (_, index) => {
       const attempt = index > 0 ? attempts[index - 1] : undefined;
+      const sequence = index + 1;
       return {
         userId: text(user.id),
-        name: [user.name, user.gender, user.age ? `${user.age}세` : ""].filter(Boolean).join("\n"),
-        disabilityVoucher: [user.disabilityType, formatVoucherTier(user), voucherTotal(user) ? `${voucherTotal(user)}시간` : ""].filter(Boolean).join("\n"),
+        name: [user.name, user.gender, user.age ? String(user.age) + "세" : ""].filter(Boolean).join("\n"),
+        disabilityVoucher: [[user.disabilityType, user.secondaryDisabilityType].filter(Boolean).join(" / "), formatVoucherTier(user), voucherTotal(user) ? String(voucherTotal(user)) + "시간" : ""].filter(Boolean).join("\n"),
         supportTypes: supportChecklist(user),
         desiredServiceTime: formatDesiredServiceTime(user),
-        stage: index === 0 ? "초기 상담" : `${index}차 상담`,
+        stage: index === 0 ? "초기 상담" : String(sequence) + "차 상담",
         consultationDate: index === 0 ? text(user.receiptDate) : text(attempt?.attemptDate || attempt?.date),
-        consultationContent: index === 0 ? profileConsultationContent(user) : attemptResult(attempt),
-        note: index === 0 ? text(user.notes) : attempt?.type === "실패" ? "매칭 실패" : attempt ? "매칭 시도" : "",
+        consultationContent: index === 0 ? profileConsultationContent(user) : attemptContent(attempt, sequence),
       };
     });
   });
 }
-
 const border = { style: BorderStyle.SINGLE, size: 4, color: "333333" };
 const borders = { top: border, bottom: border, left: border, right: border };
 
@@ -144,8 +172,8 @@ function cell(value: string, width: number, options?: { header?: boolean; center
   });
 }
 
-export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[]): Document {
-  const rows = buildWaitingUserLedgerRows(users, matchingRecords);
+export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[], range?: WaitingLedgerRange): Document {
+  const rows = buildWaitingUserLedgerRows(users, matchingRecords, range);
   const seen = new Map<string, number>();
   const tableRows = rows.map((row) => {
     const occurrence = seen.get(row.userId) || 0;
@@ -160,8 +188,8 @@ export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRec
         cell(row.desiredServiceTime, 1500, { center: true, merge }),
         cell(row.stage, 850, { center: true }),
         cell(row.consultationDate, 1050, { center: true }),
-        cell(row.consultationContent, 4600),
-        cell(row.note, 1000, { center: true }),
+        cell(row.consultationContent, 5600),
+
       ],
     });
   });
@@ -193,8 +221,8 @@ export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRec
                 cell("희망 제공시간", 1500, { header: true, center: true }),
                 cell("상담차수", 850, { header: true, center: true }),
                 cell("상담일", 1050, { header: true, center: true }),
-                cell("상담내용 / 매칭시도 결과", 4600, { header: true, center: true }),
-                cell("비고", 1000, { header: true, center: true }),
+                cell("상담내용 / 매칭시도 결과", 5600, { header: true, center: true }),
+
               ],
             }),
             ...tableRows,
@@ -205,6 +233,6 @@ export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRec
   });
 }
 
-export async function buildWaitingUserLedgerBlob(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[]): Promise<Blob> {
-  return Packer.toBlob(buildWaitingUserLedgerDocument(users, matchingRecords));
+export async function buildWaitingUserLedgerBlob(users: ServiceUser[], matchingRecords: MatchingHistoryRecord[], range?: WaitingLedgerRange): Promise<Blob> {
+  return Packer.toBlob(buildWaitingUserLedgerDocument(users, matchingRecords, range));
 }

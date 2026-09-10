@@ -13,6 +13,7 @@ export const MATCHING_BOARD_COLLECTION = "matchingBoard" as const;
 export const ANNUAL_SCHEDULES_COLLECTION = "annualSchedules" as const;
 export const WORK_CALENDAR_EVENTS_COLLECTION = "workCalendarEvents" as const;
 export const WORK_QUICK_LINKS_COLLECTION = "workQuickLinks" as const;
+export const SALARY_CHANGES_COLLECTION = "salaryChangeDocuments" as const;
 
 export type CoreCollectionName =
   | typeof USERS_COLLECTION

@@ -16,6 +16,7 @@ const navItems = [
   { path: "/counseling", label: "상담기록", icon: "📝" },
   { path: "/terminations", label: "종결확인서", icon: "📄" },
   { path: "/handovers", label: "인계·인수서", icon: "🔁" },
+  { path: "/salary-changes", label: "급여변경 사유서", icon: "💳" },
   { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
 ];
 
