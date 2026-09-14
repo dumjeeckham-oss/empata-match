@@ -1,16 +1,3 @@
-<!-- 앱 화면과 A4 인쇄에서 함께 사용하는 간단 사용자 매뉴얼 -->
-<style>
-  @page { size: A4; margin: 14mm 13mm; }
-  body { font-family: 'Malgun Gothic', 'Pretendard', sans-serif; line-height: 1.55; color: #222; }
-  h1 { color: #1a365d; border-bottom: 2px solid #1a365d; padding-bottom: 8px; }
-  h2 { color: #2563a6; border-bottom: 1px solid #cbd5e1; padding-bottom: 4px; page-break-after: avoid; }
-  h3 { color: #334155; page-break-after: avoid; }
-  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 0.9em; page-break-inside: avoid; }
-  th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
-  th { background: #f1f5f9; }
-  blockquote { border-left: 4px solid #3182ce; background: #eff6ff; margin: 10px 0; padding: 8px 12px; page-break-inside: avoid; }
-</style>
-
 # 동백 활동지원센터 프로그램 사용 매뉴얼
 
 > **최종 업데이트:** 2026-09-14
