@@ -1,6 +1,5 @@
 import type { AnnualSchedule, MatchingBoardItem, ServiceUser, WeeklySchedule, Worker } from "@/types";
 import { matchUserWithWorkers } from "@/lib/matching";
-import { getWorkerOperationalStatus, isWorkerWaitingForMatch } from "@/lib/statusLifecycle";
 
 type MatchTarget = (ServiceUser & { id: string }) | (Worker & { id: string });
 
@@ -59,7 +58,7 @@ export function shouldAutoRemoveMatchingItem(item: MatchingBoardItem, target?: M
   // 기존 데이터만 상태 기반으로 호환한다. 신규 등록은 등록 이후 배정 수가 늘 때만 제거한다.
   return item.targetType === "이용자"
     ? (target as ServiceUser).contractStatus === "서비스중"
-    : getWorkerOperationalStatus(target as Worker) === "서비스 제공중";
+    : (target as Worker).contractStatus === "근무중";
 }
 
 const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
@@ -107,7 +106,7 @@ export function getBoardRecommendations(
   if (item.targetType === "이용자") {
     const user = users.find((candidate) => candidate.id === item.targetId);
     if (!user) return [];
-    const waitingWorkers = workers.filter((worker) => isWorkerWaitingForMatch(worker));
+    const waitingWorkers = workers.filter((worker) => worker.contractStatus === "대기");
     return matchUserWithWorkers(user, waitingWorkers, item.condition, "이용자").slice(0, 3).map((result) => ({
       id: result.worker.id || "",
       name: result.worker.name,

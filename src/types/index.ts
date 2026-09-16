@@ -14,7 +14,7 @@ export const ENVIRONMENT_TAGS = ["기저귀", "반려동물", "흡연", "와상"
 
 export const WORKER_REJECTION_TYPES = [
   "성인거부", "남성거부", "여성거부", "흡연자거부", "반려동물거부",
-  "와상거부", "기저귀거부", "요리거부", "목욕거부", "주말거부",
+  "와상거부", "기저귀거부", "요리거부", "목욕거부",
 ] as const;
 
 export const EXPERIENCE_OPTIONS = [
@@ -47,22 +47,6 @@ export interface DocumentMatchingHistoryEntry {
   updatedAt?: string;
 }
 
-export interface ContractHistoryEntry {
-  id: string;
-  startDate: string;
-  endDate: string | null;
-  status: "서비스중" | "계약해지" | "대기";
-  reason?: string;
-}
-
-export interface EmploymentHistoryEntry {
-  id: string;
-  startDate: string;
-  endDate: string | null;
-  status: "재직중" | "퇴사";
-  reason?: string;
-}
-
 export interface ServiceUser {
   id?: string;
   name: string;
@@ -78,14 +62,8 @@ export interface ServiceUser {
   /** 본인 번호가 아닐 때 연락처 소유자 이름 */
   phoneOwnerName?: string;
   disabilityType: string;
-  /** 부장애 또는 추가 장애유형 */
-  secondaryDisabilityType?: string;
-  birthDate?: string;
-  disabilityDegree?: string;
   /** 바우처 등급 구간 (0 = 기타/직접입력) */
   voucherTier: number;
-  /** 직접 입력한 바우처 구간명 */
-  voucherTierLabel?: string;
   voucherHours?: number;
   /** 시도 추가시간 + 시군구 추가시간 합계 */
   additionalHours?: number;
@@ -142,12 +120,6 @@ export interface ServiceUser {
   matchingHistory?: DocumentMatchingHistoryEntry[];
   /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
   rejectionScores?: Record<string, number>;
-  /** 실패 사유별 누적 비적합 피드백 */
-  matchingPreferences?: Record<string, number>;
-  /** 날짜별 바우처 변경 이력 */
-  voucherChangeHistory?: VoucherChangeHistoryEntry[];
-  /** 재계약을 포함한 전체 계약 기간 이력 */
-  contractHistory?: ContractHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -209,12 +181,6 @@ export interface Worker {
   matchingHistory?: DocumentMatchingHistoryEntry[];
   /** 이용자-활동지원사 조합별 누적 매칭 비적합 점수 */
   rejectionScores?: Record<string, number>;
-  /** 실패 사유별 누적 비적합 피드백 */
-  matchingPreferences?: Record<string, number>;
-  /** 담당 이용자가 없을 때 새 매칭을 기다리는 재직자 여부 */
-  waitingForMatch?: boolean;
-  /** 퇴사 후 재입사를 포함한 전체 입퇴사 이력 */
-  employmentHistory?: EmploymentHistoryEntry[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -252,8 +218,6 @@ export interface TerminationDocument {
   approvalDate?: string;
   /** 담당 활동지원사명 (자동 채움) */
   assignedWorkerName?: string;
-  /** 문서 저장 완료 뒤 적용할 이용자 상태 */
-  completionAction?: "계약해지" | "대기";
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -265,7 +229,6 @@ export interface HandoverDocument {
   userPhone: string;
   userAddress: string;
   voucherTier: number;
-  voucherTierLabel?: string;
   disabilityType: string;
   reason: string;
   handoverPersonName: string;
@@ -310,8 +273,6 @@ export interface MatchingHistoryRecord {
   workerPhone: string;
   date: string; // YYYY-MM-DD (시작일 또는 이벤트일)
   endDate?: string; // YYYY-MM-DD (종료일, 해제 시에만)
-  attemptDate?: string; // YYYY-MM-DD (매칭 시도/실패 기록일)
-  attemptResult?: string; // 매칭 시도 결과
   reason?: MatchingHistoryReason;
   reasonDetail?: string;
   failureReason?: string;
@@ -321,49 +282,6 @@ export interface MatchingHistoryRecord {
   updatedAt?: unknown;
 }
 
-export interface VoucherChangeHistoryEntry {
-  id: string;
-  documentId?: string;
-  changeDate: string;
-  previousTier: number;
-  previousTierLabel?: string;
-  previousHours: number;
-  nextTier: number;
-  nextTierLabel?: string;
-  nextHours: number;
-  previousSupportTypes: string[];
-  nextSupportTypes: string[];
-}
-
-export interface SalaryChangeDocument {
-  id?: string;
-  userId: string;
-  userName: string;
-  userPhone: string;
-  birthDate?: string;
-  gender: string;
-  disabilityType: string;
-  secondaryDisabilityType?: string;
-  disabilityDegree?: string;
-  address: string;
-  previousTier: number;
-  previousTierLabel?: string;
-  previousHours: number;
-  nextTier: number;
-  nextTierLabel?: string;
-  nextHours: number;
-  counselingNotes: string;
-  changeReason: string;
-  previousSupportTypes: string[];
-  nextSupportTypes: string[];
-  nextSupportDetail?: string;
-  confirmationItems: string[];
-  effectiveDate: string;
-  staffName: string;
-  writtenDate: string;
-  createdAt?: unknown;
-  updatedAt?: unknown;
-}
 export interface WorkTodo {
   id?: string;
   title: string;
@@ -434,3 +352,13 @@ export interface WorkCalendarEvent {
   createdAt?: unknown;
   updatedAt?: unknown;
 }
+
+
+
+
+
+
+
+
+
+

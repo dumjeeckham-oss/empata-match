@@ -15,18 +15,15 @@ import { toast } from "@/hooks/use-toast";
 import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
-import { formatVoucherTier } from "@/lib/userVoucher";
-import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
-import { getWorkerStatusBadges, isWorkerWaitingForMatch } from "@/lib/statusLifecycle";
 
-const FAILURE_REASONS = MATCHING_FAILURE_REASONS;
-const FAILURE_SCORE_DELTA = MATCHING_FAILURE_SCORE_DELTA;
+const FAILURE_REASONS = ["거주지 거리 멀음", "시간대 불일치", "이용자 거부", "지원사 거부", "케어 난이도", "기타"] as const;
+const FAILURE_SCORE_DELTA = 25;
 
 const getHistoryStatus = (record: MatchingHistoryRecord) => {
+  if (record.status) return record.status;
+  if (record.type === "매칭") return "매칭 완료";
   if (record.type === "실패") return "매칭 실패";
   if (record.type === "시도") return "매칭 시도중";
-  if (record.type === "매칭") return "매칭 완료";
-  if (record.status) return record.status;
   return "해제";
 };
 
@@ -42,7 +39,7 @@ const Matching = () => {
   const { data: usersRaw, update: updateUser, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw, update: updateWorker, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
   const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
-  const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: matchingHistoryRaw, add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
@@ -99,8 +96,18 @@ const Matching = () => {
   const saveMatchingFailure = async () => {
     if (!failureDialog) return;
     const { user, worker } = failureDialog;
+    const previousUserScores = user.rejectionScores || {};
+    const previousWorkerScores = worker.rejectionScores || {};
+    const nextUserScores = {
+      ...previousUserScores,
+      [worker.id]: Number(previousUserScores[worker.id] || 0) + FAILURE_SCORE_DELTA,
+    };
+    const nextWorkerScores = {
+      ...previousWorkerScores,
+      [user.id]: Number(previousWorkerScores[user.id] || 0) + FAILURE_SCORE_DELTA,
+    };
     const detail = failureDetail.trim();
-    await recordMatchingFailure({
+    await addMatchingHistory({
       type: "실패",
       status: "매칭 실패",
       userId: user.id,
@@ -114,13 +121,15 @@ const Matching = () => {
       reasonDetail: detail || undefined,
       rejectionScoreDelta: FAILURE_SCORE_DELTA,
       notes: [failureReason, detail].filter(Boolean).join(" - "),
-    }, user, worker);
+    });
+    await updateUser(user.id, { rejectionScores: nextUserScores });
+    await updateWorker(worker.id, { rejectionScores: nextWorkerScores });
     setFailureDialog(null);
     toast({ title: "매칭 실패 이력 저장", description: "이 조합의 거부점수가 추천 결과에 반영됩니다." });
   };
 
   const waitingUsers = users.filter((u) => u.contractStatus === "대기");
-  const waitingWorkers = workers.filter((worker) => isWorkerWaitingForMatch(worker));
+  const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
   const selectedUser = users.find((u) => u.id === selectedUserId);
 
   const filteredUsers = waitingUsers.filter((u) =>
@@ -190,11 +199,13 @@ const Matching = () => {
   const manualSelected = allScored.find((r) => r.worker.id === manualWorkerId);
 
   const matchingSummary = useMemo(() => {
-    const successful = matchingHistory.filter((record) => record.type === "매칭" && record.status !== "매칭 실패");
+    const successful = matchingHistory.filter((record) => record.type === "매칭" || record.status === "매칭 완료");
+    const attempts = matchingHistory.filter((record) => record.type === "시도" || record.status === "매칭 시도중");
     const failures = matchingHistory.filter((record) => record.type === "실패" || record.status === "매칭 실패");
     const recentSuccessful = successful.filter((record) => isWithinRecentMonths(record.date));
+    const recentAttempts = attempts.filter((record) => isWithinRecentMonths(record.date));
     const recentFailures = failures.filter((record) => isWithinRecentMonths(record.date));
-    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentFailures.length);
+    const successRate = percent(recentSuccessful.length, recentSuccessful.length + recentAttempts.length + recentFailures.length);
     const durations = successful
       .map((record) => {
         const user = users.find((u) => u.id === record.userId);
@@ -504,7 +515,9 @@ const Matching = () => {
                                   {r.worker.gender} · {r.worker.experience}
                                 </span>
                               </div>
-                              <div className="flex flex-wrap gap-1">{getWorkerStatusBadges(r.worker).map((badge) => <Badge key={badge.label} className={`${badge.className} text-[10px]`}>{badge.label}</Badge>)}</div>
+                              <Badge variant={r.worker.contractStatus === "근무중" ? "default" : "secondary"} className="text-[10px]">
+                                {r.worker.contractStatus}
+                              </Badge>
                             </div>
                             <div className="flex items-center gap-3">
                               <Progress value={(r.score / 90) * 100} className="w-24 h-2" />
@@ -537,7 +550,7 @@ const Matching = () => {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm border-t pt-3">
                     <span><strong>성별/나이:</strong> {selectedUser.gender} / {selectedUser.age}세</span>
                     <span><strong>장애유형:</strong> {selectedUser.disabilityType}</span>
-                    <span><strong>바우처:</strong> {formatVoucherTier(selectedUser)} ({selectedUser.voucherHours || VOUCHER_HOURS[selectedUser.voucherTier] || 0}시간)</span>
+                    <span><strong>바우처:</strong> {selectedUser.voucherTier}구간 ({VOUCHER_HOURS[selectedUser.voucherTier]}시간)</span>
                     <span><strong>필요요일:</strong> {selectedUser.requiredDays}</span>
                     <span><strong>필요시간:</strong> {selectedUser.requiredHours}</span>
                     <span><strong>가족구성:</strong> {selectedUser.familyMembers || "정보없음"}</span>
@@ -670,7 +683,9 @@ const Matching = () => {
                                   {r.worker.gender} · {r.worker.experience} · {r.worker.preferredArea}
                                 </span>
                               </div>
-                              <div className="flex flex-wrap gap-1">{getWorkerStatusBadges(r.worker).map((badge) => <Badge key={badge.label} className={`${badge.className} text-[10px]`}>{badge.label}</Badge>)}</div>
+                              <Badge variant={r.worker.contractStatus === "근무중" ? "default" : "secondary"} className="text-[10px]">
+                                {r.worker.contractStatus}
+                              </Badge>
                             </div>
                             <div className="text-right">
                               <span className="text-lg font-bold text-primary">{r.score.toFixed(0)}</span>
@@ -758,3 +773,15 @@ const Matching = () => {
 };
 
 export default Matching;
+
+
+
+
+
+
+
+
+
+
+
+

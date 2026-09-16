@@ -15,8 +15,6 @@ import Counseling from "@/pages/Counseling";
 import Terminations from "@/pages/Terminations";
 import Handovers from "@/pages/Handovers";
 import Manual from "@/pages/Manual";
-import WaitingLedger from "@/pages/WaitingLedger";
-import SalaryChanges from "@/pages/SalaryChanges";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -53,8 +51,6 @@ const AuthenticatedApp = () => {
             <Route path="/termination/new" element={<ErrorBoundary><Terminations /></ErrorBoundary>} />
             <Route path="/handover/new" element={<ErrorBoundary><Handovers /></ErrorBoundary>} />
             <Route path="/manual" element={<ErrorBoundary><Manual /></ErrorBoundary>} />
-            <Route path="/waiting-ledger" element={<ErrorBoundary><WaitingLedger /></ErrorBoundary>} />
-            <Route path="/salary-changes" element={<ErrorBoundary><SalaryChanges /></ErrorBoundary>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </ErrorBoundary>

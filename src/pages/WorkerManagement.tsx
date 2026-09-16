@@ -1,13 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, type DocumentMatchingHistoryEntry, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
+import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
 import { MultiEntitySelect } from "@/components/MultiEntitySelect";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
-import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import {
   rowsToEntities,
   rowToWorker,
@@ -51,8 +50,6 @@ import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
-import { preserveWorkerDateOnStatusChange } from "@/lib/workerDatePreservation";
-import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, resolveWorkerContractStatus } from "@/lib/statusLifecycle";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -108,7 +105,7 @@ const todayYmd = () => {
   return `${y}-${m}-${d}`;
 };
 
-const normalizeWorkerPartialUpdates = (updates: Partial<Worker>, current?: Worker): Partial<Worker> => {
+const normalizeWorkerPartialUpdates = (updates: Partial<Worker>): Partial<Worker> => {
   const patch: Partial<Worker> = { ...updates };
   const hasPsychiatricDate = Object.prototype.hasOwnProperty.call(updates, "psychiatricCheckDate");
   const hasWorkplaceDate = Object.prototype.hasOwnProperty.call(updates, "workplaceCheckDate");
@@ -126,22 +123,6 @@ const normalizeWorkerPartialUpdates = (updates: Partial<Worker>, current?: Worke
   if (updates.psychiatricCheckUnchecked === true) patch.psychiatricCheckDate = "";
   if (updates.workplaceCheckUnchecked === true) patch.workplaceCheckDate = "";
   if (updates.gender) (patch as Partial<Worker> & { txtHSex?: string }).txtHSex = updates.gender;
-  if (updates.contractStatus && current) {
-    const assignedUserIds = (current.assignedUserIds || current.assigned_users || []).filter(Boolean);
-    if (updates.contractStatus === "퇴사") {
-      const retirementDate = updates.retirementDate || updates.resignationDate || todayYmd();
-      patch.contractStatus = "퇴사";
-      patch.retirementDate = retirementDate;
-      patch.resignationDate = retirementDate;
-      patch.waitingForMatch = false;
-    } else {
-      patch.contractStatus = assignedUserIds.length > 0 ? "근무중" : "대기";
-      patch.retirementDate = "";
-      patch.resignationDate = "";
-      patch.waitingForMatch = assignedUserIds.length === 0;
-      if (current.contractStatus === "퇴사" && !updates.serviceStartDate) patch.serviceStartDate = todayYmd();
-    }
-  }
   return patch;
 };
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -198,17 +179,32 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
   return `${months}개월`;
 }
 
-/** 화면 표시와 필터도 중앙 상태 규칙을 그대로 사용한다. */
+/** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
 function effectiveWorkerStatus(worker: Worker): string {
-  const status = getWorkerOperationalStatus(worker);
-  return status === "서비스 제공중" ? "근무중" : status;
+  const raw = String(worker.contractStatus || "").trim();
+  const compact = raw.replace(/\s+/g, "");
+  if (compact === "퇴사" || String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "") return "퇴사";
+  if (compact === "근무중" || compact === "서비스중") return "근무중";
+  if (compact === "대기") return "대기";
+  return raw;
 }
 
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
+
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
+  const hasResignationDate = String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "";
+  const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
+
   return {
     ...worker,
-    contractStatus: resolveWorkerContractStatus(worker),
+    // 직접 "퇴사"로 지정한 경우는 자동으로 "근무중"으로 되돌리지 않음
+    contractStatus: isResigned
+      ? "퇴사"
+      : worker.contractStatus === "변경"
+        ? "변경"
+        : hasServiceStartDate
+        ? "근무중"
+        : worker.contractStatus,
     experience: hasServiceStartDate
       ? calculateDisplayExperience(worker.serviceStartDate, worker.experience || "경력없음")
       : worker.experience,
@@ -267,8 +263,6 @@ const WorkerManagement = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
-  const [workerTransitionTarget, setWorkerTransitionTarget] = useState<(Worker & { id: string }) | null>(null);
-  const [workerTransitionDate, setWorkerTransitionDate] = useState(new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
     if (!detailTarget?.id) return;
@@ -277,7 +271,7 @@ const WorkerManagement = () => {
   }, [displayWorkers, detailTarget?.id]);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; attemptDate: string; attemptResult: string; failureReason: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; userId: string; userName: string; userPhone: string; workerId: string; date: string; endDate: string; notes: string} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -398,75 +392,27 @@ const WorkerManagement = () => {
 
   const handleSave = async () => {
     if (!form.name || !form.phone) {
-      const fieldId = !form.name ? "worker-name" : "worker-phone";
-      const field = document.getElementById(fieldId);
-      field?.scrollIntoView({ behavior: "smooth", block: "center" });
-      (field as HTMLElement | null)?.focus();
       toast({ title: "필수 항목을 입력해주세요", variant: "destructive" });
       return;
     }
     if (!form.lat && form.address) await handleGeocode();
 
-    const existingWorker = editingId ? workers.find((worker) => worker.id === editingId) : undefined;
     const uniqueUserIds = Array.from(new Set(form.assignedUserIds || []));
     const arrays = buildUserArraysFromIds(uniqueUserIds, users);
-    const today = new Date().toISOString().slice(0, 10);
-    const requestedRetirement = form.contractStatus === "퇴사";
-
-    if (requestedRetirement && arrays.ids.length > 0) {
-      if (existingWorker?.id) setWorkerTransitionTarget(existingWorker);
-      toast({
-        title: "담당 이용자 서비스 종료가 먼저 필요합니다",
-        description: "인계인수서 또는 종결승인서를 저장한 뒤 퇴사 처리해 주세요.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const wasRetired = Boolean(existingWorker && isWorkerRetired(existingWorker, today));
-    const isRehire = wasRetired && !requestedRetirement;
-    const requestedStartDate = preserveWorkerDateOnStatusChange(form.serviceStartDate, existingWorker?.serviceStartDate, false);
-    const nextStartDate = isRehire && (!requestedStartDate || requestedStartDate === existingWorker?.serviceStartDate)
-      ? today
-      : requestedStartDate;
-    const nextRetirementDate = requestedRetirement
-      ? form.retirementDate || form.resignationDate || today
-      : "";
-    const nextContractStatus: Worker["contractStatus"] = requestedRetirement
-      ? "퇴사"
-      : arrays.ids.length > 0
-        ? "근무중"
-        : "대기";
-    const statusChanged = Boolean(existingWorker && existingWorker.contractStatus !== nextContractStatus);
-    const historyWorker = {
-      ...(existingWorker || form),
-      contractStatus: nextContractStatus,
-      serviceStartDate: nextStartDate,
-      retirementDate: nextRetirementDate,
-      resignationDate: nextRetirementDate,
-    } as Worker;
-
     const payload = {
       ...form,
-      contractStatus: nextContractStatus,
       assignedUserIds: arrays.ids,
       assigned_users: arrays.ids,
       assignedUserNames: arrays.names,
       assignedUserPhones: arrays.phones,
       txtHSex: form.gender,
-      receiptDate: preserveWorkerDateOnStatusChange(form.receiptDate, existingWorker?.receiptDate, statusChanged) || today,
-      certificateDate: preserveWorkerDateOnStatusChange(form.certificateDate, existingWorker?.certificateDate, statusChanged),
-      serviceStartDate: nextStartDate,
-      psychiatricCheckDate: form.psychiatricCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.psychiatricCheckDate, existingWorker?.psychiatricCheckDate, statusChanged),
-      workplaceCheckDate: form.workplaceCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.workplaceCheckDate, existingWorker?.workplaceCheckDate, statusChanged),
-      retirementDate: nextRetirementDate,
-      resignationDate: nextRetirementDate,
-      waitingForMatch: !requestedRetirement && arrays.ids.length === 0,
-      employmentHistory: existingWorker
-        ? (requestedRetirement
-          ? appendEmploymentTransition(existingWorker, nextRetirementDate)
-          : ensureOpenEmploymentHistory(historyWorker))
-        : [],
+      receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
+      // 퇴사 선택 시 퇴사일 자동 보정, 퇴사가 아니면 퇴사일 제거
+      // (담당 이용자 배정은 유지되어 이력이 끊기지 않음)
+      resignationDate:
+        form.contractStatus === "퇴사"
+          ? form.resignationDate || new Date().toISOString().slice(0, 10)
+          : "",
     };
 
     const prevUserIds = editingId
@@ -520,7 +466,7 @@ const WorkerManagement = () => {
           previous: { name: previous?.name || "", phone: previous?.phone || "", address: previous?.address || "" },
         });
       }
-      toast({ title: isRehire ? "재입사 처리 완료" : "수정 완료", description: isRehire ? "입사일을 갱신하고 재직중 + 대기 상태로 전환했습니다." : nextContractStatus === "대기" && form.contractStatus === "근무중" ? "담당 이용자가 없어 대기 상태로 저장했습니다." : undefined });
+      toast({ title: "수정 완료" });
     } else {
       const ref = await add(payload as Omit<Worker, "id">);
       savedId = ref.id;
@@ -954,7 +900,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, normalizeWorkerPartialUpdates(updates, workers.find((worker) => worker.id === id)))} />
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, normalizeWorkerPartialUpdates(updates))} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -968,7 +914,7 @@ const WorkerManagement = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>이름 *</Label>
-                    <Input id="worker-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                    <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
                     {nameChecking ? (
                       <p className="text-xs text-muted-foreground mt-1">동명이인 확인 중...</p>
                     ) : nameDuplicates.length > 0 ? (
@@ -977,7 +923,7 @@ const WorkerManagement = () => {
                       </p>
                     ) : null}
                   </div>
-                  <div><Label>연락처 *</Label><Input id="worker-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
+                  <div><Label>연락처 *</Label><Input value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /></div>
                   <div>
                     <Label>성별</Label>
                     <Select value={form.gender} onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}>
@@ -1148,19 +1094,15 @@ const WorkerManagement = () => {
                         setForm((f) => ({
                           ...f,
                           contractStatus: v as any,
-                          retirementDate:
-                            v === "퇴사"
-                              ? f.retirementDate || f.resignationDate || new Date().toISOString().slice(0, 10)
-                              : "",
                           resignationDate:
                             v === "퇴사"
-                              ? f.resignationDate || f.retirementDate || new Date().toISOString().slice(0, 10)
+                              ? f.resignationDate || new Date().toISOString().slice(0, 10)
                               : "",
                         }))
                       }
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="근무중">서비스 제공중 (담당 이용자 필요)</SelectItem><SelectItem value="대기">대기 / 재입사 대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
+                      <SelectContent><SelectItem value="근무중">근무중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
@@ -1185,7 +1127,7 @@ const WorkerManagement = () => {
               </div>
               <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
                 <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
-                <Button onClick={() => void handleSave().catch((saveError) => { console.error(saveError); const field = document.getElementById(!form.name ? "worker-name" : "worker-phone"); field?.scrollIntoView({ behavior: "smooth", block: "center" }); (field as HTMLElement | null)?.focus(); toast({ title: "활동지원사 저장 실패", description: "입력값과 네트워크 상태를 확인해 주세요.", variant: "destructive" }); })}>저장</Button>
+                <Button onClick={handleSave}>저장</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -1207,7 +1149,7 @@ const WorkerManagement = () => {
                   <Tabs value={statusFilter} onValueChange={setStatusFilter} className="w-full overflow-x-auto">
                     <TabsList className="min-w-max">
                       <TabsTrigger value="all" className="text-xs">전체 {displayWorkers.length}</TabsTrigger>
-                      <TabsTrigger value="근무중" className="text-xs">재직중 {workingCount}</TabsTrigger>
+                      <TabsTrigger value="근무중" className="text-xs">근무중 {workingCount}</TabsTrigger>
                       <TabsTrigger value="대기" className="text-xs">대기 {waitingCount}</TabsTrigger>
                       <TabsTrigger value="퇴사" className="text-xs">퇴사 {resignedCount}</TabsTrigger>
                     </TabsList>
@@ -1247,9 +1189,10 @@ const WorkerManagement = () => {
                           {w.hasF5 && <Badge variant="outline">F5</Badge>}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">                        <div className="flex flex-wrap gap-1">
-                          {getWorkerStatusBadges(w).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
-                        </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={effectiveWorkerStatus(w) === "근무중" ? "default" : effectiveWorkerStatus(w) === "대기" ? "secondary" : "destructive"}>
+                          {effectiveWorkerStatus(w)}
+                        </Badge>
 
                         <button
                           type="button"
@@ -1294,8 +1237,8 @@ const WorkerManagement = () => {
                       <p><span className="text-muted-foreground">동백 재직기간:</span> {getFormattedDuration(w.serviceStartDate)}</p>
                       <p><span className="text-muted-foreground">담당이용자:</span> {formatAssignedUsersPreview(w, users)}</p>
                       <p><span className="text-muted-foreground">담당이용자 이력:</span> {getUserHistoryLabel(w)}</p>
-                      {effectiveWorkerStatus(w) === "퇴사" && (w.retirementDate || w.resignationDate) && (
-                        <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.retirementDate || w.resignationDate}</p>
+                      {w.contractStatus === "퇴사" && w.resignationDate && (
+                        <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
                       )}
                     </div>
                   </CardContent>
@@ -1505,74 +1448,13 @@ const WorkerManagement = () => {
 
 
 
-      <AlertDialog open={!!workerTransitionTarget} onOpenChange={(open) => !open && setWorkerTransitionTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>퇴사/대기 전환</AlertDialogTitle>
-            <AlertDialogDescription>
-              담당 이용자가 있으면 먼저 인계인수서 또는 종결승인서를 저장해야 배정과 서비스 이력이 안전하게 종료됩니다.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-3">
-            <div><Label>전환 기준일</Label><Input type="date" value={workerTransitionDate} onChange={(event) => setWorkerTransitionDate(event.target.value)} /></div>
-            {(workerTransitionTarget?.assignedUserIds || []).length > 0 ? (
-              <div className="space-y-2 rounded-lg border border-orange-200 bg-orange-50 p-3">
-                <p className="text-sm font-medium text-orange-800">담당 이용자 문서를 먼저 작성해 주세요.</p>
-                {(workerTransitionTarget?.assignedUserIds || []).map((userId) => {
-                  const user = users.find((item) => item.id === userId);
-                  if (!user) return null;
-                  return <div key={userId} className="flex flex-wrap items-center justify-between gap-2 rounded bg-white p-2">
-                    <span className="text-sm">{user.name}</span>
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => { setWorkerTransitionTarget(null); setDetailTarget(null); navigate("/handovers?userId=" + encodeURIComponent(userId) + "&prevWorkerId=" + encodeURIComponent(workerTransitionTarget?.id || "")); }}>인계인수서 작성</Button>
-                      <Button size="sm" variant="outline" onClick={() => { setWorkerTransitionTarget(null); setDetailTarget(null); navigate("/terminations?userId=" + encodeURIComponent(userId) + "&action=termination&endDate=" + encodeURIComponent(workerTransitionDate)); }}>종결승인서 작성</Button>
-                    </div>
-                  </div>;
-                })}
-              </div>
-            ) : (
-              <div className="grid gap-2">
-                <Button variant="outline" className="border-orange-300 text-orange-700" onClick={async () => {
-                  if (!workerTransitionTarget) return;
-                  const rehire = isWorkerRetired(workerTransitionTarget, workerTransitionDate);
-                  const nextStartDate = rehire ? workerTransitionDate : workerTransitionTarget.serviceStartDate;
-                  const nextWorker = { ...workerTransitionTarget, contractStatus: "대기" as const, serviceStartDate: nextStartDate, retirementDate: "", resignationDate: "" };
-                  await update(workerTransitionTarget.id, {
-                    contractStatus: "대기",
-                    waitingForMatch: true,
-                    serviceStartDate: nextStartDate,
-                    serviceEndDate: workerTransitionDate,
-                    retirementDate: "",
-                    resignationDate: "",
-                    employmentHistory: ensureOpenEmploymentHistory(nextWorker),
-                  });
-                  setWorkerTransitionTarget(null);
-                  toast({ title: rehire ? "재입사 후 대기 상태로 전환했습니다." : "재직중 + 대기 상태로 전환했습니다." });
-                }}>{workerTransitionTarget && isWorkerRetired(workerTransitionTarget, workerTransitionDate) ? "재입사 후 대기 전환" : "매칭 필요 대기상태 전환"}</Button>
-                <Button variant="destructive" onClick={async () => {
-                  if (!workerTransitionTarget) return;
-                  await update(workerTransitionTarget.id, { contractStatus: "퇴사", waitingForMatch: false, serviceEndDate: workerTransitionDate, retirementDate: workerTransitionDate, resignationDate: workerTransitionDate, employmentHistory: appendEmploymentTransition(workerTransitionTarget, workerTransitionDate) });
-                  setWorkerTransitionTarget(null);
-                  toast({ title: "퇴사 처리를 완료했습니다." });
-                }}>퇴사 처리</Button>
-              </div>
-            )}
-          </div>
-          <AlertDialogFooter><AlertDialogCancel>닫기</AlertDialogCancel></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
         <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "활동지원사 상세"}</DialogTitle>
-          </DialogHeader>          {detailTarget && (
+          </DialogHeader>
+          {detailTarget && (
             <div className="space-y-6">
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3">
-                <div className="flex flex-wrap gap-1">
-                  {getWorkerStatusBadges(detailTarget).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
-                </div>
-                <Button variant="outline" onClick={() => { setWorkerTransitionDate(new Date().toISOString().slice(0, 10)); setWorkerTransitionTarget(detailTarget); }}>퇴사/대기 전환</Button>
-              </div>
               <div className="bg-muted/30 rounded-lg p-4 space-y-3">
                 <span className="text-sm font-bold text-primary block border-b pb-1 mb-2">업무별 가능/거부 현황</span>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
@@ -1599,8 +1481,8 @@ const WorkerManagement = () => {
                   <p className="font-medium">{detailTarget.receiptDate || "미등록"}</p>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">재직/서비스 상태</p>
-                  <p className="font-medium">{getWorkerStatusBadges(detailTarget).map((badge) => badge.label).join(" + ")}</p>
+                  <p className="text-sm text-muted-foreground">근무상태</p>
+                  <p className="font-medium">{detailTarget.contractStatus}</p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 이용자</p>
@@ -1638,17 +1520,8 @@ const WorkerManagement = () => {
                     <p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.notes || "미등록"}</p>
                   </div>
                 </CardContent>
-              </Card>              <Card>
-                <CardHeader><CardTitle className="text-sm font-semibold">입퇴사 이력 (History)</CardTitle></CardHeader>
-                <CardContent className="space-y-2">
-                  {formatPeriodHistory(
-                    ensureOpenEmploymentHistory(detailTarget).length > 0
-                      ? ensureOpenEmploymentHistory(detailTarget)
-                      : [{ startDate: detailTarget.serviceStartDate || detailTarget.receiptDate, endDate: detailTarget.retirementDate || detailTarget.resignationDate || null, status: effectiveWorkerStatus(detailTarget), reason: effectiveWorkerStatus(detailTarget) === "퇴사" ? "퇴사" : "" }],
-                    "재직중",
-                  ).map((line) => <p key={line} className="rounded-md border-l-4 border-blue-500 bg-muted/30 px-3 py-2 text-sm">{line}</p>)}
-                </CardContent>
               </Card>
+
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <Card>
@@ -1681,7 +1554,7 @@ const WorkerManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", failureReason: "기타", notes: ""});
+                      setMatchHistoryForm({type: "매칭", userId: "", userName: "", userPhone: "", workerId: detailTarget?.id || "", date: new Date().toISOString().slice(0,10), endDate: "", notes: ""});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -1698,12 +1571,12 @@ const WorkerManagement = () => {
                               <p className="text-sm text-muted-foreground">{match.userName} · {match.userPhone}</p>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
-                            <div className="mt-3 text-sm whitespace-pre-wrap">{match.attemptResult || match.notes || "상세 없음"}</div>
+                            <div className="mt-3 text-sm whitespace-pre-wrap">{match.notes || "상세 없음"}</div>
                           )}
                         </div>
                       ))
@@ -1754,33 +1627,18 @@ const WorkerManagement = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  {matchHistoryForm?.type === "시도" || matchHistoryForm?.type === "실패" ? (
-                    <div className="space-y-3 rounded-md border p-3">
-                      <div>
-                        <label className="text-sm font-medium">매칭시도일</label>
-                        <Input type="date" value={matchHistoryForm.attemptDate} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptDate: e.target.value})} />
-                      </div>
-                      {matchHistoryForm.type === "실패" && (
-                        <div>
-                          <label className="text-sm font-medium">매칭 실패 원인</label>
-                          <Select value={matchHistoryForm.failureReason} onValueChange={(failureReason) => setMatchHistoryForm({ ...matchHistoryForm, failureReason })}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
-                            <SelectContent>{MATCHING_FAILURE_REASONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}</SelectContent>
-                          </Select>
-                          <p className="mt-1 text-xs text-muted-foreground">저장하면 해당 조합의 거부점수에 {MATCHING_FAILURE_SCORE_DELTA}점이 누적되어 다음 추천점수에서 차감됩니다.</p>
-                        </div>
-                      )}
-                      <div>
-                        <label className="text-sm font-medium">매칭시도의 결과</label>
-                        <Textarea placeholder="연락 결과, 거절 사유, 다음 조치 등을 입력" value={matchHistoryForm.attemptResult} onChange={(e) => setMatchHistoryForm({...matchHistoryForm, attemptResult: e.target.value})} />
-                      </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-sm font-medium">시작일</label>
+                      <Input type="date" value={matchHistoryForm?.date || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, date: e.target.value})} />
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><label className="text-sm font-medium">시작일</label><Input type="date" value={matchHistoryForm?.date || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, date: e.target.value})} /></div>
-                      <div><label className="text-sm font-medium">종료일</label><Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value, type: e.target.value ? "해제" : matchHistoryForm.type})} /></div>
-                    </div>
-                  )}
+                    {matchHistoryForm?.type === "해제" && (
+                      <div>
+                        <label className="text-sm font-medium">종료일</label>
+                        <Input type="date" value={matchHistoryForm?.endDate || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, endDate: e.target.value})} />
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <label className="text-sm font-medium">비고</label>
                     <Input placeholder="비고 입력" value={matchHistoryForm?.notes || ""} onChange={(e) => matchHistoryForm && setMatchHistoryForm({...matchHistoryForm, notes: e.target.value})} />
@@ -1788,81 +1646,27 @@ const WorkerManagement = () => {
                 </div>
                 <div className="flex justify-end gap-2">
                   <Button variant="outline" onClick={() => setMatchHistoryDialogOpen(false)}>취소</Button>
-                  <Button disabled={!matchHistoryForm?.userId || ((matchHistoryForm?.type === "시도" || matchHistoryForm?.type === "실패") ? !matchHistoryForm?.attemptDate || !matchHistoryForm?.attemptResult.trim() : !matchHistoryForm?.date)} onClick={async () => {
+                  <Button disabled={!matchHistoryForm?.userId || !matchHistoryForm?.date} onClick={async () => {
                     if (!matchHistoryForm || !detailTarget) return;
-                    const selectedUser = users.find((user) => user.id === matchHistoryForm.userId);
-                    if (!selectedUser?.id) return;
-                    const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
-                    const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
-                    const eventDate = isAttempt ? matchHistoryForm.attemptDate : matchHistoryForm.date;
-                    const payload: Partial<MatchingHistoryRecord> = {
-                      type: isEnded ? "해제" : matchHistoryForm.type as MatchingHistoryRecord["type"],
-                      userId: selectedUser.id,
-                      userName: selectedUser.name || "",
-                      userPhone: selectedUser.phone || "",
+                    const u = users.find(x => x.id === matchHistoryForm.userId);
+                    const payload: any = {
+                      type: matchHistoryForm.type,
+                      userId: matchHistoryForm.userId,
+                      userName: u?.name || "",
+                      userPhone: u?.phone || "",
                       workerId: detailTarget.id,
                       workerName: detailTarget.name,
                       workerPhone: detailTarget.phone,
-                      date: eventDate,
-                      endDate: isAttempt ? undefined : matchHistoryForm.endDate || undefined,
-                      attemptDate: isAttempt ? matchHistoryForm.attemptDate : undefined,
-                      attemptResult: isAttempt ? matchHistoryForm.attemptResult : undefined,
-                      status: matchHistoryForm.type === "실패" ? "매칭 실패" : matchHistoryForm.type === "시도" ? "매칭 시도중" : isEnded ? undefined : "매칭 완료",
-                      failureReason: matchHistoryForm.type === "실패" ? matchHistoryForm.failureReason : undefined,
-                      rejectionScoreDelta: matchHistoryForm.type === "실패" ? MATCHING_FAILURE_SCORE_DELTA : undefined,
-                      notes: matchHistoryForm.notes || (isAttempt ? matchHistoryForm.attemptResult : undefined),
+                      date: matchHistoryForm.date,
+                      endDate: matchHistoryForm.endDate || undefined,
+                      notes: matchHistoryForm.notes || undefined,
                     };
                     if (editingMatchHistoryId) {
                       await updateMatchingHistory(editingMatchHistoryId, payload);
                       toast({ title: "매칭 이력 수정 완료" });
-                    } else if (matchHistoryForm.type === "실패") {
-                      await recordMatchingFailure(payload as MatchingHistoryRecord, selectedUser, detailTarget);
-                      toast({ title: "매칭 실패 반영 완료", description: "공용 이력과 양쪽 거부점수가 한 번에 저장되어 향후 추천 적합도에서 차감됩니다." });
                     } else {
-                      await addMatchingHistory(payload as MatchingHistoryRecord);
+                      await addMatchingHistory(payload);
                       toast({ title: "매칭 이력 추가 완료" });
-                    }
-
-                    if (!isAttempt) {
-                      const previousUserIds = detailTarget.assignedUserIds ?? detailTarget.assigned_users ?? [];
-                      const nextUserIds = isEnded
-                        ? previousUserIds.filter((id) => id !== selectedUser.id)
-                        : Array.from(new Set([...previousUserIds, selectedUser.id]));
-                      const arrays = buildUserArraysFromIds(nextUserIds, users);
-                      const workerPayload: Partial<Worker> = {
-                        assignedUserIds: arrays.ids,
-                        assigned_users: arrays.ids,
-                        assignedUserNames: arrays.names,
-                        assignedUserPhones: arrays.phones,
-                        contractStatus: arrays.ids.length > 0 ? "근무중" : "대기",
-                        serviceStartDate: isEnded ? detailTarget.serviceStartDate : matchHistoryForm.date,
-                        serviceEndDate: isEnded ? matchHistoryForm.endDate || matchHistoryForm.date : null,
-                      };
-                      await update(detailTarget.id, workerPayload);
-                      await syncWorkerToUsers(detailTarget.id, { ...detailTarget, ...workerPayload }, users, previousUserIds, updateUser);
-                      const remainingHelperIds = isEnded
-                        ? (selectedUser.assignedHelperIds || []).filter((id) => id !== detailTarget.id)
-                        : Array.from(new Set([...(selectedUser.assignedHelperIds || []), detailTarget.id]));
-                      const existingDocumentEntries = Array.isArray(selectedUser.matchingHistory)
-                        ? selectedUser.matchingHistory.filter((entry) => entry.workerId !== detailTarget.id)
-                        : [];
-                      const documentEntry: DocumentMatchingHistoryEntry = {
-                        id: editingMatchHistoryId || `${detailTarget.id}-${matchHistoryForm.date}`,
-                        workerId: detailTarget.id,
-                        workerName: detailTarget.name,
-                        workerPhone: detailTarget.phone,
-                        serviceStartDate: matchHistoryForm.date,
-                        serviceEndDate: isEnded ? matchHistoryForm.endDate || matchHistoryForm.date : null,
-                        reason: isEnded ? "종료" : "추가",
-                        reasonDetail: matchHistoryForm.notes || "",
-                        updatedAt: new Date().toISOString(),
-                      };
-                      await updateUser(selectedUser.id, {
-                        matchingHistory: [...existingDocumentEntries, documentEntry],
-                        contractStatus: remainingHelperIds.length > 0 ? "서비스중" : "대기",
-                        serviceStartDate: isEnded ? selectedUser.serviceStartDate : matchHistoryForm.date,
-                      });
-                      setDetailTarget({ ...detailTarget, ...workerPayload });
                     }
                     setMatchHistoryDialogOpen(false);
                     setMatchHistoryForm(null);
@@ -1875,3 +1679,45 @@ const WorkerManagement = () => {
 };
 
 export default WorkerManagement;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

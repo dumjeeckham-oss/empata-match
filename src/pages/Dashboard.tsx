@@ -8,7 +8,6 @@ import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, HANDOVER
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { isWithinRecentMonths, parseDateValue } from "@/lib/dashboardStats";
-import { getWorkerOperationalStatus } from "@/lib/statusLifecycle";
 import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
 
 const Dashboard = () => {
@@ -57,8 +56,12 @@ const Dashboard = () => {
       u.contractStatus === "대기" &&
       (!u.assignedHelperIds || u.assignedHelperIds.length === 0)
   );
-  const activeWorkers = workers.filter((worker) => getWorkerOperationalStatus(worker) === "서비스 제공중");
-  const waitingWorkers = workers.filter((worker) => getWorkerOperationalStatus(worker) === "대기");
+  const activeWorkers = workers.filter((w) => w.contractStatus === "근무중");
+  const waitingWorkers = workers.filter(
+    (w) =>
+      w.contractStatus === "대기" &&
+      (!w.assignedUserIds || w.assignedUserIds.length === 0)
+  );
 
   const now = new Date();
   const weekStart = startOfWeek(now, { weekStartsOn: 1 });

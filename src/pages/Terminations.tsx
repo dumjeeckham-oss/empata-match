@@ -18,7 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Timestamp, db, collection, doc, writeBatch } from "@/lib/firebase";
+import { Timestamp } from "@/lib/firebase";
 import { Search, Printer, Edit2, Trash2, X } from "lucide-react";
 import {
   Command,
@@ -34,10 +34,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { OFFICIAL_TERMINATION_PROJECT_NAME, resolveTerminationWorkerRefs } from "@/lib/terminationWorkers";
-import { formatVoucherTier } from "@/lib/userVoucher";
-import { appendContractTransition, appendEmploymentTransition, closeMatchingEntries, removeUserAssignment } from "@/lib/statusLifecycle";
-import { sanitizeForFirestore } from "@/lib/bulkUpload";
 
 function safeMsg(e: unknown): string {
   if (e instanceof Error) return e.message;
@@ -47,19 +43,17 @@ function safeMsg(e: unknown): string {
 export default function Terminations() {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: docsRaw, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
-  const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: workersRaw, update: updateWorker } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: docsRaw, add: addDoc, update: updateDoc, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const docs = docsRaw || [];
-  const matchingLogs = matchingHistoryRaw || [];
 
-  const requestedAction = searchParams.get("action") === "waiting" ? "대기" : "계약해지";
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [printDoc, setPrintDoc] = useState<TerminationDocument | null>(null);
-  const [workerAfterStatus, setWorkerAfterStatus] = useState<"대기" | "퇴사">("대기");
+  const [workerAfterStatus, setWorkerAfterStatus] = useState<"대기" | "퇴사" | "변경">("대기");
 
   const [form, setForm] = useState<Omit<TerminationDocument, "id" | "createdAt" | "updatedAt">>({
     userId: "",
@@ -71,11 +65,10 @@ export default function Terminations() {
     handoverNote: "",
     approverDandang: "",
     approverCenterJang: "",
-    projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
+    projectName: "동백 장애인활동지원센터",
     residentNumber: "",
     approvalDate: new Date().toISOString().slice(0, 10),
     assignedWorkerName: "",
-    completionAction: requestedAction,
   });
 
   const selectedUser = useMemo(
@@ -83,17 +76,37 @@ export default function Terminations() {
     [users, form.userId]
   );
   const getLinkedWorkersForUser = (user: ServiceUser | undefined) => {
-    const refs = resolveTerminationWorkerRefs(user, matchingLogs);
-    const ids = new Set(refs.map((ref) => ref.id).filter(Boolean));
-    const names = new Set(refs.map((ref) => ref.name).filter(Boolean));
-    return workers.filter((worker) => (worker.id ? ids.has(worker.id) : false) || names.has(String(worker.name || "").trim()));
+    if (!user) return [];
+    const ids = new Set((user.assignedHelperIds || user.assigned_workers || []).filter(Boolean));
+    const names = new Set((user.assignedHelperNames || []).map((name) => String(name || "").trim()).filter(Boolean));
+    return workers.filter((worker) => {
+      if (worker.id && ids.has(worker.id)) return true;
+      return names.has(String(worker.name || "").trim());
+    });
   };
 
   const getAssignedWorkerNames = (user: ServiceUser | undefined) => {
-    const refs = resolveTerminationWorkerRefs(user, matchingLogs);
     const linked = getLinkedWorkersForUser(user).map((worker) => worker.name).filter(Boolean);
-    const historical = refs.map((ref) => ref.name).filter(Boolean);
-    return Array.from(new Set([...linked, ...historical]));
+    const fallback = (user?.assignedHelperNames || []).map((name) => String(name || "").trim()).filter(Boolean);
+    return Array.from(new Set(linked.length > 0 ? linked : fallback));
+  };
+
+  const applyLinkedWorkerTerminationStatus = async (user: ServiceUser | undefined, endDate: string) => {
+    const linkedWorkers = getLinkedWorkersForUser(user);
+    for (const worker of linkedWorkers) {
+      if (!worker.id) continue;
+      const hasOtherActiveUsers = (worker.assignedUserIds || worker.assigned_users || []).filter(Boolean).length > 0;
+      const nextStatus = workerAfterStatus === "퇴사" ? "퇴사" : hasOtherActiveUsers ? "근무중" : workerAfterStatus;
+      const payload: Partial<Worker> = {
+        contractStatus: nextStatus,
+        serviceEndDate: hasOtherActiveUsers ? null : endDate,
+        retirementDate: nextStatus === "퇴사" ? endDate : "",
+        resignationDate: nextStatus === "퇴사" ? endDate : "",
+        notes: [worker.notes, `종결승인서 후속 처리: ${nextStatus}`].filter(Boolean).join("\n"),
+      };
+      await updateWorker(worker.id, payload);
+    }
+    return linkedWorkers.length;
   };
 
   const handleSelectUser = (u: ServiceUser) => {
@@ -120,12 +133,6 @@ export default function Terminations() {
   }, [searchParams, users, form.userId]);
 
 
-  useEffect(() => {
-    if (!selectedUser || form.assignedWorkerName.trim()) return;
-    const names = getAssignedWorkerNames(selectedUser).join(", ");
-    if (names) setForm((current) => ({ ...current, assignedWorkerName: names }));
-  }, [selectedUser, matchingLogs, workers, form.assignedWorkerName]);
-
   const toggleReason = (reason: string) => {
     setForm((f) => ({
       ...f,
@@ -150,98 +157,80 @@ export default function Terminations() {
 
       const terminationReasonText = [
         ...form.reasons,
-        form.reasonDetail.trim() ? "상세:" + form.reasonDetail.trim() : "",
+        form.reasonDetail.trim() ? `상세:${form.reasonDetail.trim()}` : "",
       ].filter(Boolean).join(" / ");
       const terminatingUser = users.find((user) => user.id === form.userId);
       if (!terminatingUser?.id) throw new Error("선택한 이용자 정보를 다시 불러오지 못했습니다.");
-
-      const completionAction = form.completionAction || requestedAction;
-      const linkedWorkers = getLinkedWorkersForUser(terminatingUser)
-        .filter((worker): worker is Worker & { id: string } => Boolean(worker.id));
-      const activeLinkedWorkers = linkedWorkers.filter((worker) => {
-        const workerHasUser = (worker.assignedUserIds || worker.assigned_users || []).includes(terminatingUser.id!);
-        const userHasWorker = (terminatingUser.assignedHelperIds || terminatingUser.assigned_workers || []).includes(worker.id);
-        const openDocumentPeriod = (terminatingUser.matchingHistory || []).some((entry) =>
-          entry.workerId === worker.id && (entry.serviceEndDate === null || entry.serviceEndDate === "")
-        );
-        return workerHasUser || userHasWorker || openDocumentPeriod;
-      });
-      const previousHelperIds = activeLinkedWorkers.map((worker) => worker.id);
-      const nextUserStatus = completionAction === "대기" ? "대기" : "계약해지";
+      const linkedWorkers = getLinkedWorkersForUser(terminatingUser).filter((worker): worker is Worker & { id: string } => Boolean(worker.id));
+      const previousHelperIds = linkedWorkers.map((worker) => worker.id);
+      const closedDocumentHistory = (terminatingUser.matchingHistory || []).map((entry) =>
+        entry.serviceEndDate === null || entry.serviceEndDate === ""
+          ? { ...entry, serviceEndDate: form.date, reason: "종료" as const, reasonDetail: terminationReasonText, updatedAt: new Date().toISOString() }
+          : entry
+      );
       const userTerminationPayload: Partial<ServiceUser> = {
-        contractStatus: nextUserStatus,
+        contractStatus: "계약해지",
         terminationReason: terminationReasonText,
         txtUMemostop: terminationReasonText,
-        resignationDate: completionAction === "계약해지" ? form.date : "",
+        resignationDate: form.date,
         assignedHelperIds: [],
         assigned_workers: [],
         assignedHelperNames: [],
         assignedHelperPhones: [],
-        matchingHistory: closeMatchingEntries(terminatingUser.matchingHistory, previousHelperIds, form.date, terminationReasonText),
-        contractHistory: appendContractTransition(terminatingUser, form.date, nextUserStatus, terminationReasonText),
+        matchingHistory: closedDocumentHistory,
       };
 
-      const batch = writeBatch(db);
-      const terminationRef = editingId
-        ? doc(db, TERMINATIONS_COLLECTION, editingId)
-        : doc(collection(db, TERMINATIONS_COLLECTION));
-      const documentPayload = sanitizeForFirestore({
-        ...form,
-        completionAction,
-        projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
-        updatedAt: Timestamp.now(),
-        ...(editingId ? {} : { createdAt: Timestamp.now() }),
-      });
-      batch.set(terminationRef, documentPayload, { merge: Boolean(editingId) });
-      batch.update(doc(db, USERS_COLLECTION, terminatingUser.id), sanitizeForFirestore({
-        ...userTerminationPayload,
-        updatedAt: Timestamp.now(),
-      }));
-
-      for (const worker of activeLinkedWorkers) {
-        const assignment = removeUserAssignment(worker, terminatingUser.id);
-        const remainingCount = assignment.assignedUserIds.length;
-        const retireWorker = workerAfterStatus === "퇴사" && remainingCount === 0;
-        batch.update(doc(db, WORKERS_COLLECTION, worker.id), sanitizeForFirestore({
-          ...assignment,
-          contractStatus: retireWorker ? "퇴사" : remainingCount > 0 ? "근무중" : "대기",
-          waitingForMatch: !retireWorker && remainingCount === 0,
-          serviceEndDate: remainingCount === 0 ? form.date : null,
-          retirementDate: retireWorker ? form.date : "",
-          resignationDate: retireWorker ? form.date : "",
-          employmentHistory: retireWorker ? appendEmploymentTransition(worker, form.date, terminationReasonText) : worker.employmentHistory || [],
+      if (editingId) {
+        // 수정 모드
+        const payload: Partial<TerminationDocument> = {
+          ...form,
           updatedAt: Timestamp.now(),
-        }));
-        const historyRef = doc(collection(db, MATCHING_HISTORY_COLLECTION));
-        batch.set(historyRef, {
-          type: "해제",
-          userId: terminatingUser.id,
-          userName: terminatingUser.name,
-          userPhone: terminatingUser.phone,
-          workerId: worker.id,
-          workerName: worker.name,
-          workerPhone: worker.phone,
-          date: terminatingUser.serviceStartDate || form.date,
-          endDate: form.date,
-          reason: "종료",
-          reasonDetail: terminationReasonText,
-          notes: "종결승인서 저장에 따른 서비스 종료",
+        };
+        await updateDoc(editingId, payload);
+        
+        // 이용자 정보 동기화 (상태, 사유, 해지날짜)
+        await updateUser(form.userId, userTerminationPayload);
+
+        toast({ title: "종결확인서 수정 완료", description: "이용자 프로필의 계약해지 날짜와 종결 사유가 동기화되었습니다." });
+      } else {
+        // 신규 저장 모드
+        const payload: Omit<TerminationDocument, "id"> = {
+          ...form,
           createdAt: Timestamp.now(),
           updatedAt: Timestamp.now(),
+        };
+        await addDoc(payload as any);
+
+        // 이용자 상태 및 데이터 동기화 (상태, 사유, 계약해지 날짜)
+        await updateUser(form.userId, userTerminationPayload);
+
+        toast({ title: "종결확인서 저장 완료", description: "이용자 상태가 '계약해지'로 자동 전환되고, 계약해지 날짜가 저장되었습니다." });
+      }
+
+      await syncUserToWorkers(
+        terminatingUser.id,
+        { name: terminatingUser.name, phone: terminatingUser.phone, assignedHelperIds: [] },
+        workers.filter((worker): worker is Worker & { id: string } => Boolean(worker.id)),
+        previousHelperIds,
+        updateWorker,
+      );
+      for (const worker of linkedWorkers) {
+        await addMatchingHistory({
+          type: "해제", userId: terminatingUser.id, userName: terminatingUser.name, userPhone: terminatingUser.phone,
+          workerId: worker.id, workerName: worker.name, workerPhone: worker.phone,
+          date: terminatingUser.serviceStartDate || form.date, endDate: form.date,
+          reason: "종료", reasonDetail: terminationReasonText, notes: "종결승인서 작성에 따른 서비스 종료",
         });
       }
-      await batch.commit();
+      const affectedWorkerCount = await applyLinkedWorkerTerminationStatus(terminatingUser, form.date);
+      if (affectedWorkerCount > 0) {
+        toast({ title: "연결 활동지원사 상태 업데이트", description: `${affectedWorkerCount}명 상태를 ${workerAfterStatus}(으)로 반영했습니다.` });
+      }
 
-      toast({
-        title: editingId ? "종결승인서 수정 완료" : "종결승인서 저장 완료",
-        description: completionAction === "대기"
-          ? "현재 서비스 이력을 종료하고 이용자를 매칭 대기로 전환했습니다."
-          : "계약해지일과 담당 지원사의 서비스 종료일을 함께 반영했습니다.",
-      });
       resetForm();
     } catch (e) {
       console.error("Termination save failed:", e);
-      alert("❌ 종결승인서 저장 실패\n사유: " + safeMsg(e));
+      alert(`❌ 종결확인서 저장 실패\n사유: ${safeMsg(e)}\n\n${e instanceof Error ? e.stack ?? "" : ""}`);
     }
   };
 
@@ -257,11 +246,10 @@ export default function Terminations() {
       handoverNote: doc.handoverNote || "",
       approverDandang: doc.approverDandang || "",
       approverCenterJang: doc.approverCenterJang || "",
-      projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
+      projectName: doc.projectName || "동백 장애인활동지원센터",
       residentNumber: doc.residentNumber || "",
       approvalDate: doc.approvalDate || doc.date || new Date().toISOString().slice(0, 10),
       assignedWorkerName: doc.assignedWorkerName || getAssignedWorkerNames(users.find((u) => u.id === doc.userId)).join(", "),
-      completionAction: doc.completionAction || "계약해지",
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -294,11 +282,10 @@ export default function Terminations() {
       handoverNote: "",
       approverDandang: "",
       approverCenterJang: "",
-      projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
+      projectName: "동백 장애인활동지원센터",
       residentNumber: "",
       approvalDate: new Date().toISOString().slice(0, 10),
       assignedWorkerName: "",
-      completionAction: requestedAction,
     });
     setWorkerAfterStatus("대기");
   };
@@ -394,7 +381,7 @@ export default function Terminations() {
               <tbody>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", width: "18%", textAlign: "center" }}>사 업 명</th>
-                  <td style={{ width: "32%" }}>{OFFICIAL_TERMINATION_PROJECT_NAME}</td>
+                  <td style={{ width: "32%" }}>{printDoc?.projectName || "동백 장애인활동지원센터"}</td>
                   <th style={{ backgroundColor: "#f5f5f5", width: "18%", textAlign: "center" }}>담당 활동지원사</th>
                   <td style={{ width: "32%" }}>{printDoc?.assignedWorkerName || getAssignedWorkerNames(users.find(u => u.id === printDoc?.userId)).join(", ") || "—"}</td>
                 </tr>
@@ -506,6 +493,12 @@ export default function Terminations() {
           )}
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* ── 사업명 ── */}
+          <div>
+            <Label>사업명</Label>
+            <Input value={form.projectName || ""} onChange={(e) => setForm((f) => ({ ...f, projectName: e.target.value }))} placeholder="동백 장애인활동지원센터" />
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>이용 종결자 선택 *</Label>
@@ -548,30 +541,22 @@ export default function Terminations() {
               </div>
               {selectedUser && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  주소: {selectedUser.address || "—"} / 바우처: {formatVoucherTier(selectedUser)} / 장애유형: {selectedUser.disabilityType || "—"}
+                  주소: {selectedUser.address || "—"} / 바우처: {selectedUser.voucherTier}구간 / 장애유형: {selectedUser.disabilityType || "—"}
                 </p>
               )}
             </div>
             <div>
               <Label>담당 활동지원사 (자동 채움)</Label>
               <Input value={form.assignedWorkerName || ""} onChange={(e) => setForm((f) => ({ ...f, assignedWorkerName: e.target.value }))} placeholder="이용자 선택 시 자동 채움" />
-            </div>            <div>
-              <Label>문서 저장 후 이용자 상태</Label>
-              <Select value={form.completionAction || requestedAction} onValueChange={(value) => setForm((current) => ({ ...current, completionAction: value as "계약해지" | "대기" }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="계약해지">계약해지</SelectItem>
-                  <SelectItem value="대기">매칭을 위한 대기</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div>
               <Label>종결 후 활동지원사 상태</Label>
-              <Select value={workerAfterStatus} onValueChange={(value) => setWorkerAfterStatus(value as "대기" | "퇴사")}>
+              <Select value={workerAfterStatus} onValueChange={(value) => setWorkerAfterStatus(value as "대기" | "퇴사" | "변경")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="대기">대기</SelectItem>
                   <SelectItem value="퇴사">퇴사</SelectItem>
+                  <SelectItem value="변경">변경</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -698,3 +683,16 @@ export default function Terminations() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+

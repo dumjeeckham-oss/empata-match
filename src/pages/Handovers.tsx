@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { isWorkerRetired } from "@/lib/statusLifecycle";
 import { type ServiceUser, type Worker, type HandoverDocument, type MatchingHistoryRecord, VOUCHER_HOURS } from "@/types";
 import { HANDOVERS_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { Button } from "@/components/ui/button";
@@ -15,9 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
 import { syncUserToWorkers } from "@/lib/assignments";
-import { closeMatchingEntries } from "@/lib/statusLifecycle";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
-import { formatVoucherTier } from "@/lib/userVoucher";
 
 import { Printer, Search, X, Edit2, Trash2 } from "lucide-react";
 import {
@@ -141,7 +138,7 @@ export default function Handovers() {
           workerId: fromWorker.id,
           workerName: fromWorker.name,
           workerPhone: fromWorker.phone,
-          date: user.matchingHistory?.find((entry) => entry.workerId === fromWorker.id)?.serviceStartDate || user.serviceStartDate || handoverDate,
+          date: handoverDate,
           endDate: handoverDate,
           notes: note,
         } as any);
@@ -186,34 +183,12 @@ export default function Handovers() {
         return;
       }
 
-      const closedHistory = closeMatchingEntries(
-        selectedUser.matchingHistory,
-        prevWorker?.id ? [prevWorker.id] : [],
-        handoverDate,
-        reason.trim(),
-      );
-      const updatedDocumentHistory = [
-        ...closedHistory.filter((entry) => !(entry.workerId === nextWorker.id && entry.serviceStartDate === takeoverDate)),
-        {
-          id: "handover-" + selectedUser.id + "-" + nextWorker.id + "-" + takeoverDate,
-          workerId: nextWorker.id,
-          workerName: nextWorker.name,
-          workerPhone: nextWorker.phone,
-          serviceStartDate: takeoverDate,
-          serviceEndDate: null,
-          reason: "인계" as const,
-          reasonDetail: reason.trim(),
-          updatedAt: new Date().toISOString(),
-        },
-      ];
-
       const payload: Omit<HandoverDocument, "id"> = {
         userId: selectedUser.id!,
         userName: selectedUser.name,
         userPhone: selectedUser.phone,
         userAddress: selectedUser.address,
         voucherTier: selectedUser.voucherTier,
-        voucherTierLabel: selectedUser.voucherTierLabel || "",
         disabilityType: selectedUser.disabilityType,
         reason: reason.trim(),
         handoverPersonName: handoverPersonName.trim(),
@@ -242,9 +217,6 @@ export default function Handovers() {
           assigned_workers: newHelperIds,
           assignedHelperNames: [nextWorker.name],
           assignedHelperPhones: [nextWorker.phone],
-          matchingHistory: updatedDocumentHistory,
-          contractStatus: "서비스중",
-          resignationDate: "",
         };
         await updateUser(selectedUser.id!, updatedUserEdit as any);
         await syncUserToWorkers(
@@ -254,21 +226,6 @@ export default function Handovers() {
           prevHelperIds,
           updateWorker as any
         );
-        if (prevWorker?.id && prevWorker.id !== nextWorker.id) {
-          const remainingIds = (prevWorker.assignedUserIds || []).filter((id) => id !== selectedUser.id);
-          await updateWorker(prevWorker.id, {
-            contractStatus: remainingIds.length > 0 ? "근무중" : "대기",
-            waitingForMatch: remainingIds.length === 0,
-            serviceEndDate: remainingIds.length === 0 ? handoverDate : null,
-          });
-        }
-        await updateWorker(nextWorker.id, {
-          contractStatus: "근무중",
-          waitingForMatch: false,
-          serviceEndDate: null,
-          retirementDate: "",
-          resignationDate: "",
-        });
         await recordHandoverHistory(selectedUser, prevWorker, nextWorker);
         toast({ title: "업무 인계·인수서 수정 완료" });
 
@@ -284,9 +241,6 @@ export default function Handovers() {
           assigned_workers: newHelperIds,
           assignedHelperNames: [nextWorker.name],
           assignedHelperPhones: [nextWorker.phone],
-          matchingHistory: updatedDocumentHistory,
-          contractStatus: "서비스중",
-          resignationDate: "",
         };
         await updateUser(selectedUser.id!, updatedUser as any);
         await syncUserToWorkers(
@@ -296,21 +250,6 @@ export default function Handovers() {
           prevHelperIds,
           updateWorker as any
         );
-        if (prevWorker?.id && prevWorker.id !== nextWorker.id) {
-          const remainingIds = (prevWorker.assignedUserIds || []).filter((id) => id !== selectedUser.id);
-          await updateWorker(prevWorker.id, {
-            contractStatus: remainingIds.length > 0 ? "근무중" : "대기",
-            waitingForMatch: remainingIds.length === 0,
-            serviceEndDate: remainingIds.length === 0 ? handoverDate : null,
-          });
-        }
-        await updateWorker(nextWorker.id, {
-          contractStatus: "근무중",
-          waitingForMatch: false,
-          serviceEndDate: null,
-          retirementDate: "",
-          resignationDate: "",
-        });
         await recordHandoverHistory(selectedUser, prevWorker, nextWorker);
 
 
@@ -465,7 +404,7 @@ export default function Handovers() {
               <tbody>
                 <tr>
                   <th>바우처 구간</th>
-                  <td>{formatVoucherTier({ voucherTier: printDoc.voucherTier, voucherTierLabel: printDoc.voucherTierLabel })}</td>
+                  <td>{printDoc.voucherTier ? `${printDoc.voucherTier}구간` : "—"}</td>
                   <th>시간</th>
                   <td>{getHandoverVoucherHours(printDoc)}</td>
                 </tr>
@@ -607,7 +546,7 @@ export default function Handovers() {
                       <CommandList>
                         <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
                         <CommandGroup>
-                          {workers.filter((worker) => !isWorkerRetired(worker)).map((w) => (
+                          {workers.filter(w => w.contractStatus !== "퇴사").map((w) => (
                             <CommandItem
                               key={w.id}
                               value={`${w.name} ${w.phone}`}
@@ -638,7 +577,7 @@ export default function Handovers() {
               <div>성명: {selectedUser?.name || "—"}</div>
               <div>연락처: {selectedUser?.phone || "—"}</div>
               <div className="truncate">주소: {selectedUser?.address || "—"}</div>
-              <div>바우처구간: {selectedUser ? formatVoucherTier(selectedUser) : "—"}</div>
+              <div>바우처구간: {selectedUser?.voucherTier ?? "—"}구간</div>
               <div>장애유형: {selectedUser?.disabilityType || "—"}</div>
               <div className="pt-1 text-xs text-muted-foreground">
                 현재 담당(전임): {prevWorker ? labelWithLast4(prevWorker?.name || "이름없음", prevWorker?.phone || "") : "미배정"}
@@ -734,3 +673,7 @@ export default function Handovers() {
     </div>
   );
 }
+
+
+
+

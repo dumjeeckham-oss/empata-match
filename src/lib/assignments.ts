@@ -1,5 +1,4 @@
 import type { ServiceUser, Worker } from "@/types";
-import { resolveWorkerContractStatus } from "@/lib/statusLifecycle";
 
 function normalizePhone(phone: unknown): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -139,7 +138,7 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
   );
   const contractStatus: ServiceUser["contractStatus"] =
     // 사용자가 직접 지정한 상태(계약해지/타기관 계약/보류)는 절대 자동 변경하지 않음
-    contractStatusRaw === "계약해지" || contractStatusRaw === "타기관 계약" || contractStatusRaw === "보류" || contractStatusRaw === "대기" || contractStatusRaw === "작성중"
+    contractStatusRaw === "계약해지" || contractStatusRaw === "타기관 계약" || contractStatusRaw === "보류"
       ? (contractStatusRaw as ServiceUser["contractStatus"])
       : terminationReason.trim() || userResignationDate
         ? "계약해지"
@@ -221,16 +220,14 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   );
 
 
-  // 접수일/입사일은 상태 근거가 아니다. 퇴사 여부와 실제 현재 배정만 사용한다.
-  const rawStatus = String(raw.contractStatus ?? "").trim() as Worker["contractStatus"];
-  const derivedStatus = resolveWorkerContractStatus({
-    ...raw,
-    contractStatus: rawStatus,
-    assignedUserIds: ids.filter(Boolean),
-    assigned_users: ids.filter(Boolean),
-    retirementDate,
-    resignationDate: retirementDate || resignationDate,
-  } as unknown as Worker);
+  // 사용자가 직접 "퇴사"로 지정하면 그대로 유지, 그 외에는 날짜 기준 자동 산정
+  const rawStatus = String(raw.contractStatus ?? "").trim();
+  const derivedStatus: Worker["contractStatus"] =
+    rawStatus === "퇴사" || resignationDate
+      ? "퇴사"
+      : serviceStartDate
+        ? "근무중"
+        : "대기";
 
 
   // 최초근무일을 기준으로 현재까지 경력(년/개월)을 실시간 산정
