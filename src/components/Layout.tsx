@@ -3,9 +3,11 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { getAdjacentPath, getSwipeDirection, type SwipePoint } from "@/lib/swipeNavigation";
+import { Menu } from "lucide-react";
 
 const navItems = [
   { path: "/", label: "대시보드", icon: "📊" },
@@ -50,23 +52,17 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     window.setTimeout(() => navigate(nextPath), 120);
   };
 
-  const renderNavLink = (item: (typeof navItems)[number], mobile = false) => {
+  const renderNavLink = (item: (typeof navItems)[number]) => {
     const isActive = location.pathname === item.path;
     return (
       <Link
         key={item.path}
         to={item.path}
         className={cn(
-          mobile
-            ? "relative inline-flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-semibold transition-colors"
-            : "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-2 text-sm font-medium transition-all",
+          "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-2 text-sm font-medium transition-all",
           isActive
-            ? mobile
-              ? "text-primary after:absolute after:bottom-0 after:left-3 after:right-3 after:h-0.5 after:rounded-full after:bg-primary"
-              : "border-primary/20 bg-primary/10 text-primary shadow-sm"
-            : mobile
-              ? "text-muted-foreground hover:text-foreground"
-              : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+            ? "border-primary/20 bg-primary/10 text-primary shadow-sm"
+            : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
         )}
         aria-current={isActive ? "page" : undefined}
       >
@@ -90,29 +86,62 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               {navItems.map((item) => renderNavLink(item))}
             </nav>
 
-            <div className="flex shrink-0 items-center gap-2">
-            <InstallAppButton />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0 rounded-full text-xs text-muted-foreground hover:text-foreground sm:text-sm"
-              onClick={logout}
-            >
-              🚪 로그아웃
-            </Button>
+            <div className="hidden shrink-0 items-center gap-2 md:flex">
+              <InstallAppButton />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0 rounded-full text-xs text-muted-foreground hover:text-foreground sm:text-sm"
+                onClick={logout}
+              >
+                🚪 로그아웃
+              </Button>
             </div>
+
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button variant="outline" size="icon" className="h-11 w-11 shrink-0 md:hidden" aria-label="메뉴 열기">
+                  <Menu className="h-6 w-6" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="flex w-[86vw] max-w-sm flex-col p-0">
+                <SheetHeader className="border-b px-5 py-5 text-left">
+                  <SheetTitle>바로가기 메뉴</SheetTitle>
+                </SheetHeader>
+                <nav className="flex-1 space-y-1 overflow-y-auto p-3" aria-label="모바일 주요 메뉴">
+                  {navItems.map((item) => {
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <SheetClose asChild key={item.path}>
+                        <Link
+                          to={item.path}
+                          className={cn(
+                            "flex min-h-14 items-center gap-4 rounded-md px-4 py-3 text-base font-semibold transition-colors",
+                            isActive ? "bg-primary/10 text-primary" : "text-foreground hover:bg-muted"
+                          )}
+                          aria-current={isActive ? "page" : undefined}
+                        >
+                          <span className="text-xl" aria-hidden="true">{item.icon}</span>
+                          <span>{item.label}</span>
+                        </Link>
+                      </SheetClose>
+                    );
+                  })}
+                </nav>
+                <div className="space-y-2 border-t p-4">
+                  <InstallAppButton />
+                  <Button variant="outline" className="h-12 w-full justify-start text-base" onClick={logout}>
+                    🚪 로그아웃
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
           </div>
         </div>
-
-        <nav className="md:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
-          <div className="flex min-w-max px-2">
-            {navItems.map((item) => renderNavLink(item, true))}
-          </div>
-        </nav>
       </header>
 
       <main className="flex-1 overflow-auto" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-        <div className={cn("p-4 md:p-6 max-w-7xl mx-auto animate-fade-in transition-all duration-150", swipeDirection === "left" && "-translate-x-4 opacity-60", swipeDirection === "right" && "translate-x-4 opacity-60")}>{children}</div>
+        <div className={cn("mx-auto max-w-7xl p-3 sm:p-4 md:p-6 animate-fade-in transition-all duration-150", swipeDirection === "left" && "-translate-x-4 opacity-60", swipeDirection === "right" && "translate-x-4 opacity-60")}>{children}</div>
       </main>
     </div>
   );

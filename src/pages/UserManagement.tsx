@@ -1799,12 +1799,12 @@ const UserManagement = () => {
             <DialogTrigger asChild>
               <Button onClick={() => { setForm(emptyUser); setAgeInput(""); setEditingId(null); }}>+ 신규등록</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
+            <DialogContent className="max-h-[94vh] w-[calc(100vw-1rem)] max-w-5xl overflow-y-auto px-4 sm:w-[96vw] sm:px-6" onPointerDownOutside={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle>{editingId ? "이용자 수정" : "이용자 신규등록"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <Label>이름 *</Label>
                     <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -1921,7 +1921,7 @@ const UserManagement = () => {
                       onChange={(e) => setForm((f) => ({ ...f, cityAdditionalHours: Number(e.target.value) || 0 }))}
                     />
                   </div>
-                  <div className="col-span-2 rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium">
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm font-medium sm:col-span-2">
                     합산시간: {formatVoucherHours(form)}
                   </div>
                 </div>
@@ -1940,7 +1940,7 @@ const UserManagement = () => {
 
                 <div className="space-y-2">
                   <Label>추가 요청 사항</Label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="flex items-center space-x-2"><Checkbox id="needsAftercare" checked={form.needsAftercare} onCheckedChange={(checked) => setForm((f) => ({ ...f, needsAftercare: !!checked }))} /><label htmlFor="needsAftercare" className="text-sm">배변뒤처리 필요</label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="wantsWeekendSupport" checked={form.wantsWeekendSupport} onCheckedChange={(checked) => setForm((f) => ({ ...f, wantsWeekendSupport: !!checked }))} /><label htmlFor="wantsWeekendSupport" className="text-sm">주말지원 희망</label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="femaleOnly" checked={form.femaleOnly} onCheckedChange={(checked) => setForm((f) => ({ ...f, femaleOnly: !!checked }))} /><label htmlFor="femaleOnly" className="text-sm">여성만 원함</label></div>
@@ -1954,8 +1954,8 @@ const UserManagement = () => {
                   <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm(f => ({ ...f, weeklySchedule: s }))} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="col-span-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
                     <Label>주소</Label>
                     <div className="flex gap-2">
                       <Input value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value, lat: undefined, lng: undefined }))} onBlur={(e) => handleAutoGeocode(e.target.value)} placeholder="예: 원미동 → 경기도 부천시 원미동" />
@@ -1997,7 +1997,7 @@ const UserManagement = () => {
                   <Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
 
-                <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 border-t pt-4 sm:grid-cols-2">
                   <div>
                     <Label>계약상태</Label>
                     <Select
