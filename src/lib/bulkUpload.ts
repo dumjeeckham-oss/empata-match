@@ -479,6 +479,14 @@ export function rowToWorker(
   );
 
   const gender = getCell(row, headerMap, "gender") || "여성";
+  const rawStatus = String(getCell(row, headerMap, "contractStatus") || "").trim();
+  const resignationDate = normalizeDateCell(getCell(row, headerMap, "resignationDate"));
+  const isRetired = rawStatus === "퇴사" || (!rawStatus && Boolean(resignationDate));
+  const contractStatus: Worker["contractStatus"] = isRetired
+    ? "퇴사"
+    : assigned.ids.length > 0
+      ? "근무중"
+      : "대기";
 
   return {
     name: getCell(row, headerMap, "name"),
@@ -498,9 +506,9 @@ export function rowToWorker(
     animalAllergy: parseYesNo(getCell(row, headerMap, "animalAllergy")),
     certificateNumber: getCell(row, headerMap, "certificateNumber"),
     certificateDate: normalizeDateCell(getCell(row, headerMap, "certificateDate")),
-    contractStatus: (getCell(row, headerMap, "contractStatus") || "대기") as Worker["contractStatus"],
+    contractStatus,
     serviceStartDate: normalizeDateCell(getCell(row, headerMap, "serviceStartDate")),
-    resignationDate: normalizeDateCell(getCell(row, headerMap, "resignationDate")),
+    resignationDate: contractStatus === "퇴사" ? resignationDate : "",
     psychiatricCheckDate: normalizeDateCell(getCell(row, headerMap, "psychiatricCheckDate")),
     psychiatricCheckUnchecked: parseYesNo(getCell(row, headerMap, "psychiatricCheckUnchecked")),
     workplaceCheckDate: normalizeDateCell(getCell(row, headerMap, "workplaceCheckDate")),

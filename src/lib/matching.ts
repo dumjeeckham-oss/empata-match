@@ -1,5 +1,6 @@
 import { type ServiceUser, type Worker, type MatchResult } from "@/types";
 import { calculateDistance } from "@/lib/kakao";
+import { isWorkerRetired } from "@/lib/statusLifecycle";
 
 function parseTimeSlots(timeStr: string): string[] {
   if (!timeStr) return [];
@@ -103,7 +104,7 @@ function conditionMatchScore(condition: string, user: ServiceUser, worker: Worke
 }
 
 export function matchUserWithWorkers(user: ServiceUser, workers: Worker[], condition = "", conditionTargetType: "이용자" | "활동지원사" = "이용자"): MatchResult[] {
-  const availableWorkers = workers.filter((w) => w.contractStatus !== "퇴사");
+  const availableWorkers = workers.filter((worker) => !isWorkerRetired(worker));
 
   return availableWorkers
     .map((worker) => {

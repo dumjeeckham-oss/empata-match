@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { applyAllSpellSuggestions, buildRevisionSuggestion, replaceSpellSuggestion, type SpellSuggestion } from "@/lib/spellCheck";
+import { applyAllSpellSuggestions, buildLocalSpellSuggestions, buildRevisionSuggestion, replaceSpellSuggestion, type SpellSuggestion } from "@/lib/spellCheck";
 
 const first: SpellSuggestion = { description: "", start: 0, end: 3, text: "abc", candidates: ["ABC"] };
 
 describe("spell check replacements", () => {
+  it("offers a local correction when the API is unavailable", () => {
+    const origin = "지금은 할수 있고 안되요 .";
+    const suggestions = buildLocalSpellSuggestions(origin);
+    expect(suggestions.length).toBeGreaterThan(0);
+    expect(applyAllSpellSuggestions(origin, suggestions)).toBe("지금은 할 수 있고 안 돼요.");
+  });
   it("replaces one selected suggestion", () => {
     expect(replaceSpellSuggestion("abc def", first, "ABC")).toBe("ABC def");
   });

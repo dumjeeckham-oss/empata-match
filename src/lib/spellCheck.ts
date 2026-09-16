@@ -22,6 +22,34 @@ export function buildRevisionSuggestion(origin: string, revised: string): SpellS
   return [{ description: "바른 AI 전체 문장 교정 결과", start: 0, end: origin.length, text: origin, candidates: [revised] }];
 }
 
+const LOCAL_SPELL_RULES: Array<{ pattern: RegExp; replacement: string; description: string }> = [
+  { pattern: /되요/g, replacement: "돼요", description: "오프라인 기본 교정: 되어요의 준말은 '돼요'입니다." },
+  { pattern: /안되(?=[가-힣]|\s|[.,!?]|$)/g, replacement: "안 돼", description: "오프라인 기본 교정: 부정 표현의 띄어쓰기를 확인했습니다." },
+  { pattern: /할수/g, replacement: "할 수", description: "오프라인 기본 교정: 의존 명사 '수'를 띄어 씁니다." },
+  { pattern: /할때/g, replacement: "할 때", description: "오프라인 기본 교정: 의존 명사 '때'를 띄어 씁니다." },
+  { pattern: /\s+([,.!?])/g, replacement: "$1", description: "오프라인 기본 교정: 문장부호 앞 공백을 제거합니다." },
+];
+
+export function buildLocalSpellSuggestions(origin: string): SpellSuggestion[] {
+  const suggestions: SpellSuggestion[] = [];
+  for (const rule of LOCAL_SPELL_RULES) {
+    for (const match of origin.matchAll(rule.pattern)) {
+      if (match.index === undefined) continue;
+      const replacement = match[0].replace(rule.pattern, rule.replacement);
+      if (!replacement || replacement === match[0]) continue;
+      suggestions.push({
+        description: rule.description,
+        start: match.index,
+        end: match.index + match[0].length,
+        text: match[0],
+        candidates: [replacement],
+      });
+    }
+  }
+  return suggestions
+    .sort((a, b) => a.start - b.start)
+    .filter((item, index, items) => index === 0 || item.start >= items[index - 1].end);
+}
 async function parseSpellResponse(response: Response, origin: string): Promise<SpellSuggestion[]> {
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) throw new Error("SPELL_CHECK_AUTH");
@@ -76,16 +104,18 @@ export async function requestSpellCheck(text: string, signal?: AbortSignal, apiK
     }), text));
   }
 
-  if (attempts.length === 0) throw new Error("SPELL_CHECK_CONFIGURATION_MISSING");
   let lastError: unknown;
   for (const attempt of attempts) {
     try {
       return await attempt();
     } catch (error) {
-      if ((error as Error)?.name === "AbortError") throw error;
       lastError = error;
+      if ((error as Error)?.name === "AbortError") break;
     }
   }
+  const localSuggestions = buildLocalSpellSuggestions(text);
+  if (localSuggestions.length > 0) return localSuggestions;
+  if (attempts.length === 0) throw new Error("SPELL_CHECK_CONFIGURATION_MISSING");
   throw lastError instanceof Error ? lastError : new Error("SPELL_CHECK_UNAVAILABLE");
 }
 

@@ -36,7 +36,7 @@ import {
 import { cn } from "@/lib/utils";
 import { OFFICIAL_TERMINATION_PROJECT_NAME, resolveTerminationWorkerRefs } from "@/lib/terminationWorkers";
 import { formatVoucherTier } from "@/lib/userVoucher";
-import { appendContractTransition, closeMatchingEntries, removeUserAssignment } from "@/lib/statusLifecycle";
+import { appendContractTransition, appendEmploymentTransition, closeMatchingEntries, removeUserAssignment } from "@/lib/statusLifecycle";
 import { sanitizeForFirestore } from "@/lib/bulkUpload";
 
 function safeMsg(e: unknown): string {
@@ -201,7 +201,7 @@ export default function Terminations() {
       for (const worker of activeLinkedWorkers) {
         const assignment = removeUserAssignment(worker, terminatingUser.id);
         const remainingCount = assignment.assignedUserIds.length;
-        const retireWorker = workerAfterStatus === "퇴사";
+        const retireWorker = workerAfterStatus === "퇴사" && remainingCount === 0;
         batch.update(doc(db, WORKERS_COLLECTION, worker.id), sanitizeForFirestore({
           ...assignment,
           contractStatus: retireWorker ? "퇴사" : remainingCount > 0 ? "근무중" : "대기",
@@ -209,6 +209,7 @@ export default function Terminations() {
           serviceEndDate: remainingCount === 0 ? form.date : null,
           retirementDate: retireWorker ? form.date : "",
           resignationDate: retireWorker ? form.date : "",
+          employmentHistory: retireWorker ? appendEmploymentTransition(worker, form.date, terminationReasonText) : worker.employmentHistory || [],
           updatedAt: Timestamp.now(),
         }));
         const historyRef = doc(collection(db, MATCHING_HISTORY_COLLECTION));

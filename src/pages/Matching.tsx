@@ -17,6 +17,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
+import { getWorkerStatusBadges, isWorkerWaitingForMatch } from "@/lib/statusLifecycle";
 
 const FAILURE_REASONS = MATCHING_FAILURE_REASONS;
 const FAILURE_SCORE_DELTA = MATCHING_FAILURE_SCORE_DELTA;
@@ -119,7 +120,7 @@ const Matching = () => {
   };
 
   const waitingUsers = users.filter((u) => u.contractStatus === "대기");
-  const waitingWorkers = workers.filter((w) => w.contractStatus === "대기");
+  const waitingWorkers = workers.filter((worker) => isWorkerWaitingForMatch(worker));
   const selectedUser = users.find((u) => u.id === selectedUserId);
 
   const filteredUsers = waitingUsers.filter((u) =>
@@ -503,9 +504,7 @@ const Matching = () => {
                                   {r.worker.gender} · {r.worker.experience}
                                 </span>
                               </div>
-                              <Badge variant={r.worker.contractStatus === "근무중" ? "default" : "secondary"} className="text-[10px]">
-                                {r.worker.contractStatus}
-                              </Badge>
+                              <div className="flex flex-wrap gap-1">{getWorkerStatusBadges(r.worker).map((badge) => <Badge key={badge.label} className={`${badge.className} text-[10px]`}>{badge.label}</Badge>)}</div>
                             </div>
                             <div className="flex items-center gap-3">
                               <Progress value={(r.score / 90) * 100} className="w-24 h-2" />
@@ -671,9 +670,7 @@ const Matching = () => {
                                   {r.worker.gender} · {r.worker.experience} · {r.worker.preferredArea}
                                 </span>
                               </div>
-                              <Badge variant={r.worker.contractStatus === "근무중" ? "default" : "secondary"} className="text-[10px]">
-                                {r.worker.contractStatus}
-                              </Badge>
+                              <div className="flex flex-wrap gap-1">{getWorkerStatusBadges(r.worker).map((badge) => <Badge key={badge.label} className={`${badge.className} text-[10px]`}>{badge.label}</Badge>)}</div>
                             </div>
                             <div className="text-right">
                               <span className="text-lg font-bold text-primary">{r.score.toFixed(0)}</span>

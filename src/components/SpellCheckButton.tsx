@@ -7,7 +7,6 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import {
   applyAllSpellSuggestions,
   getSpellCheckErrorMessage,
-  hasSpellCheckCredentials,
   replaceSpellSuggestion,
   requestSpellCheck,
   setRuntimeSpellCheckApiKey,
@@ -36,11 +35,6 @@ export function SpellCheckButton({ value, onApply }: SpellCheckButtonProps) {
       setError("검사할 내용을 먼저 입력해주세요.");
       return;
     }
-    if (!hasSpellCheckCredentials() && !apiKeyOverride.trim()) {
-      setNeedsApiKey(true);
-      setError("바른 AI API 키가 필요합니다. 키는 현재 화면의 메모리에만 보관되며 저장되지 않습니다.");
-      return;
-    }
     if (apiKeyOverride.trim()) setRuntimeSpellCheckApiKey(apiKeyOverride);
     setNeedsApiKey(false);
     setCheckedText(value);
@@ -51,7 +45,8 @@ export function SpellCheckButton({ value, onApply }: SpellCheckButtonProps) {
       setSuggestions(await requestSpellCheck(value, controller.signal, apiKeyOverride));
     } catch (requestError) {
       setError(getSpellCheckErrorMessage(requestError));
-      if ((requestError instanceof Error ? requestError.message : String(requestError)).includes("AUTH")) setNeedsApiKey(true);
+      const message = requestError instanceof Error ? requestError.message : String(requestError);
+      if (message.includes("AUTH") || message.includes("CONFIGURATION_MISSING")) setNeedsApiKey(true);
     } finally {
       window.clearTimeout(timer);
       setLoading(false);

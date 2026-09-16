@@ -52,8 +52,8 @@ import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { formatServiceProviderHistory } from "@/lib/serviceHistory";
-import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass } from "@/lib/statusLifecycle";
-import { hasFailureWithoutSuccess, recordMatchingFailure, isServiceHistoryRecord, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
+import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
+import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
   Command,
@@ -378,9 +378,9 @@ const UserManagement = () => {
     if (cascadeAction === "유지") return;
     for (const w of targets) {
       if (cascadeAction === "퇴사") {
-        await updateWorker(w.id, { contractStatus: "퇴사", resignationDate: cascadeDate });
+        await updateWorker(w.id, { contractStatus: "퇴사", retirementDate: cascadeDate, resignationDate: cascadeDate, waitingForMatch: false });
       } else {
-        await updateWorker(w.id, { contractStatus: "대기", resignationDate: "" });
+        await updateWorker(w.id, { contractStatus: "대기", waitingForMatch: true, retirementDate: "", resignationDate: "" });
       }
     }
     toast({
@@ -700,7 +700,7 @@ const UserManagement = () => {
     if (payload.contractStatus === "계약해지") {
       const linked = (payload.assignedHelperIds || [])
         .map((id) => workers.find((w) => w.id === id))
-        .filter((w): w is Worker & { id: string } => !!w && w.contractStatus !== "퇴사");
+        .filter((w): w is Worker & { id: string } => !!w && !isWorkerRetired(w));
       if (linked.length > 0) {
         setCascadeAction("유지");
         setCascadeDate(payload.resignationDate || new Date().toISOString().slice(0, 10));
@@ -1115,7 +1115,7 @@ const UserManagement = () => {
 
     const logsByWorker = new Map<string, MatchingHistoryRecord & { id?: string }>();
     for (const log of matchingLogs
-      .filter((record) => record.userId === user.id && !!record.workerId && isServiceHistoryRecord(record))
+      .filter((record) => record.userId === user.id && !!record.workerId && record.type === "매칭")
       .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)))) {
       if (log.workerId && !logsByWorker.has(log.workerId)) logsByWorker.set(log.workerId, log);
     }
@@ -1140,7 +1140,7 @@ const UserManagement = () => {
       });
     }
 
-    for (const log of matchingLogs.filter((record) => record.userId === user.id && isServiceHistoryRecord(record))) {
+    for (const log of matchingLogs.filter((record) => record.userId === user.id && record.type === "매칭")) {
       if (!log.workerId || byWorker.has(log.workerId)) continue;
       byWorker.set(log.workerId, {
         id: log.id || `${log.workerId}-${log.date || today}`,
@@ -1155,6 +1155,23 @@ const UserManagement = () => {
       });
     }
 
+    const latestEndByWorker = new Map<string, string>();
+    for (const log of matchingLogs.filter((record) => record.userId === user.id && !!record.workerId && (record.type === "해제" || !!record.endDate))) {
+      const endDate = log.endDate || log.date;
+      if (!endDate || !log.workerId) continue;
+      const current = latestEndByWorker.get(log.workerId);
+      if (!current || getComparableDateValue(endDate) > getComparableDateValue(current)) latestEndByWorker.set(log.workerId, endDate);
+    }
+    for (const [workerId, entry] of byWorker.entries()) {
+      const recordedEnd = latestEndByWorker.get(workerId);
+      const fallbackEnd = user.contractStatus === "계약해지" ? user.resignationDate : undefined;
+      const effectiveEnd = recordedEnd && getComparableDateValue(recordedEnd) >= getComparableDateValue(entry.serviceStartDate)
+        ? recordedEnd
+        : fallbackEnd && getComparableDateValue(fallbackEnd) >= getComparableDateValue(entry.serviceStartDate)
+          ? fallbackEnd
+          : entry.serviceEndDate;
+      if (effectiveEnd !== entry.serviceEndDate) byWorker.set(workerId, { ...entry, serviceEndDate: effectiveEnd || null });
+    }
     return Array.from(byWorker.values()).sort((a, b) => {
       const activeDiff = Number(a.serviceEndDate !== null) - Number(b.serviceEndDate !== null);
       if (activeDiff !== 0) return activeDiff;
@@ -2376,9 +2393,9 @@ const UserManagement = () => {
                           <p className="font-medium">{worker.name}</p>
                           <p className="text-xs text-muted-foreground">{worker.phone || "연락처 없음"}</p>
                         </div>
-                        <Badge variant={worker.contractStatus === "퇴사" ? "destructive" : worker.contractStatus === "근무중" ? "default" : "secondary"}>
-                          {worker.contractStatus}
-                        </Badge>
+                        <div className="flex flex-wrap gap-1">
+                          {getWorkerStatusBadges(worker).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="space-y-2">

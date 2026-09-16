@@ -52,7 +52,7 @@ import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
 import { preserveWorkerDateOnStatusChange } from "@/lib/workerDatePreservation";
-import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerStatusBadges } from "@/lib/statusLifecycle";
+import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, resolveWorkerContractStatus } from "@/lib/statusLifecycle";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
@@ -108,7 +108,7 @@ const todayYmd = () => {
   return `${y}-${m}-${d}`;
 };
 
-const normalizeWorkerPartialUpdates = (updates: Partial<Worker>): Partial<Worker> => {
+const normalizeWorkerPartialUpdates = (updates: Partial<Worker>, current?: Worker): Partial<Worker> => {
   const patch: Partial<Worker> = { ...updates };
   const hasPsychiatricDate = Object.prototype.hasOwnProperty.call(updates, "psychiatricCheckDate");
   const hasWorkplaceDate = Object.prototype.hasOwnProperty.call(updates, "workplaceCheckDate");
@@ -126,6 +126,22 @@ const normalizeWorkerPartialUpdates = (updates: Partial<Worker>): Partial<Worker
   if (updates.psychiatricCheckUnchecked === true) patch.psychiatricCheckDate = "";
   if (updates.workplaceCheckUnchecked === true) patch.workplaceCheckDate = "";
   if (updates.gender) (patch as Partial<Worker> & { txtHSex?: string }).txtHSex = updates.gender;
+  if (updates.contractStatus && current) {
+    const assignedUserIds = (current.assignedUserIds || current.assigned_users || []).filter(Boolean);
+    if (updates.contractStatus === "퇴사") {
+      const retirementDate = updates.retirementDate || updates.resignationDate || todayYmd();
+      patch.contractStatus = "퇴사";
+      patch.retirementDate = retirementDate;
+      patch.resignationDate = retirementDate;
+      patch.waitingForMatch = false;
+    } else {
+      patch.contractStatus = assignedUserIds.length > 0 ? "근무중" : "대기";
+      patch.retirementDate = "";
+      patch.resignationDate = "";
+      patch.waitingForMatch = assignedUserIds.length === 0;
+      if (current.contractStatus === "퇴사" && !updates.serviceStartDate) patch.serviceStartDate = todayYmd();
+    }
+  }
   return patch;
 };
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
@@ -182,34 +198,17 @@ function calculateDisplayExperience(serviceStartDate: unknown, fallback: string)
   return `${months}개월`;
 }
 
-/** 화면 표시용 근무상태: 퇴사일이 있으면 항상 "퇴사" 목록으로 이동 */
+/** 화면 표시와 필터도 중앙 상태 규칙을 그대로 사용한다. */
 function effectiveWorkerStatus(worker: Worker): string {
-  const raw = String(worker.contractStatus || "").trim();
-  const compact = raw.replace(/\s+/g, "");
-  if (compact === "퇴사" || String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "") return "퇴사";
-  if (compact === "근무중" || compact === "서비스중") return "근무중";
-  if (compact === "대기") return "대기";
-  return raw;
+  const status = getWorkerOperationalStatus(worker);
+  return status === "서비스 제공중" ? "근무중" : status;
 }
 
 function toDisplayWorker(worker: Worker & { id: string }): Worker & { id: string } {
-
   const hasServiceStartDate = String(worker.serviceStartDate ?? "").trim() !== "";
-  const hasResignationDate = String(worker.retirementDate ?? worker.resignationDate ?? "").trim() !== "";
-  const isResigned = worker.contractStatus === "퇴사" || hasResignationDate;
-
   return {
     ...worker,
-    // 직접 "퇴사"로 지정한 경우는 자동으로 "근무중"으로 되돌리지 않음
-    contractStatus: isResigned
-      ? "퇴사"
-      : worker.contractStatus === "변경"
-        ? "변경"
-        : worker.contractStatus === "대기"
-          ? "대기"
-          : hasServiceStartDate
-            ? "근무중"
-            : worker.contractStatus,
+    contractStatus: resolveWorkerContractStatus(worker),
     experience: hasServiceStartDate
       ? calculateDisplayExperience(worker.serviceStartDate, worker.experience || "경력없음")
       : worker.experience,
@@ -409,33 +408,64 @@ const WorkerManagement = () => {
     if (!form.lat && form.address) await handleGeocode();
 
     const existingWorker = editingId ? workers.find((worker) => worker.id === editingId) : undefined;
-    const statusChanged = !!existingWorker && existingWorker.contractStatus !== form.contractStatus;
-
     const uniqueUserIds = Array.from(new Set(form.assignedUserIds || []));
     const arrays = buildUserArraysFromIds(uniqueUserIds, users);
+    const today = new Date().toISOString().slice(0, 10);
+    const requestedRetirement = form.contractStatus === "퇴사";
+
+    if (requestedRetirement && arrays.ids.length > 0) {
+      if (existingWorker?.id) setWorkerTransitionTarget(existingWorker);
+      toast({
+        title: "담당 이용자 서비스 종료가 먼저 필요합니다",
+        description: "인계인수서 또는 종결승인서를 저장한 뒤 퇴사 처리해 주세요.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const wasRetired = Boolean(existingWorker && isWorkerRetired(existingWorker, today));
+    const isRehire = wasRetired && !requestedRetirement;
+    const requestedStartDate = preserveWorkerDateOnStatusChange(form.serviceStartDate, existingWorker?.serviceStartDate, false);
+    const nextStartDate = isRehire && (!requestedStartDate || requestedStartDate === existingWorker?.serviceStartDate)
+      ? today
+      : requestedStartDate;
+    const nextRetirementDate = requestedRetirement
+      ? form.retirementDate || form.resignationDate || today
+      : "";
+    const nextContractStatus: Worker["contractStatus"] = requestedRetirement
+      ? "퇴사"
+      : arrays.ids.length > 0
+        ? "근무중"
+        : "대기";
+    const statusChanged = Boolean(existingWorker && existingWorker.contractStatus !== nextContractStatus);
+    const historyWorker = {
+      ...(existingWorker || form),
+      contractStatus: nextContractStatus,
+      serviceStartDate: nextStartDate,
+      retirementDate: nextRetirementDate,
+      resignationDate: nextRetirementDate,
+    } as Worker;
+
     const payload = {
       ...form,
+      contractStatus: nextContractStatus,
       assignedUserIds: arrays.ids,
       assigned_users: arrays.ids,
       assignedUserNames: arrays.names,
       assignedUserPhones: arrays.phones,
       txtHSex: form.gender,
-      receiptDate: preserveWorkerDateOnStatusChange(form.receiptDate, existingWorker?.receiptDate, statusChanged) || new Date().toISOString().slice(0, 10),
+      receiptDate: preserveWorkerDateOnStatusChange(form.receiptDate, existingWorker?.receiptDate, statusChanged) || today,
       certificateDate: preserveWorkerDateOnStatusChange(form.certificateDate, existingWorker?.certificateDate, statusChanged),
-      serviceStartDate: preserveWorkerDateOnStatusChange(form.serviceStartDate, existingWorker?.serviceStartDate, statusChanged),
+      serviceStartDate: nextStartDate,
       psychiatricCheckDate: form.psychiatricCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.psychiatricCheckDate, existingWorker?.psychiatricCheckDate, statusChanged),
       workplaceCheckDate: form.workplaceCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.workplaceCheckDate, existingWorker?.workplaceCheckDate, statusChanged),
-      // 퇴사 선택 시 퇴사일 자동 보정, 퇴사가 아니면 퇴사일 제거
-      // (담당 이용자 배정은 유지되어 이력이 끊기지 않음)
-      resignationDate:
-        form.contractStatus === "퇴사"
-          ? form.resignationDate || new Date().toISOString().slice(0, 10)
-          : "",
-      waitingForMatch: form.contractStatus !== "퇴사" && arrays.ids.length === 0,
+      retirementDate: nextRetirementDate,
+      resignationDate: nextRetirementDate,
+      waitingForMatch: !requestedRetirement && arrays.ids.length === 0,
       employmentHistory: existingWorker
-        ? (form.contractStatus === "퇴사"
-          ? appendEmploymentTransition(existingWorker, form.resignationDate || new Date().toISOString().slice(0, 10))
-          : ensureOpenEmploymentHistory({ ...existingWorker, contractStatus: "근무중", serviceStartDate: form.serviceStartDate || existingWorker.serviceStartDate }))
+        ? (requestedRetirement
+          ? appendEmploymentTransition(existingWorker, nextRetirementDate)
+          : ensureOpenEmploymentHistory(historyWorker))
         : [],
     };
 
@@ -490,7 +520,7 @@ const WorkerManagement = () => {
           previous: { name: previous?.name || "", phone: previous?.phone || "", address: previous?.address || "" },
         });
       }
-      toast({ title: "수정 완료" });
+      toast({ title: isRehire ? "재입사 처리 완료" : "수정 완료", description: isRehire ? "입사일을 갱신하고 재직중 + 대기 상태로 전환했습니다." : nextContractStatus === "대기" && form.contractStatus === "근무중" ? "담당 이용자가 없어 대기 상태로 저장했습니다." : undefined });
     } else {
       const ref = await add(payload as Omit<Worker, "id">);
       savedId = ref.id;
@@ -924,7 +954,7 @@ const WorkerManagement = () => {
             getPreviewValue={getWorkerPreviewValue}
           />
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
-          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, normalizeWorkerPartialUpdates(updates))} />
+          <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, normalizeWorkerPartialUpdates(updates, workers.find((worker) => worker.id === id)))} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -1118,15 +1148,19 @@ const WorkerManagement = () => {
                         setForm((f) => ({
                           ...f,
                           contractStatus: v as any,
+                          retirementDate:
+                            v === "퇴사"
+                              ? f.retirementDate || f.resignationDate || new Date().toISOString().slice(0, 10)
+                              : "",
                           resignationDate:
                             v === "퇴사"
-                              ? f.resignationDate || new Date().toISOString().slice(0, 10)
+                              ? f.resignationDate || f.retirementDate || new Date().toISOString().slice(0, 10)
                               : "",
                         }))
                       }
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="근무중">재직중</SelectItem><SelectItem value="대기">대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
+                      <SelectContent><SelectItem value="근무중">서비스 제공중 (담당 이용자 필요)</SelectItem><SelectItem value="대기">대기 / 재입사 대기</SelectItem><SelectItem value="변경">변경</SelectItem><SelectItem value="퇴사">퇴사</SelectItem></SelectContent>
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
@@ -1260,8 +1294,8 @@ const WorkerManagement = () => {
                       <p><span className="text-muted-foreground">동백 재직기간:</span> {getFormattedDuration(w.serviceStartDate)}</p>
                       <p><span className="text-muted-foreground">담당이용자:</span> {formatAssignedUsersPreview(w, users)}</p>
                       <p><span className="text-muted-foreground">담당이용자 이력:</span> {getUserHistoryLabel(w)}</p>
-                      {w.contractStatus === "퇴사" && w.resignationDate && (
-                        <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.resignationDate}</p>
+                      {effectiveWorkerStatus(w) === "퇴사" && (w.retirementDate || w.resignationDate) && (
+                        <p className="text-destructive"><span className="text-muted-foreground">퇴사일:</span> {w.retirementDate || w.resignationDate}</p>
                       )}
                     </div>
                   </CardContent>
@@ -1500,10 +1534,21 @@ const WorkerManagement = () => {
               <div className="grid gap-2">
                 <Button variant="outline" className="border-orange-300 text-orange-700" onClick={async () => {
                   if (!workerTransitionTarget) return;
-                  await update(workerTransitionTarget.id, { contractStatus: "대기", waitingForMatch: true, serviceEndDate: workerTransitionDate, retirementDate: "", resignationDate: "", employmentHistory: ensureOpenEmploymentHistory({ ...workerTransitionTarget, contractStatus: "근무중" }) });
+                  const rehire = isWorkerRetired(workerTransitionTarget, workerTransitionDate);
+                  const nextStartDate = rehire ? workerTransitionDate : workerTransitionTarget.serviceStartDate;
+                  const nextWorker = { ...workerTransitionTarget, contractStatus: "대기" as const, serviceStartDate: nextStartDate, retirementDate: "", resignationDate: "" };
+                  await update(workerTransitionTarget.id, {
+                    contractStatus: "대기",
+                    waitingForMatch: true,
+                    serviceStartDate: nextStartDate,
+                    serviceEndDate: workerTransitionDate,
+                    retirementDate: "",
+                    resignationDate: "",
+                    employmentHistory: ensureOpenEmploymentHistory(nextWorker),
+                  });
                   setWorkerTransitionTarget(null);
-                  toast({ title: "재직중 + 대기 상태로 전환했습니다." });
-                }}>매칭 필요 대기상태 전환</Button>
+                  toast({ title: rehire ? "재입사 후 대기 상태로 전환했습니다." : "재직중 + 대기 상태로 전환했습니다." });
+                }}>{workerTransitionTarget && isWorkerRetired(workerTransitionTarget, workerTransitionDate) ? "재입사 후 대기 전환" : "매칭 필요 대기상태 전환"}</Button>
                 <Button variant="destructive" onClick={async () => {
                   if (!workerTransitionTarget) return;
                   await update(workerTransitionTarget.id, { contractStatus: "퇴사", waitingForMatch: false, serviceEndDate: workerTransitionDate, retirementDate: workerTransitionDate, resignationDate: workerTransitionDate, employmentHistory: appendEmploymentTransition(workerTransitionTarget, workerTransitionDate) });
@@ -1555,7 +1600,7 @@ const WorkerManagement = () => {
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">재직/서비스 상태</p>
-                  <p className="font-medium">{detailTarget.contractStatus}</p>
+                  <p className="font-medium">{getWorkerStatusBadges(detailTarget).map((badge) => badge.label).join(" + ")}</p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 이용자</p>

@@ -8,21 +8,65 @@ import type {
 
 const clean = (value: unknown) => String(value ?? "").trim();
 
-export type WorkerBadge = { label: "재직중" | "서비스 제공중" | "대기" | "퇴사"; className: string };
+export type WorkerBadge = { label: "재직중" | "서비스 제공중" | "대기" | "신규 대기" | "퇴사"; className: string };
+export type WorkerOperationalStatus = "서비스 제공중" | "대기" | "퇴사";
+
+const toYmd = (value: Date | string) => {
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return clean(value).slice(0, 10);
+};
+
+const workerAssignmentIds = (worker: Worker) =>
+  (worker.assignedUserIds || worker.assigned_users || []).filter(Boolean);
+
+/** 오늘 기준 실제 배정과 재직 여부만으로 활동지원사 상태를 판정한다. */
+export function getWorkerOperationalStatus(worker: Worker, asOf: Date | string = new Date()): WorkerOperationalStatus {
+  const status = clean(worker.contractStatus).replace(/\s+/g, "");
+  const today = toYmd(asOf);
+  const retirementDate = clean(worker.retirementDate || worker.resignationDate).slice(0, 10);
+  const retiredToday = status === "퇴사" && (!retirementDate || retirementDate <= today);
+  const legacyRetiredToday = !status && Boolean(retirementDate) && retirementDate <= today;
+
+  if (retiredToday || legacyRetiredToday) return "퇴사";
+  return workerAssignmentIds(worker).length > 0 ? "서비스 제공중" : "대기";
+}
+
+export function resolveWorkerContractStatus(worker: Worker, asOf: Date | string = new Date()): Worker["contractStatus"] {
+  const status = getWorkerOperationalStatus(worker, asOf);
+  if (status === "퇴사") return "퇴사";
+  return status === "서비스 제공중" ? "근무중" : "대기";
+}
+
+export function isWorkerRetired(worker: Worker, asOf: Date | string = new Date()): boolean {
+  return getWorkerOperationalStatus(worker, asOf) === "퇴사";
+}
+
+export function isWorkerWaitingForMatch(worker: Worker, asOf: Date | string = new Date()): boolean {
+  return getWorkerOperationalStatus(worker, asOf) === "대기";
+}
 
 export function getWorkerStatusBadges(worker: Worker): WorkerBadge[] {
-  const retired = worker.contractStatus === "퇴사" || Boolean(clean(worker.retirementDate || worker.resignationDate));
-  if (retired) return [{ label: "퇴사", className: "bg-slate-500 text-white hover:bg-slate-500" }];
-  const activeCount = (worker.assignedUserIds || worker.assigned_users || []).filter(Boolean).length;
-  return activeCount > 0
+  const status = getWorkerOperationalStatus(worker);
+  if (status === "퇴사") return [{ label: "퇴사", className: "bg-slate-500 text-white hover:bg-slate-500" }];
+  if (status === "서비스 제공중") {
+    return [
+      { label: "재직중", className: "bg-blue-600 text-white hover:bg-blue-600" },
+      { label: "서비스 제공중", className: "bg-emerald-600 text-white hover:bg-emerald-600" },
+    ];
+  }
+  const hasEmploymentStarted = Boolean(clean(worker.serviceStartDate))
+    || (worker.employmentHistory || []).some((entry) => !clean(entry.endDate));
+  return hasEmploymentStarted
     ? [
         { label: "재직중", className: "bg-blue-600 text-white hover:bg-blue-600" },
-        { label: "서비스 제공중", className: "bg-emerald-600 text-white hover:bg-emerald-600" },
-      ]
-    : [
-        { label: "재직중", className: "bg-blue-600 text-white hover:bg-blue-600" },
         { label: "대기", className: "bg-orange-500 text-white hover:bg-orange-500" },
-      ];
+      ]
+    : [{ label: "신규 대기", className: "bg-orange-500 text-white hover:bg-orange-500" }];
 }
 
 export function getUserStatusBadgeClass(status: string): string {

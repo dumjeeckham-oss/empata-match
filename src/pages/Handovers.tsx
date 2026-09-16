@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
+import { isWorkerRetired } from "@/lib/statusLifecycle";
 import { type ServiceUser, type Worker, type HandoverDocument, type MatchingHistoryRecord, VOUCHER_HOURS } from "@/types";
 import { HANDOVERS_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { Button } from "@/components/ui/button";
@@ -606,7 +607,7 @@ export default function Handovers() {
                       <CommandList>
                         <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
                         <CommandGroup>
-                          {workers.filter(w => w.contractStatus !== "퇴사").map((w) => (
+                          {workers.filter((worker) => !isWorkerRetired(worker)).map((w) => (
                             <CommandItem
                               key={w.id}
                               value={`${w.name} ${w.phone}`}
