@@ -1625,7 +1625,7 @@ const UserManagement = () => {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <h1 className="page-header mb-0">이용자 관리</h1>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={downloadTemplate}>📥 업로드양식</Button>
@@ -1648,7 +1648,7 @@ const UserManagement = () => {
                 <DialogTitle>{editingId ? "이용자 수정" : "이용자 신규등록"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>이름 *</Label>
                     <Input id="user-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -1808,7 +1808,7 @@ const UserManagement = () => {
                   <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm(f => ({ ...f, weeklySchedule: s }))} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <Label>주소</Label>
                     <div className="flex gap-2">
@@ -1851,7 +1851,7 @@ const UserManagement = () => {
                   <Textarea value={form.notes} onChange={(e) => setForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
 
-                <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                <div className="border-t pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>계약상태</Label>
                     <Select

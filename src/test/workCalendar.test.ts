@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, moveCalendarEvent, resizeCalendarEvent } from "@/lib/workCalendar";
+import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, eventsForCalendarMonth, moveCalendarEvent, resizeCalendarEvent } from "@/lib/workCalendar";
 import type { WorkCalendarEvent } from "@/types";
 
 const event = (id: string, title: string, startDate: string, endDate: string): WorkCalendarEvent & { id: string } => ({
@@ -7,6 +7,14 @@ const event = (id: string, title: string, startDate: string, endDate: string): W
 });
 
 describe("work calendar", () => {
+  it("shows cross-month schedules in the mobile agenda and excludes other months", () => {
+    expect(eventsForCalendarMonth([
+      event("outside", "다음달", "2026-10-01", "2026-10-03"),
+      event("inside", "이번달", "2026-09-15", "2026-09-15"),
+      event("cross", "이월", "2026-08-30", "2026-09-02"),
+    ], 2026, 8).map((item) => item.id)).toEqual(["cross", "inside"]);
+    expect(eventsForCalendarMonth([], 2026, 8)).toEqual([]);
+  });
   it("builds a six-week Sunday-first month grid", () => {
     const days = buildMonthGrid(2026, 8);
     expect(days).toHaveLength(42);

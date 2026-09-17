@@ -13,3 +13,10 @@ export function getAdjacentPath(paths: string[], currentPath: string, direction:
   if (index < 0) return null;
   return paths[direction === "left" ? index + 1 : index - 1] || null;
 }
+
+/** Preserve horizontal scrolling and editing instead of changing the current menu. */
+export function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(
+    'input, textarea, select, button, a, [role="dialog"], [role="slider"], [role="tablist"], [contenteditable="true"], [data-no-swipe], [class*="overflow-x-auto"], [class*="overflow-auto"]',
+  ));
+}

@@ -942,7 +942,7 @@ const WorkerManagement = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
         <h1 className="page-header mb-0">활동지원사 관리</h1>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={downloadTemplate}>📥 업로드양식</Button>
@@ -965,7 +965,7 @@ const WorkerManagement = () => {
                 <DialogTitle>{editingId ? "활동지원사 수정" : "활동지원사 신규등록"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <Label>이름 *</Label>
                     <Input id="worker-name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
@@ -1027,7 +1027,7 @@ const WorkerManagement = () => {
                   <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm((f) => ({ ...f, weeklySchedule: s }))} />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <Label>주소</Label>
                     <div className="flex gap-2">
@@ -1087,7 +1087,7 @@ const WorkerManagement = () => {
 
                 <div className="space-y-2">
                   <Label>추가 정보</Label>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex items-center space-x-2"><Checkbox id="isForeigner" checked={form.isForeigner} onCheckedChange={(checked) => setForm((f) => ({ ...f, isForeigner: !!checked }))} /><Label htmlFor="isForeigner">외국인</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="hasF4" checked={form.hasF4} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF4: !!checked }))} /><Label htmlFor="hasF4">F4 여부</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="hasF5" checked={form.hasF5} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF5: !!checked }))} /><Label htmlFor="hasF5">F5 여부</Label></div>
@@ -1138,7 +1138,7 @@ const WorkerManagement = () => {
                   <Textarea value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
                 </div>
 
-                <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                <div className="border-t pt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div><Label>최초 접수일</Label><Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} /></div>
                   <div>
                     <Label>근무상태</Label>

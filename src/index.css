@@ -78,3 +78,16 @@
   td, th { overflow-wrap: anywhere; }
 }
 
+
+/* Screen-only mobile ergonomics; official A4 print styles remain unchanged. */
+@media screen and (max-width: 639px) {
+  .app-main { overflow-x: clip; }
+  .app-main .page-header { font-size: 1.25rem; line-height: 1.5; }
+  .app-main .stat-card { padding: 0.75rem; }
+  .app-main [class*="grid"] > *, [role="dialog"] [class*="grid"] > * { min-width: 0; }
+  [role="dialog"] { max-width: calc(100vw - 1.5rem); max-height: calc(100dvh - 2rem); }
+  [role="dialog"] input, [role="dialog"] textarea, [role="dialog"] select,
+  .app-main input, .app-main textarea, .app-main select { font-size: 16px; min-width: 0; }
+  [role="dialog"] h2 { padding-right: 1.5rem; line-height: 1.4; }
+  .app-main p, .app-main dd, [role="dialog"] dd { overflow-wrap: anywhere; }
+}

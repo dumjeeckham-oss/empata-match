@@ -88,3 +88,10 @@ export function annualSchedulesToCalendarEvents(schedules: (AnnualSchedule & { i
 export function eventsForCalendarDay(events: CalendarEventWithLane[], date: string): CalendarEventWithLane[] {
   return events.filter((event) => event.startDate <= date && event.endDate >= date).sort((a, b) => a.lane - b.lane);
 }
+
+export function eventsForCalendarMonth(events: CalendarDisplayEvent[], year: number, monthIndex: number): CalendarDisplayEvent[] {
+  const first = toLocalYmd(new Date(year, monthIndex, 1));
+  const last = toLocalYmd(new Date(year, monthIndex + 1, 0));
+  return events.filter((event) => event.startDate <= last && event.endDate >= first)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate) || (a.startTime || "").localeCompare(b.startTime || "") || a.title.localeCompare(b.title));
+}

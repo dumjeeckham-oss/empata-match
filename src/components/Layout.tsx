@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { InstallAppButton } from "@/components/InstallAppButton";
-import { getAdjacentPath, getSwipeDirection, type SwipePoint } from "@/lib/swipeNavigation";
+import { getAdjacentPath, getSwipeDirection, shouldIgnoreSwipeTarget, type SwipePoint } from "@/lib/swipeNavigation";
 
 const navItems = [
   { path: "/", label: "대시보드", icon: "📊" },
@@ -24,16 +24,18 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   const { logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const mobileNav = useRef<HTMLElement | null>(null);
   const touchStart = useRef<SwipePoint | null>(null);
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right" | null>(null);
 
-  useEffect(() => setSwipeDirection(null), [location.pathname]);
-
-  const ignoreSwipeTarget = (target: EventTarget | null) =>
-    target instanceof Element && Boolean(target.closest("input, textarea, select, button, a, [data-no-swipe]"));
+  useEffect(() => {
+    setSwipeDirection(null);
+    mobileNav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [location.pathname]);
 
   const handleTouchStart = (event: React.TouchEvent<HTMLElement>) => {
-    if (window.innerWidth >= 768 || event.touches.length !== 1 || ignoreSwipeTarget(event.target)) return;
+    touchStart.current = null;
+    if (window.innerWidth >= 768 || event.touches.length !== 1 || shouldIgnoreSwipeTarget(event.target)) return;
     const touch = event.touches[0];
     touchStart.current = { x: touch.clientX, y: touch.clientY, at: Date.now() };
   };
@@ -78,20 +80,20 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="app-layout min-h-[100dvh] min-w-0 flex flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
-        <div className="mx-auto flex max-w-7xl flex-col gap-2 px-4 py-3 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between gap-3">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-2 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <img src={dongbaekLogo} alt="동백" className="h-8 w-auto shrink-0" />
+              <img src={dongbaekLogo} alt="동백" className="h-7 w-auto max-w-[100px] shrink-0 object-contain sm:h-8 sm:max-w-[140px]" />
               <p className="truncate text-sm font-semibold text-foreground sm:text-base">동백 활동지원센터</p>
             </div>
 
-            <nav className="hidden flex-1 items-center justify-end gap-2 md:flex">
+            <nav className="hidden basis-full flex-wrap items-center gap-2 xl:order-3 xl:flex">
               {navItems.map((item) => renderNavLink(item))}
             </nav>
 
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="ml-auto flex shrink-0 items-center gap-2">
             <InstallAppButton />
             <Button
               variant="ghost"
@@ -105,15 +107,15 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
           </div>
         </div>
 
-        <nav className="md:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
+        <nav ref={mobileNav} className="xl:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
           <div className="flex min-w-max px-2">
             {navItems.map((item) => renderNavLink(item, true))}
           </div>
         </nav>
       </header>
 
-      <main className="flex-1 overflow-auto" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-        <div className={cn("p-4 md:p-6 max-w-7xl mx-auto animate-fade-in transition-all duration-150", swipeDirection === "left" && "-translate-x-4 opacity-60", swipeDirection === "right" && "translate-x-4 opacity-60")}>{children}</div>
+      <main className="app-main min-w-0 flex-1" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} onTouchCancel={() => { touchStart.current = null; }}>
+        <div className={cn("min-w-0 px-3 py-4 sm:p-4 md:p-6 max-w-7xl mx-auto animate-fade-in transition-all duration-150", swipeDirection === "left" && "-translate-x-4 opacity-60", swipeDirection === "right" && "translate-x-4 opacity-60")}>{children}</div>
       </main>
     </div>
   );
