@@ -52,6 +52,7 @@ import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { formatServiceProviderHistory } from "@/lib/serviceHistory";
+import { formatRequiredVoucherGap } from "@/lib/serviceHours";
 import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
@@ -1806,6 +1807,10 @@ const UserManagement = () => {
                 <div className="space-y-2">
                   <Label>필요 요일 및 시간 (드래그하여 선택)</Label>
                   <WeeklySchedulePicker value={form.weeklySchedule} onChange={(s) => setForm(f => ({ ...f, weeklySchedule: s }))} />
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold text-foreground" aria-live="polite">
+                    {formatRequiredVoucherGap(form)}
+                  </div>
+                  <p className="text-xs text-muted-foreground">선택한 주간 시간 × 월 4주를 기준으로 자동 계산합니다.</p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2597,6 +2602,9 @@ const UserManagement = () => {
                   <div>
                     <p className="mb-2 text-sm text-muted-foreground">필요 요일 및 시간</p>
                     <WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly />
+                    <div className="mt-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-semibold text-foreground">
+                      {formatRequiredVoucherGap(detailTarget)}
+                    </div>
                   </div>
                 </CardContent>
               </Card>              <Card>

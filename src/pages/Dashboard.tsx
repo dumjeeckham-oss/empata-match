@@ -7,8 +7,8 @@ import { matchUserWithWorkers } from "@/lib/matching";
 import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, HANDOVERS_COLLECTION } from "@/lib/collectionNames";
 import { useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { isWithinRecentMonths, parseDateValue } from "@/lib/dashboardStats";
-import { getWorkerOperationalStatus } from "@/lib/statusLifecycle";
+import { getPersonDetailPath, isWithinRecentMonths, parseDateValue } from "@/lib/dashboardStats";
+import { getWorkerOperationalStatus, getWorkerStatusBadges } from "@/lib/statusLifecycle";
 import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
 
 const Dashboard = () => {
@@ -205,18 +205,25 @@ const Dashboard = () => {
             {recentUsers.length === 0 ? (
               <p className="text-muted-foreground text-sm py-4 text-center">신규 등록 이용자가 없습니다.</p>
             ) : (
-              <div className="divide-y max-h-[300px] overflow-x-auto overflow-y-auto pr-2">
+              <div className="max-h-[300px] divide-y overflow-y-auto pr-2">
                 {recentUsers.map((u) => (
-                  <div key={u.id} className="py-3 flex min-w-[520px] justify-between items-center">
+                  <button
+                    type="button"
+                    key={u.id}
+                    onClick={() => u.id && navigate(getPersonDetailPath("user", u.id))}
+                    className="flex w-full flex-col gap-2 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:flex-row sm:items-center sm:justify-between"
+                    aria-label={`${u.name} 이용자 상세보기`}
+                  >
                     <div>
                       <span className="font-medium">{u.name}</span>
-                      <span className="text-muted-foreground ml-2 text-xs">{u.gender} · {u.disabilityType}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{u.gender} · {u.disabilityType}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Badge variant="outline" className="text-xs">{u.contractStatus}</Badge>
                       <span className="text-[10px] text-muted-foreground">{u.receiptDate || ""}</span>
+                      <span className="text-xs font-medium text-primary">상세보기 →</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -232,18 +239,25 @@ const Dashboard = () => {
             {recentWorkers.length === 0 ? (
               <p className="text-muted-foreground text-sm py-4 text-center">신규 등록 활동지원사가 없습니다.</p>
             ) : (
-              <div className="divide-y max-h-[300px] overflow-x-auto overflow-y-auto pr-2">
+              <div className="max-h-[300px] divide-y overflow-y-auto pr-2">
                 {recentWorkers.map((w) => (
-                  <div key={w.id} className="py-3 flex min-w-[520px] justify-between items-center">
+                  <button
+                    type="button"
+                    key={w.id}
+                    onClick={() => w.id && navigate(getPersonDetailPath("worker", w.id))}
+                    className="flex w-full flex-col gap-2 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary sm:flex-row sm:items-center sm:justify-between"
+                    aria-label={`${w.name} 활동지원사 상세보기`}
+                  >
                     <div>
                       <span className="font-medium">{w.name}</span>
-                      <span className="text-muted-foreground ml-2 text-xs">{w.gender} · {w.experience}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">{w.gender} · {w.experience}</span>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className="text-xs">{w.contractStatus}</Badge>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {getWorkerStatusBadges(w).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
                       <span className="text-[10px] text-muted-foreground">{w.receiptDate || ""}</span>
+                      <span className="text-xs font-medium text-primary">상세보기 →</span>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
