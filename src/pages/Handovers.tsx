@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { Timestamp } from "@/lib/firebase";
 import { syncUserToWorkers } from "@/lib/assignments";
-import { closeMatchingEntries } from "@/lib/statusLifecycle";
+import { buildHandoverDocumentHistory, findExistingMatchForHandover } from "@/lib/handoverHistory";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { formatScheduleSummary } from "@/lib/workBoard";
@@ -58,7 +58,12 @@ export default function Handovers() {
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const docs = docsRaw || [];
-  const { add: addMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const {
+    data: matchingHistoryRaw,
+    add: addMatchingHistory,
+    update: updateMatchingHistory,
+  } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const matchingLogs = matchingHistoryRaw || [];
   const [searchParams] = useSearchParams();
 
 
@@ -137,7 +142,7 @@ export default function Handovers() {
     try {
       const note = `인계·인수서 작성 (${fromWorker?.name || "미배정"} → ${toWorker.name}) / 사유: ${reason.trim() || "-"}`;
       if (fromWorker?.id && fromWorker.id !== toWorker.id) {
-        await addMatchingHistory({
+        const releaseRecord: Omit<MatchingHistoryRecord, "id"> = {
           type: "해제",
           userId: user.id!,
           userName: user.name,
@@ -149,9 +154,17 @@ export default function Handovers() {
           endDate: handoverDate,
           serviceSchedule: fromWorker?.id ? user.assignmentSchedules?.[fromWorker.id] : undefined,
           notes: note,
-        } as any);
+        };
+        const existingRelease = matchingLogs.find((record) =>
+          record.userId === releaseRecord.userId &&
+          record.workerId === releaseRecord.workerId &&
+          record.type === "해제" &&
+          record.endDate === releaseRecord.endDate,
+        );
+        if (existingRelease?.id) await updateMatchingHistory(existingRelease.id, releaseRecord);
+        else await addMatchingHistory(releaseRecord);
       }
-      await addMatchingHistory({
+      const matchingRecord: Omit<MatchingHistoryRecord, "id"> = {
         type: "매칭",
         userId: user.id!,
         userName: user.name,
@@ -162,7 +175,16 @@ export default function Handovers() {
         date: takeoverDate,
         serviceSchedule: (fromWorker?.id ? user.assignmentSchedules?.[fromWorker.id] : undefined) || user.weeklySchedule || [],
         notes: note,
-      } as any);
+      };
+      const existingMatch = findExistingMatchForHandover(matchingLogs, user.id!, toWorker.id!);
+      if (existingMatch?.id) {
+        await updateMatchingHistory(existingMatch.id, {
+          ...matchingRecord,
+          date: existingMatch.date || matchingRecord.date,
+        });
+      } else {
+        await addMatchingHistory(matchingRecord);
+      }
     } catch (e) {
       console.error("매칭 히스토리 기록 실패:", e);
     }
@@ -194,27 +216,15 @@ export default function Handovers() {
 
       const transferredSchedule = (prevWorker?.id ? selectedUser.assignmentSchedules?.[prevWorker.id] : undefined) || selectedUser.weeklySchedule || [];
 
-      const closedHistory = closeMatchingEntries(
-        selectedUser.matchingHistory,
-        prevWorker?.id ? [prevWorker.id] : [],
+      const updatedDocumentHistory = buildHandoverDocumentHistory({
+        entries: selectedUser.matchingHistory,
+        previousWorkerId: prevWorker?.id,
+        nextWorker: { id: nextWorker.id, name: nextWorker.name, phone: nextWorker.phone },
         handoverDate,
-        reason.trim(),
-      );
-      const updatedDocumentHistory = [
-        ...closedHistory.filter((entry) => !(entry.workerId === nextWorker.id && entry.serviceStartDate === takeoverDate)),
-        {
-          id: "handover-" + selectedUser.id + "-" + nextWorker.id + "-" + takeoverDate,
-          workerId: nextWorker.id,
-          workerName: nextWorker.name,
-          workerPhone: nextWorker.phone,
-          serviceStartDate: takeoverDate,
-          serviceEndDate: null,
-          reason: "인계" as const,
-          reasonDetail: reason.trim(),
-          serviceSchedule: transferredSchedule,
-          updatedAt: new Date().toISOString(),
-        },
-      ];
+        takeoverDate,
+        reasonDetail: reason.trim(),
+        serviceSchedule: transferredSchedule,
+      });
 
       const payload: Omit<HandoverDocument, "id"> = {
         userId: selectedUser.id!,

@@ -7,17 +7,16 @@ import {
   USERS_COLLECTION,
   WORKERS_COLLECTION,
 } from "@/lib/collectionNames";
-import type { DocumentMatchingHistoryEntry } from "@/types";
+import {
+  getLinkedWorkerIds,
+  replacePersonName,
+  rewriteWorkerEntries,
+  type CascadePersonSnapshot,
+} from "@/lib/profileCascade";
 
 const MAX_BATCH_WRITES = 450;
 
-type PersonSnapshot = {
-  name: string;
-  phone: string;
-  address?: string;
-  voucherTier?: number;
-  disabilityType?: string;
-};
+type PersonSnapshot = CascadePersonSnapshot;
 
 type UpdateItem = { collectionName: string; id: string; data: Record<string, unknown> };
 
@@ -44,24 +43,6 @@ function updateByLinkedId(ids: string[], values: string[], linkedId: string, nex
   return next;
 }
 
-function rewriteWorkerEntries(entries: unknown, workerId: string, next: PersonSnapshot): DocumentMatchingHistoryEntry[] | null {
-  if (!Array.isArray(entries)) return null;
-  let changed = false;
-  const rewritten = entries.map((entry) => {
-    if (!entry || typeof entry !== "object") return entry;
-    const item = entry as DocumentMatchingHistoryEntry;
-    if (item.workerId !== workerId) return item;
-    changed = true;
-    return {
-      ...item,
-      workerName: next.name,
-      workerPhone: next.phone,
-      updatedAt: new Date().toISOString(),
-    };
-  });
-  return changed ? (rewritten as DocumentMatchingHistoryEntry[]) : null;
-}
-
 async function commitUpdates(updates: UpdateItem[]) {
   for (let offset = 0; offset < updates.length; offset += MAX_BATCH_WRITES) {
     const batch = writeBatch(db);
@@ -78,6 +59,20 @@ async function commitUpdates(updates: UpdateItem[]) {
 async function matchingDocs(field: string, id: string, collectionName: string) {
   const snapshot = await getDocs(query(collection(db, collectionName), where(field, "==", id)));
   return snapshot.docs;
+}
+
+function matchesLegacyLinkedPerson(
+  data: Record<string, unknown>,
+  expectedId: string,
+  idField: string,
+  phoneField: string,
+  previousPhone?: string,
+) {
+  const linkedId = String(data[idField] || "");
+  if (linkedId) return linkedId === expectedId;
+  const expectedPhone = String(previousPhone || "").replace(/\D/g, "");
+  if (!expectedPhone) return true;
+  return String(data[phoneField] || "").replace(/\D/g, "") === expectedPhone;
 }
 
 /** ID를 기준으로 이용자 이름/연락처/주소를 모든 역정규화 문서에 일괄 반영한다. */
@@ -129,40 +124,49 @@ export async function cascadeWorkerProfile(workerId: string, next: PersonSnapsho
   const [
     users,
     histories,
+    historiesByPreviousName,
     counseling,
     previousHandovers,
     nextHandovers,
+    previousNameHandovers,
+    nextNameHandovers,
     handoverPersons,
     takeoverPersons,
     terminations,
   ] = await Promise.all([
     getDocs(collection(db, USERS_COLLECTION)),
     matchingDocs("workerId", workerId, MATCHING_HISTORY_COLLECTION),
+    previous?.name ? matchingDocs("workerName", previous.name, MATCHING_HISTORY_COLLECTION) : Promise.resolve([]),
     matchingDocs("targetId", workerId, COUNSELING_COLLECTION),
     matchingDocs("prevWorkerId", workerId, HANDOVERS_COLLECTION),
     matchingDocs("nextWorkerId", workerId, HANDOVERS_COLLECTION),
+    previous?.name ? matchingDocs("prevWorkerName", previous.name, HANDOVERS_COLLECTION) : Promise.resolve([]),
+    previous?.name ? matchingDocs("nextWorkerName", previous.name, HANDOVERS_COLLECTION) : Promise.resolve([]),
     previous?.name ? matchingDocs("handoverPersonName", previous.name, HANDOVERS_COLLECTION) : Promise.resolve([]),
     previous?.name ? matchingDocs("takeoverPersonName", previous.name, HANDOVERS_COLLECTION) : Promise.resolve([]),
-    previous?.name ? matchingDocs("assignedWorkerName", previous.name, TERMINATIONS_COLLECTION) : Promise.resolve([]),
+    getDocs(collection(db, TERMINATIONS_COLLECTION)),
   ]);
 
   const updates = new Map<string, UpdateItem>();
   for (const user of users.docs) {
     const data = user.data();
-    const ids = Array.isArray(data.assignedHelperIds) ? data.assignedHelperIds : [];
+    const ids = getLinkedWorkerIds(data);
     const dataToUpdate: Record<string, unknown> = {};
     if (ids.includes(workerId)) {
       dataToUpdate.assignedHelperNames = updateByLinkedId(ids, Array.isArray(data.assignedHelperNames) ? data.assignedHelperNames : [], workerId, next.name);
       dataToUpdate.assignedHelperPhones = updateByLinkedId(ids, Array.isArray(data.assignedHelperPhones) ? data.assignedHelperPhones : [], workerId, next.phone);
     }
-    const matchingHistory = rewriteWorkerEntries(data.matchingHistory, workerId, next);
+    const matchingHistory = rewriteWorkerEntries(data.matchingHistory, workerId, next, previous);
     if (matchingHistory) dataToUpdate.matchingHistory = matchingHistory;
     if (Object.keys(dataToUpdate).length > 0) {
       queueUpdate(updates, USERS_COLLECTION, user.id, dataToUpdate);
     }
   }
 
-  histories.forEach((item) => queueUpdate(updates, MATCHING_HISTORY_COLLECTION, item.id, { workerName: next.name, workerPhone: next.phone }));
+  [...histories, ...historiesByPreviousName].forEach((item) => {
+    if (!matchesLegacyLinkedPerson(item.data(), workerId, "workerId", "workerPhone", previous?.phone)) return;
+    queueUpdate(updates, MATCHING_HISTORY_COLLECTION, item.id, { workerId, workerName: next.name, workerPhone: next.phone });
+  });
   counseling.forEach((item) => queueUpdate(updates, COUNSELING_COLLECTION, item.id, {
     targetName: next.name,
     targetPhone: next.phone,
@@ -170,9 +174,20 @@ export async function cascadeWorkerProfile(workerId: string, next: PersonSnapsho
   }));
   previousHandovers.forEach((item) => queueUpdate(updates, HANDOVERS_COLLECTION, item.id, { prevWorkerName: next.name, prevWorkerPhone: next.phone, handoverPersonName: next.name }));
   nextHandovers.forEach((item) => queueUpdate(updates, HANDOVERS_COLLECTION, item.id, { nextWorkerName: next.name, nextWorkerPhone: next.phone, takeoverPersonName: next.name }));
+  previousNameHandovers.forEach((item) => {
+    if (!matchesLegacyLinkedPerson(item.data(), workerId, "prevWorkerId", "prevWorkerPhone", previous?.phone)) return;
+    queueUpdate(updates, HANDOVERS_COLLECTION, item.id, { prevWorkerId: workerId, prevWorkerName: next.name, prevWorkerPhone: next.phone });
+  });
+  nextNameHandovers.forEach((item) => {
+    if (!matchesLegacyLinkedPerson(item.data(), workerId, "nextWorkerId", "nextWorkerPhone", previous?.phone)) return;
+    queueUpdate(updates, HANDOVERS_COLLECTION, item.id, { nextWorkerId: workerId, nextWorkerName: next.name, nextWorkerPhone: next.phone });
+  });
   handoverPersons.forEach((item) => queueUpdate(updates, HANDOVERS_COLLECTION, item.id, { handoverPersonName: next.name }));
   takeoverPersons.forEach((item) => queueUpdate(updates, HANDOVERS_COLLECTION, item.id, { takeoverPersonName: next.name }));
-  terminations.forEach((item) => queueUpdate(updates, TERMINATIONS_COLLECTION, item.id, { assignedWorkerName: next.name }));
+  terminations.docs.forEach((item) => {
+    const assignedWorkerName = replacePersonName(item.data().assignedWorkerName, previous?.name, next.name);
+    if (assignedWorkerName) queueUpdate(updates, TERMINATIONS_COLLECTION, item.id, { assignedWorkerName });
+  });
 
   await commitUpdates([...updates.values()]);
   return updates.size;

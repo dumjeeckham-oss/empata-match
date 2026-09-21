@@ -55,6 +55,7 @@ import { formatServiceProviderHistory } from "@/lib/serviceHistory";
 import { formatRequiredVoucherGap } from "@/lib/serviceHours";
 import { findAssignmentScheduleConflict, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
+import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
@@ -1547,9 +1548,9 @@ const UserManagement = () => {
 
   const selectedMatchingLogs = useMemo(() => {
     if (!detailTarget) return [];
-    return matchingLogs
+    return collapseHandoverDuplicateMatches(matchingLogs
       .filter((record) => record.userId === detailTarget.id)
-      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date))));
   }, [matchingLogs, detailTarget]);
   const selectedHandoverDocs = useMemo(() => {
     if (!detailTarget) return [];

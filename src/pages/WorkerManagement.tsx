@@ -52,6 +52,7 @@ import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
 import { preserveWorkerDateOnStatusChange } from "@/lib/workerDatePreservation";
+import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, resolveWorkerContractStatus } from "@/lib/statusLifecycle";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
@@ -285,12 +286,6 @@ const WorkerManagement = () => {
   const [supportFilter, setSupportFilter] = useState<string>("all");
   const [geocoding, setGeocoding] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(Worker & { id: string }) | null>(null);
-  const [pendingProfileSync, setPendingProfileSync] = useState<{
-    id: string;
-    changedFields: string[];
-    snapshot: { name: string; phone: string; address: string };
-    previous: { name: string; phone: string; address: string };
-  } | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     title: string;
     rows: Array<{ id: string; name: string; date: string; status: string; note: string; workerId?: string }>;
@@ -511,16 +506,30 @@ const WorkerManagement = () => {
         previous?.phone !== payload.phone ? "전화번호" : "",
         previous?.address !== payload.address ? "주소" : "",
       ].filter(Boolean);
-      await update(editingId, payload);
-      if (changedFields.length > 0) {
-        setPendingProfileSync({
-          id: editingId,
-          changedFields,
-          snapshot: { name: payload.name, phone: payload.phone, address: payload.address },
-          previous: { name: previous?.name || "", phone: previous?.phone || "", address: previous?.address || "" },
-        });
+      if (changedFields.length > 0 && !confirm(
+        `${changedFields.join(", ")} 변경 내용을 연결된 이용자, 매칭 이력, 인계인수서, 종결확인서, 상담기록에도 함께 반영합니다. 계속하시겠습니까?`,
+      )) {
+        return;
       }
-      toast({ title: isRehire ? "재입사 처리 완료" : "수정 완료", description: isRehire ? "입사일을 갱신하고 재직중 + 대기 상태로 전환했습니다." : nextContractStatus === "대기" && form.contractStatus === "근무중" ? "담당 이용자가 없어 대기 상태로 저장했습니다." : undefined });
+      await update(editingId, payload);
+      let cascadedCount = 0;
+      if (changedFields.length > 0) {
+        cascadedCount = await cascadeWorkerProfile(
+          editingId,
+          { name: payload.name, phone: payload.phone, address: payload.address },
+          { name: previous?.name || "", phone: previous?.phone || "", address: previous?.address || "" },
+        );
+      }
+      toast({
+        title: isRehire ? "재입사 처리 완료" : "수정 완료",
+        description: changedFields.length > 0
+          ? `연결된 ${cascadedCount}개 데이터에도 변경 내용을 반영했습니다.`
+          : isRehire
+            ? "입사일을 갱신하고 재직중 + 대기 상태로 전환했습니다."
+            : nextContractStatus === "대기" && form.contractStatus === "근무중"
+              ? "담당 이용자가 없어 대기 상태로 저장했습니다."
+              : undefined,
+      });
     } else {
       const ref = await add(payload as Omit<Worker, "id">);
       savedId = ref.id;
@@ -870,9 +879,9 @@ const WorkerManagement = () => {
 
   const selectedMatchingLogs = useMemo(() => {
     if (!detailTarget) return [];
-    return matchingLogs
+    return collapseHandoverDuplicateMatches(matchingLogs
       .filter((record) => record.workerId === detailTarget.id)
-      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date)));
+      .sort((a, b) => getComparableDateValue(b.date).localeCompare(getComparableDateValue(a.date))));
   }, [matchingLogs, detailTarget]);
 
   const getFiltered = () => {
@@ -1401,28 +1410,6 @@ const WorkerManagement = () => {
           </Card>
         </aside>
       </div>
-      <AlertDialog open={!!pendingProfileSync} onOpenChange={(open) => !open && setPendingProfileSync(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>연관 데이터 일괄 업데이트</AlertDialogTitle>
-            <AlertDialogDescription>
-              정보 변경({pendingProfileSync?.changedFields.join(", ")})이 감지되었습니다. 변경된 내용을 이 활동지원사와 연결된 모든 매칭 이력, 인계인수서, 종결확인서, 상담기록에도 일괄 반영하시겠습니까?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setPendingProfileSync(null)}>아니요</AlertDialogCancel>
-            <AlertDialogAction onClick={async () => {
-              if (!pendingProfileSync) return;
-              const updatedCount = await cascadeWorkerProfile(pendingProfileSync.id, pendingProfileSync.snapshot, pendingProfileSync.previous);
-              setPendingProfileSync(null);
-              toast({ title: "연관 데이터 업데이트 완료", description: `${updatedCount}개 연결 문서에 변경 내용을 반영했습니다.` });
-            }}>
-              확인/승인
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1571,7 +1558,28 @@ const WorkerManagement = () => {
                 <div className="flex flex-wrap gap-1">
                   {getWorkerStatusBadges(detailTarget).map((badge) => <Badge key={badge.label} className={badge.className}>{badge.label}</Badge>)}
                 </div>
-                <Button variant="outline" onClick={() => { setWorkerTransitionDate(new Date().toISOString().slice(0, 10)); setWorkerTransitionTarget(detailTarget); }}>퇴사/대기 전환</Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={async () => {
+                      if (!confirm("현재 이름·연락처·주소를 연결된 이용자와 모든 이력 문서에 다시 동기화하시겠습니까?")) return;
+                      try {
+                        const updatedCount = await cascadeWorkerProfile(detailTarget.id, {
+                          name: detailTarget.name,
+                          phone: detailTarget.phone,
+                          address: detailTarget.address,
+                        });
+                        toast({ title: "연관 정보 동기화 완료", description: `${updatedCount}개 연결 데이터에 현재 정보를 반영했습니다.` });
+                      } catch (error) {
+                        console.error("Worker profile repair failed:", error);
+                        toast({ title: "연관 정보 동기화 실패", description: "네트워크 연결을 확인한 뒤 다시 시도해주세요.", variant: "destructive" });
+                      }
+                    }}
+                  >
+                    연관 정보 다시 동기화
+                  </Button>
+                  <Button variant="outline" onClick={() => { setWorkerTransitionDate(new Date().toISOString().slice(0, 10)); setWorkerTransitionTarget(detailTarget); }}>퇴사/대기 전환</Button>
+                </div>
               </div>
               <div className="bg-muted/30 rounded-lg p-4 space-y-3">
                 <span className="text-sm font-bold text-primary block border-b pb-1 mb-2">업무별 가능/거부 현황</span>
