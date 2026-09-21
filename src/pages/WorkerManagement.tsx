@@ -1794,6 +1794,15 @@ const WorkerManagement = () => {
                     if (!selectedUser?.id) return;
                     const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
+                    const otherActiveHelperIds = (selectedUser.assignedHelperIds || []).filter((id) => id !== detailTarget.id);
+                    if (!isAttempt && !isEnded && otherActiveHelperIds.length > 0) {
+                      toast({
+                        title: "1:다 매칭은 이용자 화면에서 등록해주세요",
+                        description: "지원사별 서비스 시간을 입력하고 중복 검사를 통과해야 저장할 수 있습니다.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
                     const eventDate = isAttempt ? matchHistoryForm.attemptDate : matchHistoryForm.date;
                     const payload: Partial<MatchingHistoryRecord> = {
                       type: isEnded ? "해제" : matchHistoryForm.type as MatchingHistoryRecord["type"],

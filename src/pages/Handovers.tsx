@@ -18,6 +18,7 @@ import { syncUserToWorkers } from "@/lib/assignments";
 import { closeMatchingEntries } from "@/lib/statusLifecycle";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { formatVoucherTier } from "@/lib/userVoucher";
+import { formatScheduleSummary } from "@/lib/workBoard";
 
 import { Printer, Search, X, Edit2, Trash2 } from "lucide-react";
 import {
@@ -67,6 +68,8 @@ export default function Handovers() {
   const [isUserSearchOpen, setIsUserSearchOpen] = useState(false);
   const [nextWorkerId, setNextWorkerId] = useState<string>("");
   const [isWorkerSearchOpen, setIsWorkerSearchOpen] = useState(false);
+  const [selectedPrevWorkerId, setSelectedPrevWorkerId] = useState<string>("");
+  const [isPrevWorkerSearchOpen, setIsPrevWorkerSearchOpen] = useState(false);
   
   const [handoverPersonName, setHandoverPersonName] = useState<string>("");
   const [handoverDate, setHandoverDate] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -81,7 +84,7 @@ export default function Handovers() {
   const nextWorker = useMemo(() => workers.find((w) => w.id === nextWorkerId), [workers, nextWorkerId]);
 
   const requestedOldWorkerId = searchParams.get("oldWorkerId") || "";
-  const prevWorkerId = requestedOldWorkerId || selectedUser?.assignedHelperIds?.[0] || selectedUser?.assigned_workers?.[0] || "";
+  const prevWorkerId = selectedPrevWorkerId || requestedOldWorkerId || selectedUser?.assignedHelperIds?.[0] || selectedUser?.assigned_workers?.[0] || "";
   const prevWorker = useMemo(() => {
     if (!selectedUser) return undefined;
     if (prevWorkerId) {
@@ -117,6 +120,7 @@ export default function Handovers() {
     const qNextWorkerId = searchParams.get("nextWorkerId") || "";
     const qEndDate = searchParams.get("endDate") || "";
     if (qUserId) setUserId(qUserId);
+    if (requestedOldWorkerId) setSelectedPrevWorkerId(requestedOldWorkerId);
     if (qNextWorkerId) setNextWorkerId(qNextWorkerId);
     if (qEndDate) setHandoverDate(qEndDate);
     if (qUserId && !reason) setReason("담당 활동지원사 변경");
@@ -143,6 +147,7 @@ export default function Handovers() {
           workerPhone: fromWorker.phone,
           date: user.matchingHistory?.find((entry) => entry.workerId === fromWorker.id)?.serviceStartDate || user.serviceStartDate || handoverDate,
           endDate: handoverDate,
+          serviceSchedule: fromWorker?.id ? user.assignmentSchedules?.[fromWorker.id] : undefined,
           notes: note,
         } as any);
       }
@@ -155,6 +160,7 @@ export default function Handovers() {
         workerName: toWorker.name,
         workerPhone: toWorker.phone,
         date: takeoverDate,
+        serviceSchedule: (fromWorker?.id ? user.assignmentSchedules?.[fromWorker.id] : undefined) || user.weeklySchedule || [],
         notes: note,
       } as any);
     } catch (e) {
@@ -186,6 +192,8 @@ export default function Handovers() {
         return;
       }
 
+      const transferredSchedule = (prevWorker?.id ? selectedUser.assignmentSchedules?.[prevWorker.id] : undefined) || selectedUser.weeklySchedule || [];
+
       const closedHistory = closeMatchingEntries(
         selectedUser.matchingHistory,
         prevWorker?.id ? [prevWorker.id] : [],
@@ -203,6 +211,7 @@ export default function Handovers() {
           serviceEndDate: null,
           reason: "인계" as const,
           reasonDetail: reason.trim(),
+          serviceSchedule: transferredSchedule,
           updatedAt: new Date().toISOString(),
         },
       ];
@@ -243,6 +252,7 @@ export default function Handovers() {
           assignedHelperNames: [nextWorker.name],
           assignedHelperPhones: [nextWorker.phone],
           matchingHistory: updatedDocumentHistory,
+          assignmentSchedules: { [nextWorker.id!]: transferredSchedule },
           contractStatus: "서비스중",
           resignationDate: "",
         };
@@ -285,6 +295,7 @@ export default function Handovers() {
           assignedHelperNames: [nextWorker.name],
           assignedHelperPhones: [nextWorker.phone],
           matchingHistory: updatedDocumentHistory,
+          assignmentSchedules: { [nextWorker.id!]: transferredSchedule },
           contractStatus: "서비스중",
           resignationDate: "",
         };
@@ -333,6 +344,7 @@ export default function Handovers() {
     setUserId(doc.userId);
     setNextWorkerId(doc.nextWorkerId);
     setHandoverPersonName(doc.handoverPersonName);
+    setSelectedPrevWorkerId(doc.prevWorkerId || "");
     setHandoverDate(doc.handoverDate);
     setTakeoverPersonName(doc.takeoverPersonName);
     setTakeoverDate(doc.takeoverDate);
@@ -357,6 +369,7 @@ export default function Handovers() {
     setUserId("");
     setNextWorkerId("");
     setHandoverPersonName("");
+    setSelectedPrevWorkerId("");
     setHandoverDate(new Date().toISOString().slice(0, 10));
     setTakeoverPersonName("");
     setTakeoverDate(new Date().toISOString().slice(0, 10));
@@ -643,6 +656,7 @@ export default function Handovers() {
               <div className="pt-1 text-xs text-muted-foreground">
                 현재 담당(전임): {prevWorker ? labelWithLast4(prevWorker?.name || "이름없음", prevWorker?.phone || "") : "미배정"}
               </div>
+              <div className="text-xs text-muted-foreground">기존 서비스 시간: {formatScheduleSummary(prevWorkerId ? selectedUser.assignmentSchedules?.[prevWorkerId] : undefined, selectedUser.requiredDays, selectedUser.requiredHours)}</div>
             </div>
           )}
 
@@ -652,9 +666,47 @@ export default function Handovers() {
             {workers.map((worker) => <option key={`worker-${worker.id}`} value={worker.name} />)}
           </datalist>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>인계자(전임자/전담인력) 성명 *</Label>
-              <Input list="handover-person-options" value={handoverPersonName} onChange={(e) => setHandoverPersonName(e.target.value)} placeholder="전임자 또는 전담인력 검색/입력" />
+            <div className="space-y-2">
+              <Label>인계자(전임 활동지원사/전담인력) *</Label>
+              <Popover open={isPrevWorkerSearchOpen} onOpenChange={setIsPrevWorkerSearchOpen}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" role="combobox" aria-expanded={isPrevWorkerSearchOpen} className="w-full justify-between">
+                    {prevWorker ? labelWithLast4(prevWorker.name, prevWorker.phone) : "퇴사자 포함 전체 활동지원사 검색"}
+                    <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[min(400px,calc(100vw-2rem))] p-0">
+                  <Command>
+                    <CommandInput placeholder="이름 또는 연락처로 검색..." />
+                    <CommandList>
+                      <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
+                      <CommandGroup heading="재직·대기·퇴사 전체">
+                        {workers.map((worker) => (
+                          <CommandItem
+                            key={worker.id}
+                            value={`${worker.name} ${worker.phone}`}
+                            onSelect={() => {
+                              setSelectedPrevWorkerId(worker.id || "");
+                              setHandoverPersonName(worker.name);
+                              setIsPrevWorkerSearchOpen(false);
+                            }}
+                          >
+                            <div className="flex w-full items-center justify-between gap-2">
+                              <div className="flex flex-col">
+                                <span className="font-medium">{worker.name} ({worker.phone})</span>
+                                <span className="text-xs text-muted-foreground">{worker.experience || "경력 미등록"}</span>
+                              </div>
+                              <Badge variant={isWorkerRetired(worker) ? "secondary" : "outline"}>{isWorkerRetired(worker) ? "퇴사" : worker.contractStatus}</Badge>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              <Input list="handover-person-options" value={handoverPersonName} onChange={(e) => setHandoverPersonName(e.target.value)} placeholder="전담인력은 직접 입력할 수 있습니다." />
+              <p className="text-xs text-muted-foreground">퇴사한 활동지원사도 이름·연락처로 검색됩니다.</p>
             </div>
             <div>
               <Label>인계일 *</Label>

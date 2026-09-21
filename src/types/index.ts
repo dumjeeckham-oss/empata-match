@@ -44,6 +44,8 @@ export interface DocumentMatchingHistoryEntry {
   serviceEndDate: string | null;
   reason: MatchingHistoryReason;
   reasonDetail?: string;
+  /** 1:다 매칭에서 해당 활동지원사가 실제 제공하는 요일·시간 */
+  serviceSchedule?: WeeklySchedule[];
   updatedAt?: string;
 }
 
@@ -98,6 +100,8 @@ export interface ServiceUser {
   requiredDays: string;
   requiredHours: string;
   weeklySchedule?: WeeklySchedule[];
+  /** 활동지원사 ID별 실제 서비스 제공시간 (1:다 중복 검증의 기준 데이터) */
+  assignmentSchedules?: Record<string, WeeklySchedule[]>;
   supportTypes: string[];
   environmentTags: string[];
   familyMembers: string;
@@ -314,9 +318,18 @@ export interface MatchingHistoryRecord {
   attemptResult?: string; // 매칭 시도 결과
   reason?: MatchingHistoryReason;
   reasonDetail?: string;
+  /** 해당 매칭 건의 실제 서비스 제공 요일·시간 */
+  serviceSchedule?: WeeklySchedule[];
   failureReason?: string;
   rejectionScoreDelta?: number;
   notes?: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface WorkBoardPreference {
+  id?: string;
+  widgetOrder: string[];
   createdAt?: unknown;
   updatedAt?: unknown;
 }

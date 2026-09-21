@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, type WeeklySchedule, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
@@ -53,6 +53,8 @@ import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { formatServiceProviderHistory } from "@/lib/serviceHistory";
 import { formatRequiredVoucherGap } from "@/lib/serviceHours";
+import { findAssignmentScheduleConflict, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
+import { formatScheduleSummary } from "@/lib/workBoard";
 import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
@@ -108,7 +110,7 @@ const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   needsSchoolSupport: false,
   femaleOnly: false,
   maleOnly: false,
-  receiptDate: "", matchingHistory: [],
+  receiptDate: "", matchingHistory: [], assignmentSchedules: {},
 };
 
 type MultiMatchCleanupAction = {
@@ -260,7 +262,7 @@ const UserManagement = () => {
   const [terminationFlowTarget, setTerminationFlowTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
-  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; attemptDate: string; attemptResult: string; failureReason: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string} | null>(null);
+  const [matchHistoryForm, setMatchHistoryForm] = useState<{type: string; workerId: string; workerName: string; workerPhone: string; date: string; endDate: string; attemptDate: string; attemptResult: string; failureReason: string; reason: MatchingHistoryReason; reasonDetail: string; notes: string; serviceSchedule: WeeklySchedule[]} | null>(null);
   const [editingMatchHistoryId, setEditingMatchHistoryId] = useState<string | null>(null);
   const [matchHistoryDialogOpen, setMatchHistoryDialogOpen] = useState(false);
   const [isMatchWorkerSearchOpen, setIsMatchWorkerSearchOpen] = useState(false);
@@ -527,6 +529,31 @@ const UserManagement = () => {
 
 
     const uniqueHelperIds = Array.from(new Set(form.assignedHelperIds || []));
+    const assignmentSchedules = { ...(form.assignmentSchedules || {}) };
+    if (uniqueHelperIds.length === 1 && !hasServiceSchedule(assignmentSchedules[uniqueHelperIds[0]]) && hasServiceSchedule(form.weeklySchedule)) {
+      assignmentSchedules[uniqueHelperIds[0]] = form.weeklySchedule || [];
+    }
+    const missingScheduleIds = getMissingAssignmentScheduleIds(uniqueHelperIds, assignmentSchedules);
+    if (missingScheduleIds.length > 0) {
+      const names = missingScheduleIds.map((id) => workers.find((worker) => worker.id === id)?.name || id).join(", ");
+      toast({
+        title: "지원사별 서비스 시간을 입력해주세요",
+        description: `1:다 매칭은 모든 지원사의 담당 요일·시간이 필요합니다. 미입력: ${names}`,
+        variant: "destructive",
+      });
+      return;
+    }
+    const scheduleConflict = findAssignmentScheduleConflict(uniqueHelperIds, assignmentSchedules);
+    if (scheduleConflict) {
+      const first = workers.find((worker) => worker.id === scheduleConflict.firstWorkerId)?.name || scheduleConflict.firstWorkerId;
+      const second = workers.find((worker) => worker.id === scheduleConflict.secondWorkerId)?.name || scheduleConflict.secondWorkerId;
+      toast({
+        title: "서비스 제공시간이 겹칩니다",
+        description: `${first} / ${second} · ${scheduleConflict.day}요일 ${scheduleConflict.startTime}~${scheduleConflict.endTime}. 시간을 조정한 뒤 저장해주세요.`,
+        variant: "destructive",
+      });
+      return;
+    }
     const arrays = buildHelperArraysFromIds(uniqueHelperIds, workers);
     const payload: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
       ...form,
@@ -534,6 +561,7 @@ const UserManagement = () => {
       assigned_workers: arrays.ids,
       assignedHelperNames: arrays.names,
       assignedHelperPhones: arrays.phones,
+      assignmentSchedules: Object.fromEntries(uniqueHelperIds.map((id) => [id, assignmentSchedules[id] || []])),
       txtUSex: form.gender,
       txtUMemostop: form.terminationReason,
       receiptDate: form.receiptDate || new Date().toISOString().slice(0, 10),
@@ -673,6 +701,7 @@ const UserManagement = () => {
               workerName: w.name,
               workerPhone: w.phone,
               date: payload.serviceStartDate || new Date().toISOString().slice(0, 10),
+              serviceSchedule: payload.assignmentSchedules?.[wid] || [],
               notes: "활동지원사 배정",
             } as any);
           }
@@ -1928,11 +1957,36 @@ const UserManagement = () => {
                     <Label>담당 활동지원사 (N:M)</Label>
                     <MultiEntitySelect
                       label="담당 활동지원사"
-                      options={workers.map((w) => ({ id: w.id || "", label: w.name, sublabel: String(w.phone || "") }))}
+                      options={workers.filter((w) => !isWorkerRetired(w) || (form.assignedHelperIds || []).includes(w.id || "")).map((w) => ({ id: w.id || "", label: w.name, sublabel: String(w.phone || "") }))}
                       selectedIds={form.assignedHelperIds || []}
                       onChange={(ids) => setForm((f) => ({ ...f, assignedHelperIds: ids }))}
                       placeholder="지원사 선택..."
                     />
+                    {(form.assignedHelperIds || []).length > 0 && (
+                      <div className="mt-3 space-y-3 rounded-lg border bg-muted/20 p-3">
+                        <div>
+                          <p className="text-sm font-semibold">지원사별 실제 서비스 제공시간</p>
+                          <p className="text-xs text-muted-foreground">1:다 매칭은 모든 지원사의 시간을 입력해야 하며, 겹치는 시간은 저장할 수 없습니다.</p>
+                        </div>
+                        {(form.assignedHelperIds || []).map((workerId) => {
+                          const worker = workers.find((item) => item.id === workerId);
+                          const schedule = form.assignmentSchedules?.[workerId] || ((form.assignedHelperIds || []).length === 1 ? form.weeklySchedule || [] : []);
+                          return (
+                            <div key={workerId} className="space-y-2 rounded-md border bg-background p-3">
+                              <p className="font-medium">{worker?.name || workerId} <span className="text-xs font-normal text-muted-foreground">{worker?.phone || ""}</span></p>
+                              <WeeklySchedulePicker
+                                value={schedule}
+                                onChange={(nextSchedule) => setForm((current) => ({
+                                  ...current,
+                                  weeklySchedule: (current.assignedHelperIds || []).length === 1 ? nextSchedule : current.weeklySchedule,
+                                  assignmentSchedules: updateAssignmentSchedule(current.assignmentSchedules, workerId, nextSchedule),
+                                }))}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     <Button
                       type="button"
                       variant="outline"
@@ -2599,6 +2653,23 @@ const UserManagement = () => {
                     <div><p className="text-sm text-muted-foreground">희망 활동지원사</p><p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.preferredWorkerTraits || "미등록"}</p></div>
                     <div><p className="text-sm text-muted-foreground">특이사항</p><p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.notes || "미등록"}</p></div>
                   </div>
+                  {(detailTarget.assignedHelperIds || []).length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold">지원사별 실제 서비스 제공시간</p>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {(detailTarget.assignedHelperIds || []).map((workerId) => {
+                          const worker = workers.find((item) => item.id === workerId);
+                          const schedule = detailTarget.assignmentSchedules?.[workerId] || ((detailTarget.assignedHelperIds || []).length === 1 ? detailTarget.weeklySchedule : undefined);
+                          return (
+                            <div key={workerId} className="rounded-md border bg-muted/20 p-3">
+                              <p className="font-medium">{worker?.name || workerId}</p>
+                              <p className="mt-1 text-sm text-muted-foreground">{formatScheduleSummary(schedule)}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <p className="mb-2 text-sm text-muted-foreground">필요 요일 및 시간</p>
                     <WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly />
@@ -2661,7 +2732,7 @@ const UserManagement = () => {
                   <CardHeader className="flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold">📋 매칭 이력 ({selectedMatchingLogs.length}건)</CardTitle>
                     <Button size="sm" variant="outline" onClick={() => {
-                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", failureReason: "기타", reason: "추가", reasonDetail: "", notes: ""});
+                      setMatchHistoryForm({type: "매칭", workerId: "", workerName: "", workerPhone: "", date: new Date().toISOString().slice(0,10), endDate: "", attemptDate: new Date().toISOString().slice(0,10), attemptResult: "", failureReason: "기타", reason: "추가", reasonDetail: "", notes: "", serviceSchedule: []});
                       setEditingMatchHistoryId(null);
                       setMatchHistoryDialogOpen(true);
                     }}>＋ 기록 추가</Button>
@@ -2672,21 +2743,29 @@ const UserManagement = () => {
                     ) : (
                       selectedMatchingLogs.map((match) => {
                         const handoverDoc = getHandoverForMatch(match);
+                        const needsHandover = !handoverDoc && (match.type === "해제" || match.reason === "인계" || match.reason === "교체" || !!match.endDate);
+                        const matchSchedule = match.serviceSchedule || detailTarget.assignmentSchedules?.[match.workerId];
                         return (
                         <div key={match.id || [match.date, match.workerId].join("-")} className="border rounded-lg p-3 hover:bg-muted">
                           <div className="flex justify-between items-start gap-3">
                             <div className="cursor-pointer flex-1" onClick={() => setExpandedMatchId(expandedMatchId === match.id ? null : match.id)}>
                               <p className="font-semibold">{match.date}{match.endDate ? ` ~ ${match.endDate}` : ""} · {match.type}</p>
                               <p className="text-sm text-muted-foreground">{match.workerName} · {match.workerPhone}</p>
+                              <p className="mt-1 text-xs font-medium text-primary">서비스 시간: {formatScheduleSummary(matchSchedule)}</p>
                               <div className="mt-2 flex flex-wrap gap-2">
-                                <Badge variant={handoverDoc ? "default" : "secondary"}>{handoverDoc ? "인계인수서 작성완료" : "인계인수서 미작성"}</Badge>
-                                {!handoverDoc && (match.type === "해제" || match.reason === "인계" || match.reason === "교체" || match.endDate) && (
-                                  <Button size="sm" variant="outline" className="h-6 px-2 text-xs" onClick={(e) => { e.stopPropagation(); openHandoverFromMatch(match); }}>작성하기</Button>
+                                {handoverDoc ? (
+                                  <Badge>인계인수서 작성완료</Badge>
+                                ) : needsHandover ? (
+                                  <button type="button" onClick={(event) => { event.stopPropagation(); openHandoverFromMatch(match); }} aria-label="인계인수서 미작성, 클릭하여 작성">
+                                    <Badge variant="secondary" className="cursor-pointer hover:bg-primary hover:text-primary-foreground">인계인수서 미작성 · 클릭하여 작성</Badge>
+                                  </button>
+                                ) : (
+                                  <Badge variant="secondary">인계인수서 미작성</Badge>
                                 )}
                               </div>
                             </div>
                             <div className="flex gap-1">
-                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
+                              <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || "", serviceSchedule: match.serviceSchedule || detailTarget.assignmentSchedules?.[match.workerId] || []}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
                               {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
@@ -2750,7 +2829,7 @@ const UserManagement = () => {
                           <CommandList>
                             <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
                             <CommandGroup>
-                              {workers.map((worker) => (
+                              {workers.filter((worker) => !isWorkerRetired(worker) || worker.id === matchHistoryForm?.workerId).map((worker) => (
                                 <CommandItem
                                   key={worker.id}
                                   value={`${worker.name} ${worker.phone}`}
@@ -2801,6 +2880,18 @@ const UserManagement = () => {
                       </div>
                     </div>
                   )}
+                  {matchHistoryForm && matchHistoryForm.type !== "시도" && matchHistoryForm.type !== "실패" && !matchHistoryForm.endDate && (
+                    <div className="space-y-2 rounded-lg border bg-muted/20 p-3">
+                      <div>
+                        <label className="text-sm font-semibold">이 지원사의 실제 서비스 제공시간</label>
+                        <p className="text-xs text-muted-foreground">1:다 매칭에서는 다른 지원사와 겹치는 요일·시간을 저장할 수 없습니다.</p>
+                      </div>
+                      <WeeklySchedulePicker
+                        value={matchHistoryForm.serviceSchedule}
+                        onChange={(serviceSchedule) => setMatchHistoryForm({ ...matchHistoryForm, serviceSchedule })}
+                      />
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                     <div>
                       <label className="text-sm font-medium">변경 사유</label>
@@ -2831,6 +2922,33 @@ const UserManagement = () => {
                     const existingCurrent = getCurrentMatchingEntry(detailTarget);
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
                     const eventDate = isAttempt ? matchHistoryForm.attemptDate : matchHistoryForm.date;
+                    const currentIds = detailTarget.assignedHelperIds || [];
+                    const prospectiveIds = isEnded
+                      ? currentIds.filter((id) => id !== matchHistoryForm.workerId)
+                      : Array.from(new Set([...currentIds, matchHistoryForm.workerId]));
+                    const prospectiveSchedules = {
+                      ...(detailTarget.assignmentSchedules || {}),
+                      ...(!isEnded ? { [matchHistoryForm.workerId]: matchHistoryForm.serviceSchedule } : {}),
+                    };
+                    if (!isAttempt && !isEnded && prospectiveIds.length > 1) {
+                      const missingIds = getMissingAssignmentScheduleIds(prospectiveIds, prospectiveSchedules);
+                      if (!editingMatchHistoryId && missingIds.length > 0) {
+                        const names = missingIds.map((id) => workers.find((worker) => worker.id === id)?.name || id).join(", ");
+                        toast({ title: "기존 지원사의 서비스 시간을 먼저 입력해주세요", description: `미입력: ${names}`, variant: "destructive" });
+                        return;
+                      }
+                      if (!matchHistoryForm.serviceSchedule.some((day) => day.slots.length > 0)) {
+                        toast({ title: "서비스 제공시간을 입력해주세요", variant: "destructive" });
+                        return;
+                      }
+                      const conflict = findAssignmentScheduleConflict(prospectiveIds, prospectiveSchedules);
+                      if (conflict) {
+                        const first = workers.find((worker) => worker.id === conflict.firstWorkerId)?.name || conflict.firstWorkerId;
+                        const second = workers.find((worker) => worker.id === conflict.secondWorkerId)?.name || conflict.secondWorkerId;
+                        toast({ title: "서비스 제공시간이 겹칩니다", description: `${first} / ${second} · ${conflict.day}요일 ${conflict.startTime}~${conflict.endTime}`, variant: "destructive" });
+                        return;
+                      }
+                    }
                     const payload: any = {
                       type: isEnded ? "해제" : matchHistoryForm.type,
                       userId: detailTarget.id,
@@ -2848,6 +2966,7 @@ const UserManagement = () => {
                       rejectionScoreDelta: matchHistoryForm.type === "실패" ? MATCHING_FAILURE_SCORE_DELTA : undefined,
                       reason: matchHistoryForm.reason || (isEnded ? "종료" : "추가"),
                       reasonDetail: matchHistoryForm.reasonDetail || undefined,
+                      serviceSchedule: !isAttempt ? matchHistoryForm.serviceSchedule : undefined,
                       notes: matchHistoryForm.notes || matchHistoryForm.reasonDetail || undefined,
                     };
                     if (editingMatchHistoryId) {
@@ -2877,6 +2996,7 @@ const UserManagement = () => {
                       serviceEndDate: matchHistoryForm.endDate || (isEnded ? matchHistoryForm.date : null),
                       reason: payload.reason,
                       reasonDetail: matchHistoryForm.reasonDetail || matchHistoryForm.notes || "",
+                      serviceSchedule: matchHistoryForm.serviceSchedule,
                       updatedAt: new Date().toISOString(),
                     };
                     const nextHistory = [...existingEntries, nextEntry];
@@ -2885,8 +3005,12 @@ const UserManagement = () => {
                       .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)))
                       .map((entry) => entry.workerId);
                     const arrays = buildHelperArraysFromIds(Array.from(new Set(activeIds)), workers);
+                    const nextAssignmentSchedules = { ...(detailTarget.assignmentSchedules || {}) };
+                    if (isEnded) delete nextAssignmentSchedules[matchHistoryForm.workerId];
+                    else nextAssignmentSchedules[matchHistoryForm.workerId] = matchHistoryForm.serviceSchedule;
                     const userPayload: Partial<ServiceUser> = {
                       matchingHistory: nextHistory,
+                      assignmentSchedules: nextAssignmentSchedules,
                       assignedHelperIds: arrays.ids,
                       assigned_workers: arrays.ids,
                       assignedHelperNames: arrays.names,

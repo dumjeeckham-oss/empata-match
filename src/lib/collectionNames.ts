@@ -15,6 +15,9 @@ export const WORK_CALENDAR_EVENTS_COLLECTION = "workCalendarEvents" as const;
 export const WORK_QUICK_LINKS_COLLECTION = "workQuickLinks" as const;
 export const SALARY_CHANGES_COLLECTION = "salaryChangeDocuments" as const;
 
+/** 로그인 UID별 하위 컬렉션으로 업무보드 배치를 완전히 분리합니다. */
+export const getWorkBoardPreferencesCollection = (uid: string) => `userPreferences/${uid}/workBoard` as const;
+
 export type CoreCollectionName =
   | typeof USERS_COLLECTION
   | typeof WORKERS_COLLECTION

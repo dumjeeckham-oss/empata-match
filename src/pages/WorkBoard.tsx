@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, ExternalLink, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
+import { CalendarClock, CalendarDays, Check, ChevronLeft, ChevronRight, ExternalLink, GripVertical, Pencil, Plus, Search, Star, Trash2, UserRoundSearch, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,18 +11,20 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useCollection } from "@/hooks/useFirestore";
+import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { annualSchedulesToCalendarEvents, assignCalendarEventLanes, buildMonthGrid, eventsForCalendarDay, eventsForCalendarMonth, moveCalendarEvent, resizeCalendarEvent, toLocalYmd, type CalendarDisplayEvent } from "@/lib/workCalendar";
 import { formatScheduleMilestones, formatScheduleSummary, getAssignmentCount, getBoardRecommendations, getScheduleStartInfo, getVisibleScheduleStarts, shouldAutoRemoveMatchingItem } from "@/lib/workBoard";
 import {
   ANNUAL_SCHEDULES_COLLECTION, MATCHING_BOARD_COLLECTION, USERS_COLLECTION, WORK_CALENDAR_EVENTS_COLLECTION, WORK_QUICK_LINKS_COLLECTION,
-  WORKERS_COLLECTION, WORK_TODOS_COLLECTION,
+  WORKERS_COLLECTION, WORK_TODOS_COLLECTION, getWorkBoardPreferencesCollection,
 } from "@/lib/collectionNames";
 import type {
-  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, CalendarEventColor, MatchingBoardItem, ServiceUser, Worker, WorkCalendarEvent, WorkQuickLink, WorkTodo,
+  AnnualSchedule, AnnualScheduleMilestone, AnnualScheduleStatus, CalendarEventColor, MatchingBoardItem, ServiceUser, Worker, WorkBoardPreference, WorkCalendarEvent, WorkQuickLink, WorkTodo,
 } from "@/types";
 import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
+import { moveWorkBoardWidget, normalizeWorkBoardOrder, WORK_BOARD_WIDGET_IDS, type WorkBoardWidgetId } from "@/lib/workBoardLayout";
 
 const defaultQuickLinks = [
   { key: "notice", label: "공지사항 수정", url: "https://app.notion.com/p/2c43f84ca160805ba164c94fb1642186", icon: "📣" },
@@ -55,6 +57,7 @@ const EMPTY_USERS: (ServiceUser & { id: string })[] = [];
 const EMPTY_WORKERS: (Worker & { id: string })[] = [];
 const EMPTY_CALENDAR_EVENTS: (WorkCalendarEvent & { id: string })[] = [];
 const EMPTY_QUICK_LINK_OVERRIDES: (WorkQuickLink & { id: string })[] = [];
+const EMPTY_LAYOUT_PREFERENCES: (WorkBoardPreference & { id: string })[] = [];
 const emptyCalendarEvent = (date: string): Omit<WorkCalendarEvent, "id" | "createdAt" | "updatedAt"> => ({
   title: "", note: "", startDate: date, endDate: date, startTime: "09:00", endTime: "10:00", color: "blue",
 });
@@ -66,6 +69,7 @@ const calendarColorLabel: Record<CalendarEventColor, string> = { blue: "파랑",
 
 const WorkBoard = () => {
   const navigate = useNavigate();
+  const { user: authUser, loading: authLoading } = useAuth();
   const todosStore = useCollection<WorkTodo>(WORK_TODOS_COLLECTION);
   const matchingStore = useCollection<MatchingBoardItem>(MATCHING_BOARD_COLLECTION);
   const scheduleStore = useCollection<AnnualSchedule>(ANNUAL_SCHEDULES_COLLECTION);
@@ -73,6 +77,7 @@ const WorkBoard = () => {
   const workersStore = useCollection<Worker>(WORKERS_COLLECTION);
   const calendarStore = useCollection<WorkCalendarEvent>(WORK_CALENDAR_EVENTS_COLLECTION);
   const quickLinkStore = useCollection<WorkQuickLink>(WORK_QUICK_LINKS_COLLECTION);
+  const preferenceStore = useCollection<WorkBoardPreference>(getWorkBoardPreferencesCollection(authUser?.uid || "pending"));
   const todos = todosStore.data || EMPTY_TODOS;
   const matchingItems = matchingStore.data || EMPTY_MATCHING_ITEMS;
   const schedules = scheduleStore.data || EMPTY_SCHEDULES;
@@ -80,9 +85,13 @@ const WorkBoard = () => {
   const workers = workersStore.data || EMPTY_WORKERS;
   const calendarEvents = calendarStore.data || EMPTY_CALENDAR_EVENTS;
   const quickLinkOverrides = quickLinkStore.data || EMPTY_QUICK_LINK_OVERRIDES;
-  const loading = todosStore.loading || matchingStore.loading || scheduleStore.loading || usersStore.loading || workersStore.loading || calendarStore.loading || quickLinkStore.loading;
+  const layoutPreferences = preferenceStore.data || EMPTY_LAYOUT_PREFERENCES;
+  const loading = authLoading || todosStore.loading || matchingStore.loading || scheduleStore.loading || usersStore.loading || workersStore.loading || calendarStore.loading || quickLinkStore.loading || preferenceStore.loading;
   const loadError = todosStore.error || matchingStore.error || scheduleStore.error || usersStore.error || workersStore.error || calendarStore.error || quickLinkStore.error;
 
+  const [widgetOrder, setWidgetOrder] = useState<WorkBoardWidgetId[]>([...WORK_BOARD_WIDGET_IDS]);
+  const [draggedWidget, setDraggedWidget] = useState<WorkBoardWidgetId | null>(null);
+  const [preferenceDocumentId, setPreferenceDocumentId] = useState<string | null>(null);
   const [todoTitle, setTodoTitle] = useState("");
   const [editingTodoId, setEditingTodoId] = useState<string | null>(null);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -105,6 +114,11 @@ const WorkBoard = () => {
   const [calendarDropDate, setCalendarDropDate] = useState<string | null>(null);
   const [editingCalendarEventId, setEditingCalendarEventId] = useState<string | null>(null);
   const [calendarForm, setCalendarForm] = useState(() => emptyCalendarEvent(toLocalYmd(new Date())));
+  useEffect(() => {
+    if (preferenceStore.loading || !authUser) return;
+    setWidgetOrder(normalizeWorkBoardOrder(layoutPreferences[0]?.widgetOrder));
+    setPreferenceDocumentId(layoutPreferences[0]?.id || null);
+  }, [authUser, layoutPreferences, preferenceStore.loading]);
   useEffect(() => {
     if (loading || loadError || matchingItems.length === 0) return;
     const completedIds = matchingItems.filter((item) => {
@@ -134,10 +148,14 @@ const WorkBoard = () => {
     if (!selectedTarget || matchMode !== "1:다") return [];
     if (targetType === "이용자") {
       const user = selectedTarget as ServiceUser;
-      return [
-        `현재 배정 지원사: ${user.assignedHelperNames?.filter(Boolean).join(", ") || "없음"}`,
-        `등록된 이용시간: ${formatScheduleSummary(user.weeklySchedule, user.requiredDays, user.requiredHours)}`,
-      ];
+      const helperIds = user.assignedHelperIds || user.assigned_workers || [];
+      const helperLines = helperIds.map((workerId) => {
+        const worker = workers.find((item) => item.id === workerId);
+        return `${worker?.name || workerId}: ${formatScheduleSummary(user.assignmentSchedules?.[workerId], user.requiredDays, user.requiredHours)}`;
+      });
+      return helperLines.length > 0
+        ? helperLines
+        : [`현재 배정 지원사: ${user.assignedHelperNames?.filter(Boolean).join(", ") || "없음"}`, `등록된 이용시간: ${formatScheduleSummary(user.weeklySchedule, user.requiredDays, user.requiredHours)}`];
     }
     const worker = selectedTarget as Worker;
     const assignedUsers = (worker.assignedUserIds || [])
@@ -176,6 +194,31 @@ const WorkBoard = () => {
     const legacyOnboardingUrl = defaultLink.key === "onboarding" ? localStorage.getItem("quickLink_onboarding") || "" : "";
     return { ...defaultLink, id: override?.id, label: override?.label || defaultLink.label, url: override?.url || legacyOnboardingUrl || defaultLink.url };
   }), ...quickLinkOverrides.filter((item) => !defaultLinkKeys.has(item.key)).map((item) => ({ ...item, icon: "🔗" }))];
+
+  const persistWidgetOrder = async (nextOrder: WorkBoardWidgetId[]) => {
+    if (!authUser) {
+      toast({ title: "로그인 계정을 확인할 수 없어 배치를 저장하지 못했습니다.", variant: "destructive" });
+      return;
+    }
+    setWidgetOrder(nextOrder);
+    try {
+      if (preferenceDocumentId) await preferenceStore.update(preferenceDocumentId, { widgetOrder: nextOrder });
+      else {
+        const created = await preferenceStore.add({ widgetOrder: nextOrder });
+        setPreferenceDocumentId(created.id);
+      }
+      toast({ title: "내 업무보드 배치를 저장했습니다." });
+    } catch {
+      toast({ title: "업무보드 배치 저장에 실패했습니다.", description: "로그인 권한과 네트워크 연결을 확인해주세요.", variant: "destructive" });
+    }
+  };
+
+  const dropWidget = async (target: WorkBoardWidgetId) => {
+    if (!draggedWidget) return;
+    const nextOrder = moveWorkBoardWidget(widgetOrder, draggedWidget, target);
+    setDraggedWidget(null);
+    await persistWidgetOrder(nextOrder);
+  };
 
   const saveTodo = async () => {
     const title = todoTitle.trim();
@@ -354,9 +397,14 @@ const WorkBoard = () => {
         <Button className="self-start lg:self-auto" variant="outline" onClick={() => navigate("/")}>대시보드로 이동</Button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+        <GripVertical className="h-4 w-4" />
+        <span>카드를 끌어서 원하는 위치로 옮기면 현재 로그인 계정에만 자동 저장됩니다.</span>
+        <Badge variant="outline" className="ml-auto">{authUser?.email || "로그인 계정"}</Badge>
+      </div>
       <div className="grid gap-6 xl:grid-cols-2">
-        <Card className="overflow-hidden">
-          <CardHeader className="p-4 sm:p-6 bg-muted/30"><CardTitle className="flex items-center justify-between text-lg"><span>✅ 할 일 목록</span><Badge variant="secondary">미완료 {todos.filter((todo) => !todo.completed).length}</Badge></CardTitle></CardHeader>
+        <Card onDragEnd={() => setDraggedWidget(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropWidget("todos")} style={{ order: widgetOrder.indexOf("todos") }} className={cn("overflow-hidden cursor-move", draggedWidget === "todos" && "opacity-60")}>
+          <CardHeader draggable onDragStart={() => setDraggedWidget("todos")} onDragEnd={() => setDraggedWidget(null)} className="p-4 sm:p-6 bg-muted/30"><CardTitle className="flex items-center justify-between text-lg"><span>✅ 할 일 목록</span><Badge variant="secondary">미완료 {todos.filter((todo) => !todo.completed).length}</Badge></CardTitle></CardHeader>
           <CardContent className="space-y-4 px-4 pt-5 sm:px-6">
             <div className="flex gap-2"><Input value={todoTitle} onChange={(event) => setTodoTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveTodo(); }} placeholder="할 일을 입력하세요" /><Button onClick={() => void saveTodo()}><Plus className="mr-1 h-4 w-4" />{editingTodoId ? "수정" : "추가"}</Button></div>
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2"><label className="flex items-center gap-2 text-xs font-medium text-muted-foreground"><Checkbox checked={showCompleted} onCheckedChange={(checked) => setShowCompleted(checked === true)} />완료한 항목 모아보기</label><Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => void clearCompleted()}>완료 항목 비우기</Button></div>
@@ -375,8 +423,8 @@ const WorkBoard = () => {
           </CardContent>
         </Card>
 
-        <Card className="overflow-hidden">
-          <CardHeader className="p-4 sm:p-6 bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg"><CalendarClock className="h-5 w-5 text-primary" />연간일정 시작일</CardTitle><p className="text-xs text-muted-foreground">아래 연간일정 현황에서 수정하면 이곳에도 실시간으로 반영됩니다.</p></CardHeader>
+        <Card onDragEnd={() => setDraggedWidget(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropWidget("scheduleStarts")} style={{ order: widgetOrder.indexOf("scheduleStarts") }} className={cn("overflow-hidden cursor-move", draggedWidget === "scheduleStarts" && "opacity-60")}>
+          <CardHeader draggable onDragStart={() => setDraggedWidget("scheduleStarts")} onDragEnd={() => setDraggedWidget(null)} className="p-4 sm:p-6 bg-muted/30"><CardTitle className="flex items-center gap-2 text-lg"><CalendarClock className="h-5 w-5 text-primary" />연간일정 시작일</CardTitle><p className="text-xs text-muted-foreground">아래 연간일정 현황에서 수정하면 이곳에도 실시간으로 반영됩니다.</p></CardHeader>
           <CardContent className="px-4 pt-5 sm:px-6">
             {!scheduleStartItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">등록된 연간 일정이 없습니다.</p> : <div className="max-h-80 space-y-3 overflow-y-auto pr-1">{scheduleStartItems.map((schedule) => {
               const startInfo = getScheduleStartInfo(schedule.preparationStartDate || "");
@@ -386,10 +434,10 @@ const WorkBoard = () => {
             })}</div>}
           </CardContent>
         </Card>
-      </div>
 
-      <Card className="overflow-hidden">
-        <CardHeader className="p-4 sm:p-6 bg-muted/30">
+
+      <Card onDragEnd={() => setDraggedWidget(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropWidget("calendar")} style={{ order: widgetOrder.indexOf("calendar") }} className={cn("overflow-hidden cursor-move xl:col-span-2", draggedWidget === "calendar" && "opacity-60")}>
+        <CardHeader draggable onDragStart={() => setDraggedWidget("calendar")} onDragEnd={() => setDraggedWidget(null)} className="p-4 sm:p-6 bg-muted/30">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><CardTitle className="flex items-center gap-2 text-lg"><CalendarDays className="h-5 w-5 text-primary" />이번 달 업무 달력</CardTitle><p className="mt-1 text-xs text-muted-foreground">일정을 끌어 옮기고, 양끝 조절점을 끌어 기간을 바꿀 수 있습니다. 연간 연동 일정은 연간 일정 현황에서 수정하세요.</p></div>
             <div className="flex items-center gap-1"><Button variant="outline" size="icon" aria-label="이전 달" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))}><ChevronLeft className="h-4 w-4" /></Button><Button variant="ghost" className="min-w-28 font-bold" onClick={() => setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}>{calendarMonth.getFullYear()}년 {calendarMonth.getMonth() + 1}월</Button><Button variant="outline" size="icon" aria-label="다음 달" onClick={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))}><ChevronRight className="h-4 w-4" /></Button></div>
@@ -427,15 +475,15 @@ const WorkBoard = () => {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="p-4 sm:p-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between gap-3 bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle><Button size="sm" onClick={addQuickLink}><Plus className="mr-1 h-4 w-4" />새 바로가기 추가</Button></CardHeader>
+      <Card onDragEnd={() => setDraggedWidget(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropWidget("quickLinks")} style={{ order: widgetOrder.indexOf("quickLinks") }} className={cn("cursor-move xl:col-span-2", draggedWidget === "quickLinks" && "opacity-60")}>
+        <CardHeader draggable onDragStart={() => setDraggedWidget("quickLinks")} onDragEnd={() => setDraggedWidget(null)} className="p-4 sm:p-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between gap-3 bg-muted/30"><CardTitle className="text-lg">🔗 바로 가기</CardTitle><Button size="sm" onClick={addQuickLink}><Plus className="mr-1 h-4 w-4" />새 바로가기 추가</Button></CardHeader>
         <CardContent className="grid gap-3 pt-5 sm:grid-cols-2 lg:grid-cols-4">
           {quickLinks.map((link) => <div key={link.key} className="group relative flex min-h-20 items-center gap-3 rounded-xl border bg-card p-4 pr-12 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"><button type="button" onClick={() => openQuickLink(link)} className="flex min-w-0 flex-1 items-center gap-3 text-left"><span className="text-2xl">{link.icon}</span><span className="min-w-0 flex-1"><span className="block text-sm font-semibold leading-snug">{link.label}</span>{!link.url && <span className="mt-1 block text-[10px] text-amber-600">링크 입력 필요</span>}</span><ExternalLink className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" /></button><Button type="button" variant="ghost" size="icon" className="absolute right-2 top-1/2 -translate-y-1/2" aria-label={`${link.label} 수정`} onClick={() => editQuickLink(link)}><Pencil className="h-4 w-4" /></Button></div>)}
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="p-4 sm:p-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between bg-muted/30"><CardTitle className="flex flex-wrap items-center gap-2 text-lg">🎯 매칭 필요 명단 <Badge variant="secondary">전체 {matchingItems.length}명</Badge></CardTitle><Button size="sm" onClick={() => setMatchingDialogOpen(true)}><UserRoundSearch className="mr-1 h-4 w-4" />명단 추가</Button></CardHeader>
+      <Card onDragEnd={() => setDraggedWidget(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropWidget("matching")} style={{ order: widgetOrder.indexOf("matching") }} className={cn("cursor-move xl:col-span-2", draggedWidget === "matching" && "opacity-60")}>
+        <CardHeader draggable onDragStart={() => setDraggedWidget("matching")} onDragEnd={() => setDraggedWidget(null)} className="p-4 sm:p-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between bg-muted/30"><CardTitle className="flex flex-wrap items-center gap-2 text-lg">🎯 매칭 필요 명단 <Badge variant="secondary">전체 {matchingItems.length}명</Badge></CardTitle><Button size="sm" onClick={() => setMatchingDialogOpen(true)}><UserRoundSearch className="mr-1 h-4 w-4" />명단 추가</Button></CardHeader>
         <CardContent className="px-4 pt-5 sm:px-6">
           {!matchingItems.length ? <p className="py-10 text-center text-sm text-muted-foreground">현재 매칭이 필요한 등록 대상이 없습니다.</p> : <div className="grid gap-3 md:grid-cols-2">{matchingItems.map((item) => {
             const recommendations = recommendationMap.get(item.id) || [];
@@ -460,8 +508,8 @@ const WorkBoard = () => {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="p-4 sm:p-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between bg-muted/30"><CardTitle className="text-lg">📅 연간 일정 현황</CardTitle><Button size="sm" onClick={() => openScheduleDialog()}><Plus className="mr-1 h-4 w-4" />신규 일정</Button></CardHeader>
+      <Card onDragEnd={() => setDraggedWidget(null)} onDragOver={(event) => event.preventDefault()} onDrop={() => void dropWidget("annualSchedules")} style={{ order: widgetOrder.indexOf("annualSchedules") }} className={cn("cursor-move xl:col-span-2", draggedWidget === "annualSchedules" && "opacity-60")}>
+        <CardHeader draggable onDragStart={() => setDraggedWidget("annualSchedules")} onDragEnd={() => setDraggedWidget(null)} className="p-4 sm:p-6 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between bg-muted/30"><CardTitle className="text-lg">📅 연간 일정 현황</CardTitle><Button size="sm" onClick={() => openScheduleDialog()}><Plus className="mr-1 h-4 w-4" />신규 일정</Button></CardHeader>
         <CardContent className="px-4 pt-5 sm:px-6">
           <div className="space-y-3 sm:hidden">
             {!schedules.length && <p className="py-6 text-center text-sm text-muted-foreground">등록된 연간 일정이 없습니다.</p>}
@@ -477,6 +525,8 @@ const WorkBoard = () => {
           {!schedules.length ? <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">일정을 준비하고 있습니다.</td></tr> : schedules.map((schedule) => <tr key={schedule.id} className="border-b hover:bg-muted/20"><td className="px-3 py-3 font-medium">{schedule.projectName}</td><td className="px-3 py-3"><Badge variant="outline" className={statusClass[schedule.status]}>{schedule.status}</Badge></td><td className="whitespace-nowrap px-3 py-3">{schedule.preparationStartDate || "미등록"}</td><td className="min-w-64 px-3 py-3">{schedule.milestones?.length ? <div className="space-y-1">{schedule.milestones.map((milestone) => <div key={milestone.id} className="flex items-center gap-2"><Badge variant="secondary" className="font-normal">{milestone.label}</Badge><span className="whitespace-nowrap">{milestone.date}</span></div>)}</div> : formatScheduleMilestones(schedule)}</td><td className="max-w-xs whitespace-pre-wrap px-3 py-3 text-muted-foreground">{schedule.note || "-"}</td><td className="px-3 py-3">{schedule.manager}</td><td className="px-3 py-3"><div className="flex justify-end gap-1"><Button variant="ghost" size="icon" aria-label="일정 수정" onClick={() => openScheduleDialog(schedule)}><Pencil className="h-4 w-4" /></Button><Button variant="ghost" size="icon" aria-label="일정 삭제" onClick={() => schedule.id && confirm("이 일정을 삭제할까요?") && void scheduleStore.remove(schedule.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></div></td></tr>)}
         </tbody></table></div></CardContent>
       </Card>
+
+      </div>
 
       <Dialog open={matchingDialogOpen} onOpenChange={setMatchingDialogOpen}><DialogContent className="sm:max-w-2xl"><DialogHeader><DialogTitle>매칭 필요 대상 추가</DialogTitle></DialogHeader><div className="space-y-4"><div className="grid gap-4 sm:grid-cols-2"><div className="space-y-2"><Label>대상 구분</Label><Select value={targetType} onValueChange={(value) => { setTargetType(value as MatchingBoardItem["targetType"]); setTargetId(""); }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="이용자">이용자</SelectItem><SelectItem value="활동지원사">활동지원사</SelectItem></SelectContent></Select></div><div className="space-y-2"><Label>매칭 형태</Label><Select value={matchMode} onValueChange={(value) => setMatchMode(value as NonNullable<MatchingBoardItem["matchMode"]>)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1:1">1:1 (기본 매칭)</SelectItem><SelectItem value="1:다">1:다 (기존 매칭에 추가)</SelectItem></SelectContent></Select></div></div><div className="space-y-2"><Label>이름 검색</Label><div className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><Input className="pl-9" value={targetSearch} onChange={(event) => setTargetSearch(event.target.value)} placeholder="이름을 입력하세요" /></div><div className="max-h-40 divide-y overflow-y-auto rounded-md border">{matchingCandidates.map((candidate) => <button key={candidate.id} className={cn("flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-muted", targetId === candidate.id && "bg-primary/10 text-primary")} onClick={() => setTargetId(candidate.id)}><span>{candidate.name}</span>{targetId === candidate.id && <Check className="h-4 w-4" />}</button>)}</div></div>{matchMode === "1:다" && selectedTarget && <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><p className="mb-2 font-semibold">⚠️ 현재 서비스 시간 — 새 매칭과 겹치지 않도록 확인하세요</p><div className="space-y-1">{currentServiceInfo.map((line) => <p key={line} className="whitespace-pre-wrap">{line}</p>)}</div><p className="mt-2 text-xs text-amber-800">현재 배정 {getAssignmentCount(targetType, selectedTarget)}명 · 추가 배정이 확인되면 이 명단에서 자동 제거됩니다.</p></div>}<div className="space-y-2"><Label>매칭 필요 조건 *</Label><Textarea value={matchingCondition} onChange={(event) => setMatchingCondition(event.target.value)} placeholder="예: 10:00~14:00 중동 인근 9월부터 추가 매칭필요" /></div></div><DialogFooter><Button variant="outline" onClick={() => setMatchingDialogOpen(false)}>취소</Button><Button onClick={() => void saveMatchingItem()}>등록</Button></DialogFooter></DialogContent></Dialog>
 
