@@ -31,6 +31,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+  MobileDetailDialogBody,
+  MobileDetailDialogContent,
+  MobileDetailDialogFooter,
+  MobileDetailDialogHeader,
+} from "@/components/MobileDetailDialog";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -2585,11 +2591,14 @@ const UserManagement = () => {
         </AlertDialogContent>
       </AlertDialog>
       <Dialog open={!!detailTarget} onOpenChange={(open) => !open && setDetailTarget(null)}>
-        <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
-          <DialogHeader>
+        <MobileDetailDialogContent onPointerDownOutside={(event) => event.preventDefault()}>
+          <MobileDetailDialogHeader>
             <DialogTitle>{detailTarget ? `${detailTarget.name} 상세 정보` : "이용자 상세"}</DialogTitle>
-          </DialogHeader>          {detailTarget && (
-            <div className="space-y-6">
+          </MobileDetailDialogHeader>
+          {detailTarget && (
+            <>
+              <MobileDetailDialogBody>
+                <div className="space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/20 p-3">
                 <div className="flex items-center gap-2">
                   <Badge className={getUserStatusBadgeClass(effectiveUserStatus(detailTarget))}>{effectiveUserStatus(detailTarget)}</Badge>
@@ -2781,15 +2790,17 @@ const UserManagement = () => {
                 </Card>
               </div>
 
-              <div className="sticky bottom-0 z-10 -mx-6 mt-6 flex justify-end gap-2 border-t bg-background/95 px-6 py-3 backdrop-blur">
+                </div>
+              </MobileDetailDialogBody>
+              <MobileDetailDialogFooter>
                 <Button variant="destructive" onClick={() => { if (detailTarget) { setDeleteTarget(detailTarget); setDetailTarget(null); } }}>삭제</Button>
                 <Button variant="outline" onClick={() => detailTarget && navigate("/salary-changes?userId=" + detailTarget.id)}>급여변경</Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
-              </div>
-            </div>
+              </MobileDetailDialogFooter>
+            </>
           )}
-        </DialogContent>
+        </MobileDetailDialogContent>
       
             {/* 매칭 히스토리 추가/수정 다이얼로그 */}
             <Dialog open={matchHistoryDialogOpen} onOpenChange={setMatchHistoryDialogOpen}>
