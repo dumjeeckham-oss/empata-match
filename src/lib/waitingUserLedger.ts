@@ -89,6 +89,11 @@ export function formatDesiredServiceTime(user: Pick<ServiceUser, "weeklySchedule
 }
 
 function profileConsultationContent(user: ServiceUser): string {
+  const lines: string[] = [];
+  const addIfPresent = (label: string, value: unknown) => {
+    const normalized = text(value);
+    if (normalized) lines.push(`[${label}] ${normalized}`);
+  };
   const requests = [
     user.needsAftercare ? "배변 뒤처리" : "",
     user.wantsWeekendSupport ? "주말 지원" : "",
@@ -96,16 +101,22 @@ function profileConsultationContent(user: ServiceUser): string {
     user.femaleOnly ? "여성 활동지원사" : "",
     user.maleOnly ? "남성 활동지원사" : "",
   ].filter(Boolean);
-  return [
-    "[거주자] " + (text(user.livingWith || user.familyMembers) || "미등록"),
-    "[주소] " + (text(user.address) || "미등록"),
+  const supportTypes = (user.supportTypes || []).filter((item) => item !== "목욕");
+
+  addIfPresent("거주자", user.livingWith || user.familyMembers);
+  addIfPresent("주소", user.address);
+  lines.push(
     "[반려동물] " + (user.hasPet ? "있음" + (text(user.petNote) ? " (" + text(user.petNote) + ")" : "") : "없음"),
     "[차량] " + (user.needsVehicle ? "필요" : "불필요"),
     "[기저귀] " + (user.usesDiaper ? "사용" : "미사용"),
-    "[지원종류] " + ((user.supportTypes || []).filter((item) => item !== "목욕").join(", ") || "미등록"),
-    "[추가요청] " + (requests.join(", ") || "없음"),
-    "[비고] " + (text(user.notes) || "없음"),
-  ].join("\n");
+  );
+  if (supportTypes.length) lines.push("[지원종류] " + supportTypes.join(", "));
+  if (requests.length) lines.push("[추가요청] " + requests.join(", "));
+  addIfPresent("이동 시 유의점", user.movementNote);
+  addIfPresent("가사 지원 시 유의점", user.houseworkNote);
+  addIfPresent("희망 활동지원사", user.preferredWorkerTraits);
+  addIfPresent("특이사항", user.notes);
+  return lines.join("\n");
 }
 
 function attemptContent(record: MatchingHistoryRecord | undefined, sequence: number): string {

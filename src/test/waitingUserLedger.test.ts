@@ -12,6 +12,7 @@ const user = {
   id: "user-1", name: "홍길동", age: 60, gender: "남성", disabilityType: "뇌병변",
   voucherTier: 0, voucherTierLabel: "특례 지원 구간", voucherHours: 90, provinceAdditionalHours: 10, cityAdditionalHours: 5,
   receiptDate: "2026-08-26", requiredDays: "월·금", requiredHours: "오전 9~12시",
+  address: "부천시 원미구", livingWith: "부모님",
   weeklySchedule: [{ day: "월", slots: [18, 19, 20, 21, 22, 23] }, { day: "금", slots: [28, 29, 30, 31] }],
   supportTypes: ["신체지원", "가사지원", "목욕"], movementNote: "휠체어 이동",
   houseworkNote: "반찬 조리", preferredWorkerTraits: "여성 지원사", notes: "차량 지원 희망",
@@ -51,6 +52,11 @@ describe("waiting user Word ledger data", () => {
     expect(rows[0].supportTypes).not.toContain("목욕");
     expect(rows[0].disabilityVoucher).toContain("특례 지원 구간");
     expect(rows[0].consultationContent).toContain("[주소]");
+    expect(rows[0].consultationContent).toContain("[이동 시 유의점] 휠체어 이동");
+    expect(rows[0].consultationContent).toContain("[가사 지원 시 유의점] 반찬 조리");
+    expect(rows[0].consultationContent).toContain("[희망 활동지원사] 여성 지원사");
+    expect(rows[0].consultationContent).toContain("[특이사항] 차량 지원 희망");
+    expect(rows[0].consultationContent).not.toContain("미등록");
     expect(rows[1]).toMatchObject({ stage: "2차 상담", consultationDate: "2026-09-01" });
     expect(rows[1].consultationContent).toContain("2차: 활동지원사 지원사1 매칭 진행 중");
     expect(rows[2]).toMatchObject({ stage: "3차 상담", consultationDate: "2026-09-05" });
@@ -81,6 +87,28 @@ describe("waiting user Word ledger data", () => {
     } as ServiceUser;
     expect(shouldIncludeUserInWaitingLedger(matchedUser, attempts)).toBe(true);
     expect(shouldIncludeUserInWaitingLedger(matchedUser, [])).toBe(false);
+  });
+
+  it("omits empty optional items instead of printing 미등록 placeholders", () => {
+    const sparseUser = {
+      ...user,
+      livingWith: "",
+      familyMembers: "",
+      address: "",
+      movementNote: "",
+      houseworkNote: "",
+      preferredWorkerTraits: "",
+      notes: "",
+      supportTypes: [],
+    } as ServiceUser;
+    const content = buildWaitingUserLedgerRows([sparseUser], [])[0].consultationContent;
+    expect(content).not.toContain("미등록");
+    expect(content).not.toContain("[거주자]");
+    expect(content).not.toContain("[주소]");
+    expect(content).not.toContain("[이동 시 유의점]");
+    expect(content).not.toContain("[가사 지원 시 유의점]");
+    expect(content).not.toContain("[희망 활동지원사]");
+    expect(content).not.toContain("[특이사항]");
   });
 
   it("filters users by receipt or attempt date in the selected range", () => {
