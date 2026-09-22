@@ -114,6 +114,26 @@ export interface WaitingLedgerRow {
   consultationContent: string;
 }
 
+export const WAITING_LEDGER_HEADERS = [
+  "이름",
+  "장애유형 / 바우처",
+  "지원종류",
+  "희망 제공시간",
+  "상담차수",
+  "상담일",
+  "상담내용 / 매칭시도 결과",
+  "비고",
+] as const;
+
+/** Returns the vertical span for the first row of a user, and 0 for continuation rows. */
+export function getWaitingLedgerRowSpan(rows: WaitingLedgerRow[], index: number): number {
+  const current = rows[index];
+  if (!current || (index > 0 && rows[index - 1]?.userId === current.userId)) return 0;
+  let span = 1;
+  while (rows[index + span]?.userId === current.userId) span += 1;
+  return span;
+}
+
 function isDateInRange(date: string, range?: WaitingLedgerRange): boolean {
   if (!date) return !range?.startDate && !range?.endDate;
   return (!range?.startDate || date >= range.startDate) && (!range?.endDate || date <= range.endDate);
@@ -179,17 +199,18 @@ export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRec
     const occurrence = seen.get(row.userId) || 0;
     seen.set(row.userId, occurrence + 1);
     const merge = occurrence === 0 ? VerticalMergeType.RESTART : VerticalMergeType.CONTINUE;
+    const mergedValue = (value: string) => occurrence === 0 ? value : "";
     return new TableRow({
       cantSplit: true,
       children: [
-        cell(row.name, 900, { center: true, merge }),
-        cell(row.disabilityVoucher, 1200, { center: true, merge }),
-        cell(row.supportTypes, 1100, { merge }),
-        cell(row.desiredServiceTime, 1500, { center: true, merge }),
+        cell(mergedValue(row.name), 900, { center: true, merge }),
+        cell(mergedValue(row.disabilityVoucher), 1200, { center: true, merge }),
+        cell(mergedValue(row.supportTypes), 1100, { merge }),
+        cell(mergedValue(row.desiredServiceTime), 1500, { center: true, merge }),
         cell(row.stage, 850, { center: true }),
         cell(row.consultationDate, 1050, { center: true }),
-        cell(row.consultationContent, 5600),
-
+        cell(row.consultationContent, 4800),
+        cell("", 1400),
       ],
     });
   });
@@ -215,14 +236,14 @@ export function buildWaitingUserLedgerDocument(users: ServiceUser[], matchingRec
             new TableRow({
               tableHeader: true,
               children: [
-                cell("이름", 900, { header: true, center: true }),
-                cell("장애유형 / 바우처", 1200, { header: true, center: true }),
-                cell("지원종류", 1100, { header: true, center: true }),
-                cell("희망 제공시간", 1500, { header: true, center: true }),
-                cell("상담차수", 850, { header: true, center: true }),
-                cell("상담일", 1050, { header: true, center: true }),
-                cell("상담내용 / 매칭시도 결과", 5600, { header: true, center: true }),
-
+                cell(WAITING_LEDGER_HEADERS[0], 900, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[1], 1200, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[2], 1100, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[3], 1500, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[4], 850, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[5], 1050, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[6], 4800, { header: true, center: true }),
+                cell(WAITING_LEDGER_HEADERS[7], 1400, { header: true, center: true }),
               ],
             }),
             ...tableRows,

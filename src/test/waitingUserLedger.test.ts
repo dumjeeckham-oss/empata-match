@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildWaitingUserLedgerRows, formatDesiredServiceTime } from "@/lib/waitingUserLedger";
+import {
+  buildWaitingUserLedgerRows,
+  formatDesiredServiceTime,
+  getWaitingLedgerRowSpan,
+  WAITING_LEDGER_HEADERS,
+} from "@/lib/waitingUserLedger";
 import type { MatchingHistoryRecord, ServiceUser } from "@/types";
 
 const user = {
@@ -48,5 +53,13 @@ describe("waiting user Word ledger data", () => {
   it("filters users by receipt or attempt date in the selected range", () => {
     expect(buildWaitingUserLedgerRows([user], attempts, { startDate: "2026-09-01", endDate: "2026-09-03" })[1].consultationDate).toBe("2026-09-01");
     expect(buildWaitingUserLedgerRows([user], attempts, { startDate: "2027-01-01", endDate: "2027-01-31" })).toEqual([]);
+  });
+
+  it("merges repeated profile columns once per user and includes a notes column", () => {
+    const rows = buildWaitingUserLedgerRows([user], attempts);
+    expect(getWaitingLedgerRowSpan(rows, 0)).toBe(5);
+    expect(getWaitingLedgerRowSpan(rows, 1)).toBe(0);
+    expect(getWaitingLedgerRowSpan(rows, 4)).toBe(0);
+    expect(WAITING_LEDGER_HEADERS.at(-1)).toBe("비고");
   });
 });

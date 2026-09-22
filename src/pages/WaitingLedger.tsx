@@ -2,7 +2,12 @@ import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { MATCHING_HISTORY_COLLECTION, USERS_COLLECTION } from "@/lib/collectionNames";
 import type { MatchingHistoryRecord, ServiceUser } from "@/types";
-import { buildWaitingUserLedgerBlob, buildWaitingUserLedgerRows } from "@/lib/waitingUserLedger";
+import {
+  buildWaitingUserLedgerBlob,
+  buildWaitingUserLedgerRows,
+  getWaitingLedgerRowSpan,
+  WAITING_LEDGER_HEADERS,
+} from "@/lib/waitingUserLedger";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,11 +53,11 @@ export default function WaitingLedger() {
 
   return (
     <div className="space-y-5">
-      <style>{'@media print { @page { size: A4 landscape; margin: 10mm; } body * { visibility: hidden; } .waiting-ledger-print, .waiting-ledger-print * { visibility: visible; } .waiting-ledger-print { position: absolute; inset: 0; width: 100%; font-size: 9pt; } .waiting-ledger-print tr { break-inside: avoid; page-break-inside: avoid; } .no-print { display: none !important; } }'}</style>
+      <style>{'.ledger-note:empty::before { content: attr(data-placeholder); color: #94a3b8; } @media print { @page { size: A4 landscape; margin: 10mm; } body * { visibility: hidden; } .waiting-ledger-print, .waiting-ledger-print * { visibility: visible; } .waiting-ledger-print { position: absolute; inset: 0; width: 100%; font-size: 8.5pt; } .waiting-ledger-print table { min-width: 0 !important; width: 100% !important; } .waiting-ledger-print tr { break-inside: avoid; page-break-inside: avoid; } .ledger-note:empty::before { content: ""; } .no-print { display: none !important; } }'}</style>
       <div className="no-print flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">대기 매칭대장 미리보기</h1>
-          <p className="text-sm text-muted-foreground">기간을 선택하면 최초 상담과 매칭 시도·실패 기록이 날짜순으로 표시됩니다.</p>
+          <p className="text-sm text-muted-foreground">기간을 선택하면 최초 상담과 매칭 시도·실패 기록이 날짜순으로 표시됩니다. 비고는 화면에서 입력하거나 인쇄 후 손으로 작성할 수 있으며 DB에는 저장되지 않습니다.</p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div><Label htmlFor="ledger-start">시작일</Label><Input id="ledger-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} /></div>
@@ -65,27 +70,47 @@ export default function WaitingLedger() {
       <section className="waiting-ledger-print overflow-x-auto rounded-lg bg-white p-4 text-black shadow-sm">
         <h2 className="mb-4 text-center text-2xl font-bold">이용자 매칭 상담 대장</h2>
         <p className="mb-2 text-right text-xs">조회기간 {startDate || "전체"} ~ {endDate || "전체"}</p>
-        <table className="w-full border-collapse text-[11px]">
+        <table className="w-full min-w-[1120px] table-fixed border-collapse text-[11px]">
+          <colgroup>
+            <col className="w-[7%]" />
+            <col className="w-[10%]" />
+            <col className="w-[9%]" />
+            <col className="w-[11%]" />
+            <col className="w-[8%]" />
+            <col className="w-[9%]" />
+            <col className="w-[36%]" />
+            <col className="w-[10%]" />
+          </colgroup>
           <thead>
             <tr className="bg-slate-100">
-              {["이름", "장애유형 / 바우처", "지원종류", "희망 제공시간", "상담차수", "상담일", "상담내용 / 매칭시도 결과"].map((label) => (
+              {WAITING_LEDGER_HEADERS.map((label) => (
                 <th key={label} className="border border-black p-1.5 text-center">{label}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr key={row.userId + "-" + String(index)}>
-                <td className="whitespace-pre-line border border-black p-1.5 text-center align-middle">{row.name}</td>
-                <td className="whitespace-pre-line border border-black p-1.5 text-center align-middle">{row.disabilityVoucher}</td>
-                <td className="whitespace-pre-line border border-black p-1.5 align-middle">{row.supportTypes}</td>
-                <td className="whitespace-pre-line border border-black p-1.5 text-center align-middle">{row.desiredServiceTime}</td>
-                <td className="border border-black p-1.5 text-center align-middle">{row.stage}</td>
-                <td className="border border-black p-1.5 text-center align-middle">{row.consultationDate}</td>
-                <td className="whitespace-pre-line border border-black p-1.5 align-middle">{row.consultationContent}</td>
-              </tr>
-            ))}
-            {!rows.length && <tr><td colSpan={7} className="border border-black p-8 text-center">선택한 기간에 해당하는 기록이 없습니다.</td></tr>}
+            {rows.map((row, index) => {
+              const rowSpan = getWaitingLedgerRowSpan(rows, index);
+              return (
+                <tr key={row.userId + "-" + String(index)}>
+                  {rowSpan > 0 && <td rowSpan={rowSpan} className="whitespace-pre-line border border-black p-1.5 text-center align-middle">{row.name}</td>}
+                  {rowSpan > 0 && <td rowSpan={rowSpan} className="whitespace-pre-line border border-black p-1.5 text-center align-middle">{row.disabilityVoucher}</td>}
+                  {rowSpan > 0 && <td rowSpan={rowSpan} className="whitespace-pre-line border border-black p-1.5 align-middle">{row.supportTypes}</td>}
+                  {rowSpan > 0 && <td rowSpan={rowSpan} className="whitespace-pre-line border border-black p-1.5 text-center align-middle">{row.desiredServiceTime}</td>}
+                  <td className="border border-black p-1.5 text-center align-middle">{row.stage}</td>
+                  <td className="border border-black p-1.5 text-center align-middle">{row.consultationDate}</td>
+                  <td className="whitespace-pre-line border border-black p-1.5 align-middle">{row.consultationContent}</td>
+                  <td
+                    className="ledger-note min-h-12 cursor-text whitespace-pre-wrap border border-black p-1.5 align-top outline-none focus:bg-amber-50"
+                    contentEditable
+                    suppressContentEditableWarning
+                    data-placeholder="클릭하여 비고 입력"
+                    aria-label={row.name + " " + row.stage + " 비고"}
+                  />
+                </tr>
+              );
+            })}
+            {!rows.length && <tr><td colSpan={WAITING_LEDGER_HEADERS.length} className="border border-black p-8 text-center">선택한 기간에 해당하는 기록이 없습니다.</td></tr>}
           </tbody>
         </table>
       </section>
