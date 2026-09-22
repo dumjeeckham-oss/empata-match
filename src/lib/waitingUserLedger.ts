@@ -30,8 +30,8 @@ function voucherTotal(user: ServiceUser): number {
 }
 
 function supportChecklist(user: ServiceUser): string {
-  const selected = new Set(user.supportTypes || []);
-  const standard = ["사회지원", "신체지원", "가사지원", "목욕"];
+  const selected = new Set((user.supportTypes || []).filter((item) => item !== "목욕"));
+  const standard = ["사회지원", "신체지원", "가사지원"];
   const rows = standard.map((item) => `${selected.has(item) ? "■" : "□"} ${item}`);
   const others = [...selected].filter((item) => !standard.includes(item));
   return [...rows, ...others.map((item) => `■ ${item}`)].join("\n");
@@ -61,14 +61,31 @@ function ranges(slots: number[]): string[] {
   return result;
 }
 
+function groupScheduleByTime(schedule: WeeklySchedule[], slotKey: "slots" | "alternativeSlots"): string {
+  const timeGroups = new Map<string, string[]>();
+  for (const day of schedule) {
+    for (const range of ranges(day[slotKey] || [])) {
+      timeGroups.set(range, [...(timeGroups.get(range) || []), day.day]);
+    }
+  }
+  return [...timeGroups.entries()]
+    .map(([range, days]) => `요일: ${days.join("·")}\n시간: ${range}`)
+    .join("\n\n");
+}
+
 export function formatDesiredServiceTime(user: Pick<ServiceUser, "weeklySchedule" | "requiredDays" | "requiredHours">): string {
   const schedule = [...(user.weeklySchedule || [])].sort((a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day));
-  const primary = schedule.flatMap((day: WeeklySchedule) => ranges(day.slots || []).map((range) => `${day.day} ${range}`));
-  const alternatives = schedule.flatMap((day: WeeklySchedule) => ranges(day.alternativeSlots || []).map((range) => `${day.day} ${range}`));
-  if (primary.length || alternatives.length) {
-    return [primary.join("\n"), alternatives.length ? `2안\n${alternatives.join("\n")}` : ""].filter(Boolean).join("\n");
+  const primary = groupScheduleByTime(schedule, "slots");
+  const alternatives = groupScheduleByTime(schedule, "alternativeSlots");
+  if (primary || alternatives) {
+    if (primary && alternatives) return `1안\n${primary}\n\n2안\n${alternatives}`;
+    return primary || `2안\n${alternatives}`;
   }
-  return [text(user.requiredDays), text(user.requiredHours)].filter(Boolean).join("\n") || "미등록";
+  const fallback = [
+    text(user.requiredDays) ? "요일: " + text(user.requiredDays) : "",
+    text(user.requiredHours) ? "시간: " + text(user.requiredHours) : "",
+  ].filter(Boolean);
+  return fallback.join("\n") || "미등록";
 }
 
 function profileConsultationContent(user: ServiceUser): string {
@@ -85,7 +102,7 @@ function profileConsultationContent(user: ServiceUser): string {
     "[반려동물] " + (user.hasPet ? "있음" + (text(user.petNote) ? " (" + text(user.petNote) + ")" : "") : "없음"),
     "[차량] " + (user.needsVehicle ? "필요" : "불필요"),
     "[기저귀] " + (user.usesDiaper ? "사용" : "미사용"),
-    "[지원종류] " + ((user.supportTypes || []).join(", ") || "미등록"),
+    "[지원종류] " + ((user.supportTypes || []).filter((item) => item !== "목욕").join(", ") || "미등록"),
     "[추가요청] " + (requests.join(", ") || "없음"),
     "[비고] " + (text(user.notes) || "없음"),
   ].join("\n");
@@ -93,14 +110,30 @@ function profileConsultationContent(user: ServiceUser): string {
 
 function attemptContent(record: MatchingHistoryRecord | undefined, sequence: number): string {
   if (!record) return "";
-  const status = record.type === "실패" ? "매칭 실패" : "매칭 시도";
-  const reason = Array.from(new Set([record.failureReason, record.attemptResult, record.reasonDetail, record.notes].map(text).filter(Boolean))).join(" - ");
+  const isFailure = record.type === "실패" || record.status === "매칭 실패";
+  const isSuccess = record.type === "매칭" && !isFailure;
+  const status = isFailure ? "매칭 실패" : isSuccess ? "매칭 계약 성사" : "매칭 진행 중";
+  const details = isSuccess
+    ? [record.reason, record.reasonDetail, record.attemptResult, record.notes]
+    : [record.failureReason, record.attemptResult, record.reasonDetail, record.notes];
+  const reason = Array.from(new Set(details.map(text).filter(Boolean))).join(" - ");
   return sequence + "차: 활동지원사 " + (text(record.workerName) || "미등록") + " " + status + (reason ? " (" + reason + ")" : "");
 }
 
 export interface WaitingLedgerRange {
   startDate?: string;
   endDate?: string;
+}
+
+function isMatchingProgressRecord(record: MatchingHistoryRecord): boolean {
+  return record.type === "시도" || record.type === "실패" || record.type === "매칭";
+}
+
+export function shouldIncludeUserInWaitingLedger(user: ServiceUser, matchingRecords: MatchingHistoryRecord[]): boolean {
+  const isWaiting = user.contractStatus === "대기"
+    || user.contractStatus === "작성중"
+    || !(user.assignedHelperIds || []).length;
+  return isWaiting || matchingRecords.some((record) => record.userId === user.id && isMatchingProgressRecord(record));
 }
 
 export interface WaitingLedgerRow {
@@ -145,15 +178,15 @@ export function buildWaitingUserLedgerRows(
   range?: WaitingLedgerRange,
 ): WaitingLedgerRow[] {
   return users.flatMap((user) => {
-    const allAttempts = matchingRecords
-      .filter((record) => record.userId === user.id && (record.type === "시도" || record.type === "실패"))
+    const allProgressRecords = matchingRecords
+      .filter((record) => record.userId === user.id && isMatchingProgressRecord(record))
       .sort((a, b) => text(a.attemptDate || a.date).localeCompare(text(b.attemptDate || b.date)));
     const receiptInRange = isDateInRange(text(user.receiptDate), range);
-    const attempts = allAttempts.filter((record) => isDateInRange(text(record.attemptDate || record.date), range));
-    if ((range?.startDate || range?.endDate) && !receiptInRange && attempts.length === 0) return [];
-    const rowCount = Math.max(MINIMUM_CONSULTATION_ROWS, attempts.length + 1);
+    const progressRecords = allProgressRecords.filter((record) => isDateInRange(text(record.attemptDate || record.date), range));
+    if ((range?.startDate || range?.endDate) && !receiptInRange && progressRecords.length === 0) return [];
+    const rowCount = Math.max(MINIMUM_CONSULTATION_ROWS, progressRecords.length + 1);
     return Array.from({ length: rowCount }, (_, index) => {
-      const attempt = index > 0 ? attempts[index - 1] : undefined;
+      const attempt = index > 0 ? progressRecords[index - 1] : undefined;
       const sequence = index + 1;
       return {
         userId: text(user.id),

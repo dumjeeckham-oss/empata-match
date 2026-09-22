@@ -6,6 +6,7 @@ import {
   buildWaitingUserLedgerBlob,
   buildWaitingUserLedgerRows,
   getWaitingLedgerRowSpan,
+  shouldIncludeUserInWaitingLedger,
   WAITING_LEDGER_HEADERS,
 } from "@/lib/waitingUserLedger";
 import { Button } from "@/components/ui/button";
@@ -31,18 +32,16 @@ export default function WaitingLedger() {
     return <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-destructive">{usersError || recordsError}</div>;
   }
 
-  const waitingUsers = users.filter((user) =>
-    user.contractStatus === "대기" || user.contractStatus === "작성중" || !(user.assignedHelperIds || []).length
-  );
+  const ledgerUsers = users.filter((user) => shouldIncludeUserInWaitingLedger(user, records));
   const range = { startDate: startDate || undefined, endDate: endDate || undefined };
-  const rows = buildWaitingUserLedgerRows(waitingUsers, records, range);
+  const rows = buildWaitingUserLedgerRows(ledgerUsers, records, range);
 
   const downloadWord = async () => {
     if (!rows.length) {
       toast({ title: "선택한 기간에 출력할 대기 기록이 없습니다." });
       return;
     }
-    const blob = await buildWaitingUserLedgerBlob(waitingUsers, records, range);
+    const blob = await buildWaitingUserLedgerBlob(ledgerUsers, records, range);
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;

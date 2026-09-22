@@ -3,6 +3,7 @@ import {
   buildWaitingUserLedgerRows,
   formatDesiredServiceTime,
   getWaitingLedgerRowSpan,
+  shouldIncludeUserInWaitingLedger,
   WAITING_LEDGER_HEADERS,
 } from "@/lib/waitingUserLedger";
 import type { MatchingHistoryRecord, ServiceUser } from "@/types";
@@ -27,11 +28,16 @@ const attempts: MatchingHistoryRecord[] = [
     workerId: "worker-1", workerName: "지원사1", workerPhone: "", date: "2026-09-01",
     attemptDate: "2026-09-01", attemptResult: "유선 연락 후 검토 중",
   },
+  {
+    id: "match-1", type: "매칭", status: "매칭 완료", userId: "user-1", userName: "홍길동", userPhone: "",
+    workerId: "worker-3", workerName: "지원사3", workerPhone: "", date: "2026-09-10",
+    reason: "추가", reasonDetail: "계약서 작성 완료",
+  },
 ];
 
 describe("waiting user Word ledger data", () => {
   it("uses clicked weekly slots for 희망 제공시간", () => {
-    expect(formatDesiredServiceTime(user)).toBe("월 09:00~12:00\n금 14:00~16:00");
+    expect(formatDesiredServiceTime(user)).toBe("요일: 월\n시간: 09:00~12:00\n\n요일: 금\n시간: 14:00~16:00");
   });
 
   it("uses receipt date first, then ordered matching attempts and results", () => {
@@ -40,14 +46,41 @@ describe("waiting user Word ledger data", () => {
     expect(rows[0].name).toContain("홍길동");
     expect(rows[0].stage).toBe("초기 상담");
     expect(rows[0].consultationDate).toBe("2026-08-26");
-    expect(rows[0].desiredServiceTime).toContain("월 09:00~12:00");
-    expect(rows[0].supportTypes).toContain("■ 목욕");
+    expect(rows[0].desiredServiceTime).toContain("요일: 월");
+    expect(rows[0].desiredServiceTime).toContain("시간: 09:00~12:00");
+    expect(rows[0].supportTypes).not.toContain("목욕");
     expect(rows[0].disabilityVoucher).toContain("특례 지원 구간");
     expect(rows[0].consultationContent).toContain("[주소]");
     expect(rows[1]).toMatchObject({ stage: "2차 상담", consultationDate: "2026-09-01" });
-    expect(rows[1].consultationContent).toContain("2차: 활동지원사 지원사1 매칭 시도");
+    expect(rows[1].consultationContent).toContain("2차: 활동지원사 지원사1 매칭 진행 중");
     expect(rows[2]).toMatchObject({ stage: "3차 상담", consultationDate: "2026-09-05" });
     expect(rows[2].consultationContent).toContain("3차: 활동지원사 지원사2 매칭 실패");
+    expect(rows[2].consultationContent).toContain("시간대 불일치");
+    expect(rows[3]).toMatchObject({ stage: "4차 상담", consultationDate: "2026-09-10" });
+    expect(rows[3].consultationContent).toContain("4차: 활동지원사 지원사3 매칭 계약 성사");
+    expect(rows[3].consultationContent).toContain("계약서 작성 완료");
+  });
+
+  it("groups days that share the same service time", () => {
+    const sameTimeUser = {
+      ...user,
+      weeklySchedule: [
+        { day: "월", slots: [18, 19, 20, 21] },
+        { day: "수", slots: [18, 19, 20, 21] },
+        { day: "금", slots: [18, 19, 20, 21] },
+      ],
+    } as ServiceUser;
+    expect(formatDesiredServiceTime(sameTimeUser)).toBe("요일: 월·수·금\n시간: 09:00~11:00");
+  });
+
+  it("keeps a matched service user in the historical ledger so the success outcome remains visible", () => {
+    const matchedUser = {
+      ...user,
+      contractStatus: "서비스중",
+      assignedHelperIds: ["worker-3"],
+    } as ServiceUser;
+    expect(shouldIncludeUserInWaitingLedger(matchedUser, attempts)).toBe(true);
+    expect(shouldIncludeUserInWaitingLedger(matchedUser, [])).toBe(false);
   });
 
   it("filters users by receipt or attempt date in the selected range", () => {
