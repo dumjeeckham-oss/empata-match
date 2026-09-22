@@ -1,7 +1,7 @@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useMemo, useState, useEffect } from "react";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, type MatchingHistoryRecord, SUPPORT_TYPES, VOUCHER_HOURS } from "@/types";
+import { type ServiceUser, type Worker, type MatchResult, type CounselingRecord, type MatchingHistoryRecord, SUPPORT_TYPES } from "@/types";
 import { matchUserWithWorkers } from "@/lib/matching";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,16 @@ import { USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } fro
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { daysBetween, isWithinRecentMonths, percent } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
+import { formatRequiredVoucherGap } from "@/lib/serviceHours";
+import {
+  formatUserMatchingTime,
+  formatUserVoucherHours,
+  formatWorkerMatchingTime,
+  getUserCautionTags,
+  getUserRequestTags,
+  getWorkerAvailableTags,
+  getWorkerUnavailableTags,
+} from "@/lib/matchingCardInfo";
 import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { getWorkerStatusBadges, isWorkerWaitingForMatch } from "@/lib/statusLifecycle";
 
@@ -39,10 +49,10 @@ const getPairRejectionScore = (user: ServiceUser | undefined, worker: Worker | u
 };
 
 const Matching = () => {
-  const { data: usersRaw, update: updateUser, loading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workersRaw, update: updateWorker, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: counselingRecordsRaw } = useCollection<CounselingRecord>("counseling");
-  const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
+  const { data: usersRaw, update: updateUser, loading: usersLoading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, update: updateWorker, loading: workersLoading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: counselingRecordsRaw, loading: counselingLoading, error: counselingError } = useCollection<CounselingRecord>("counseling");
+  const { data: matchingHistoryRaw, loading: historyLoading, error: historyError } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const counselingRecords = counselingRecordsRaw || [];
@@ -54,7 +64,6 @@ const Matching = () => {
   const [supportFilters, setSupportFilters] = useState<string[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [results, setResults] = useState<MatchResult[]>([]);
-  const [detailWorker, setDetailWorker] = useState<Worker | null>(null);
   const [manualSearch, setManualSearch] = useState<string>("");
   const [manualWorkerId, setManualWorkerId] = useState<string>("");
   const [summaryModal, setSummaryModal] = useState<{
@@ -68,6 +77,10 @@ const Matching = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
+  const openWorkerDetail = (worker: Worker) => {
+    if (worker.id) navigate(`/workers?detailId=${encodeURIComponent(worker.id)}`);
+  };
+
   useEffect(() => {
     const uid = searchParams.get("userId");
     if (uid) {
@@ -79,14 +92,6 @@ const Matching = () => {
     setSupportFilters((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
-  };
-
-  const openWorkerDetail = (worker: Worker) => {
-    setDetailWorker(worker);
-  };
-
-  const closeWorkerDetail = () => {
-    setDetailWorker(null);
   };
 
   const openFailureDialog = (worker: Worker, score: number) => {
@@ -188,6 +193,22 @@ const Matching = () => {
     (r.worker.name || "").toLowerCase().includes(manualSearch.toLowerCase())
   );
   const manualSelected = allScored.find((r) => r.worker.id === manualWorkerId);
+  const scoreByWorkerId = useMemo(
+    () => new Map(allScored.map((result) => [result.worker.id, result])),
+    [allScored],
+  );
+  const visibleWorkers = useMemo(() => {
+    const term = manualSearch.trim().toLowerCase();
+    if (!term) return filteredWorkers;
+    return filteredWorkers.filter((worker) =>
+      [worker.name, worker.phone, worker.address, worker.preferredArea]
+        .some((value) => String(value || "").toLowerCase().includes(term)),
+    );
+  }, [filteredWorkers, manualSearch]);
+  const recommendedRankByWorkerId = useMemo(
+    () => new Map(displayedResults.map((result, index) => [result.worker.id, index + 1])),
+    [displayedResults],
+  );
 
   const matchingSummary = useMemo(() => {
     const successful = matchingHistory.filter((record) => record.type === "매칭" && record.status !== "매칭 실패");
@@ -285,7 +306,7 @@ const Matching = () => {
       if (worker) openWorkerDetail(worker);
     }
   };
-  if (loading) {
+  if (usersLoading || workersLoading || counselingLoading || historyLoading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
         <div className="text-center">
@@ -296,7 +317,7 @@ const Matching = () => {
     );
   }
 
-  const loadError = usersError || workersError;
+  const loadError = usersError || workersError || counselingError || historyError;
   if (loadError) {
     return (
       <div className="p-6 max-w-2xl mx-auto">
@@ -399,76 +420,154 @@ const Matching = () => {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 좌측: 필터 + 이용자 목록 */}
+      <Card className="mb-6 border-primary/20 bg-primary/[0.02]">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="text-base">필터링 선택 및 추천매칭</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">필터를 적용한 뒤 이용자를 선택하면 우측 지원사 카드에 추천점수가 표시됩니다.</p>
+            </div>
+            <Button onClick={runMatching} disabled={!selectedUser} className="w-full sm:w-auto">
+              {selectedUser ? `${selectedUser.name} 추천매칭 실행` : "이용자를 먼저 선택하세요"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-x-5 gap-y-2">
+            <div className="flex items-center gap-2">
+              <Checkbox id="filterForeigners" checked={filterForeigners} onCheckedChange={(checked) => setFilterForeigners(!!checked)} />
+              <label htmlFor="filterForeigners" className="cursor-pointer text-sm">외국인만</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="filterWeekend" checked={filterWeekend} onCheckedChange={(checked) => setFilterWeekend(!!checked)} />
+              <label htmlFor="filterWeekend" className="cursor-pointer text-sm">주말 가능</label>
+            </div>
+            {SUPPORT_TYPES.map((type) => (
+              <div key={type} className="flex items-center gap-2">
+                <Checkbox id={`support-filter-${type}`} checked={supportFilters.includes(type)} onCheckedChange={() => toggleSupportFilter(type)} />
+                <label htmlFor={`support-filter-${type}`} className="cursor-pointer text-sm">{type}</label>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">대기 이용자 {filteredUsers.length}명</Badge>
+            <Badge variant="outline">조건에 맞는 대기 지원사 {filteredWorkers.length}명</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {/* 좌측: 매칭 대기 이용자 목록 */}
         <div className="space-y-4">
-          <Card className="p-4 bg-muted border rounded-lg space-y-3">
-            <div className="flex flex-wrap gap-3 items-center">
-              <div className="flex items-center gap-2">
-                <Checkbox id="filterForeigners" checked={filterForeigners} onCheckedChange={(c) => setFilterForeigners(!!c)} />
-                <label htmlFor="filterForeigners" className="text-sm">외국인만</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox id="filterWeekend" checked={filterWeekend} onCheckedChange={(c) => setFilterWeekend(!!c)} />
-                <label htmlFor="filterWeekend" className="text-sm">주말가능</label>
-              </div>
-            </div>
-            <div className="border-t pt-2">
-              <p className="text-xs font-medium text-muted-foreground mb-2">활동지원사 업무별 가능 필터</p>
-              <div className="flex flex-wrap gap-2 items-center">
-                {SUPPORT_TYPES.map((type) => (
-                  <div key={type} className="flex items-center gap-1.5">
-                    <Checkbox
-                      id={`support-filter-${type}`}
-                      checked={supportFilters.includes(type)}
-                      onCheckedChange={() => toggleSupportFilter(type)}
-                    />
-                    <label htmlFor={`support-filter-${type}`} className="text-xs cursor-pointer">
-                      {type}
-                    </label>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {filteredWorkers.length}명 필터된 활동지원사
-            </div>
-          </Card>
-          <h2 className="text-base font-semibold">이용자 선택 ({filteredUsers.length}명)</h2>
+          <div>
+            <h2 className="text-base font-semibold">매칭 대기중인 이용자 ({filteredUsers.length}명)</h2>
+            <p className="text-xs text-muted-foreground">카드를 선택하면 우측 지원사별 추천점수를 바로 비교할 수 있습니다.</p>
+          </div>
           <Input
             placeholder="이름 검색..."
             value={nameSearch}
             onChange={(e) => setNameSearch(e.target.value)}
             className="w-full"
           />
-          <div className="h-[300px] lg:h-[600px] overflow-y-auto border rounded-md divide-y bg-card">
+          <div className="h-[560px] overflow-y-auto rounded-lg border bg-card p-2">
             {filteredUsers.length === 0 ? (
               <p className="p-4 text-center text-sm text-muted-foreground">검색된 이용자가 없습니다.</p>
             ) : (
-              filteredUsers.map((u) => (
+              <div className="space-y-2">
+              {filteredUsers.map((u) => {
+                const requestTags = getUserRequestTags(u);
+                const cautionTags = getUserCautionTags(u);
+                return (
                 <button
                   key={u.id}
                   onClick={() => handleSelectUser(u.id)}
-                  className={`w-full text-left p-3 hover:bg-muted/40 transition-colors flex flex-col gap-1 ${selectedUserId === u.id ? "bg-primary/5 border-l-4 border-primary" : ""}`}
+                  className={`w-full rounded-lg border p-3 text-left transition hover:border-primary/50 hover:bg-muted/30 ${selectedUserId === u.id ? "border-primary bg-primary/5 ring-1 ring-primary/20" : ""}`}
                 >
-                  <div className="flex justify-between items-center w-full">
-                    <span className="font-bold text-sm">{u.name}</span>
-                    <Badge variant={u.contractStatus === "서비스중" ? "default" : "secondary"} className="text-[10px]">
-                      {u.contractStatus}
-                    </Badge>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="font-bold">{u.name}</span>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{u.age || "나이 미등록"}세 · {u.gender || "성별 미등록"} · {[u.disabilityDegree, u.disabilityType, u.secondaryDisabilityType].filter(Boolean).join(" / ") || "장애정보 미등록"}</p>
+                    </div>
+                    <Badge className="bg-orange-500 text-white hover:bg-orange-500">대기중</Badge>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {u.gender} · {u.age}세 · {u.disabilityType}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground truncate w-full">📍 {u.address}</span>
+                  <div className="mt-3 grid gap-2 rounded-md bg-muted/40 p-2 text-xs">
+                    <p><strong>바우처:</strong> {formatUserVoucherHours(u)} · {formatVoucherTier(u)}</p>
+                    <p><strong>요청 필요시간:</strong> {formatUserMatchingTime(u)}</p>
+                    <p className="font-medium text-primary">{formatRequiredVoucherGap(u)}</p>
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-[11px] font-semibold text-muted-foreground">요청사항</p>
+                    <div className="mt-1 flex flex-wrap gap-1">{requestTags.length ? requestTags.map((tag) => <Badge key={tag} variant="secondary" className="text-[10px]">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
+                  </div>
+                  <div className="mt-2">
+                    <p className="text-[11px] font-semibold text-red-600">확인·주의사항</p>
+                    <div className="mt-1 flex flex-wrap gap-1">{cautionTags.length ? cautionTags.map((tag) => <Badge key={tag} variant="outline" className="border-red-200 bg-red-50 text-[10px] text-red-700">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
+                  </div>
+                  <p className="mt-2 truncate text-[11px] text-muted-foreground">📍 {u.address || "주소 미등록"}</p>
                 </button>
-              ))
+                );
+              })}
+              </div>
             )}
           </div>
         </div>
 
-        {/* 우측: 추천 결과 또는 선택된 이용자 상세 */}
-        <div className="lg:col-span-2 space-y-6">
+        {/* 우측: 매칭 대기 활동지원사 목록 + 추천 결과 */}
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <div>
+              <h2 className="text-base font-semibold">매칭 대기중인 활동지원사 ({visibleWorkers.length}명)</h2>
+              <p className="text-xs text-muted-foreground">퇴사자는 자동 제외되며, 카드를 누르면 선택 이용자와의 적합도를 확인할 수 있습니다.</p>
+            </div>
+            <Input placeholder="지원사 이름·연락처·주소 검색..." value={manualSearch} onChange={(event) => setManualSearch(event.target.value)} />
+            <div className="h-[560px] space-y-2 overflow-y-auto rounded-lg border bg-card p-2">
+              {visibleWorkers.length === 0 ? (
+                <p className="p-6 text-center text-sm text-muted-foreground">조건에 맞는 대기 활동지원사가 없습니다.</p>
+              ) : visibleWorkers.map((worker) => {
+                const score = scoreByWorkerId.get(worker.id);
+                const rank = recommendedRankByWorkerId.get(worker.id);
+                const availableTags = getWorkerAvailableTags(worker);
+                const unavailableTags = getWorkerUnavailableTags(worker);
+                return (
+                  <div key={worker.id} className={`rounded-lg border p-3 transition hover:border-primary/50 ${manualWorkerId === worker.id ? "border-primary bg-primary/5 ring-1 ring-primary/20" : ""}`}>
+                    <button type="button" className="w-full text-left" onClick={() => setManualWorkerId(worker.id || "")}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold">{worker.name}</span>
+                            {rank && <Badge className="bg-primary text-primary-foreground">추천 {rank}순위</Badge>}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{worker.age || "나이 미등록"}세 · {worker.gender || "성별 미등록"} · {worker.address || worker.residenceArea || "주소 미등록"}</p>
+                        </div>
+                        {score && <span className="whitespace-nowrap text-sm font-bold text-primary">{score.score.toFixed(0)}점</span>}
+                      </div>
+                      <div className="mt-3 rounded-md bg-muted/40 p-2 text-xs">
+                        <p><strong>활동가능시간:</strong> {formatWorkerMatchingTime(worker)}</p>
+                        {worker.preferredArea && <p className="mt-1"><strong>희망지역:</strong> {worker.preferredArea}</p>}
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <p className="text-[11px] font-semibold text-emerald-700">업무가능 사항</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{availableTags.length ? availableTags.map((tag) => <Badge key={tag} className="bg-emerald-600 text-[10px] text-white hover:bg-emerald-600">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold text-red-600">불가능한 사항</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{unavailableTags.length ? unavailableTags.map((tag) => <Badge key={tag} variant="outline" className="border-red-200 bg-red-50 text-[10px] text-red-700">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
+                        </div>
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-[11px] text-muted-foreground"><strong>특이사항:</strong> {worker.notes || "등록 없음"}</p>
+                      {score && <Progress value={(score.score / 90) * 100} className="mt-2 h-2" />}
+                    </button>
+                    <div className="mt-3 flex flex-wrap justify-end gap-2">
+                      {selectedUser && score && <Button size="sm" variant="outline" onClick={() => openFailureDialog(worker, score.score)}>매칭 실패 기록</Button>}
+                      <Button size="sm" variant="outline" onClick={() => openWorkerDetail(worker)}>지원사 상세보기</Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {!selectedUser ? (
             /* 이용자 미선택 시: 전역 추천 매칭 1~3순위 */
             globalTopMatches.length > 0 ? (
@@ -531,20 +630,24 @@ const Matching = () => {
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                   <CardTitle className="text-base font-bold">🎯 {selectedUser.name} 이용자 정보</CardTitle>
-                  <Button onClick={runMatching} className="h-9">🔍 매칭 실행</Button>
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button variant="outline" onClick={() => navigate(`/users?detailId=${encodeURIComponent(selectedUser.id || "")}`)}>이용자 상세보기</Button>
+                    <Button onClick={runMatching} className="h-9">🔍 매칭 실행</Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm border-t pt-3">
                     <span><strong>성별/나이:</strong> {selectedUser.gender} / {selectedUser.age}세</span>
                     <span><strong>장애유형:</strong> {selectedUser.disabilityType}</span>
-                    <span><strong>바우처:</strong> {formatVoucherTier(selectedUser)} ({selectedUser.voucherHours || VOUCHER_HOURS[selectedUser.voucherTier] || 0}시간)</span>
+                    <span><strong>바우처:</strong> {formatVoucherTier(selectedUser)} ({formatUserVoucherHours(selectedUser)})</span>
                     <span><strong>필요요일:</strong> {selectedUser.requiredDays}</span>
-                    <span><strong>필요시간:</strong> {selectedUser.requiredHours}</span>
+                    <span className="col-span-2"><strong>필요시간:</strong> {formatUserMatchingTime(selectedUser)}</span>
                     <span><strong>가족구성:</strong> {selectedUser.familyMembers || "정보없음"}</span>
                     <span><strong>지원유형:</strong> {selectedUser.supportTypes?.join(", ") || "정보없음"}</span>
                     <span className="col-span-2"><strong>환경:</strong> {selectedUser.environmentTags?.join(", ") || "없음"}</span>
                     <span className="col-span-2"><strong>선호 특성:</strong> {selectedUser.preferredWorkerTraits || "없음"}</span>
                     <span className="col-span-2 md:col-span-3"><strong>주소:</strong> {selectedUser.address}</span>
+                    <span className="col-span-2 md:col-span-3 font-medium text-primary">{formatRequiredVoucherGap(selectedUser)}</span>
                   </div>
                 </CardContent>
               </Card>
