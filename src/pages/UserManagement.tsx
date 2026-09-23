@@ -57,9 +57,9 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { formatVoucherTier } from "@/lib/userVoucher";
-import { formatServiceProviderHistory } from "@/lib/serviceHistory";
+import { buildServiceProviderHistorySegments, getFirstServiceStartDate, isRecontractedUser } from "@/lib/serviceHistory";
 import { formatRequiredVoucherGap } from "@/lib/serviceHours";
-import { findAssignmentScheduleConflict, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
+import { findAssignmentScheduleConflict, formatUserServiceScheduleOverview, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
 import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
@@ -1231,12 +1231,6 @@ const UserManagement = () => {
     return last4 ? `${current.workerName}(${last4})` : current.workerName;
   };
 
-  const getActiveMatchingEntries = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry[] => {
-    return getDocumentMatchingEntries(user)
-      .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
-      .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
-  };
-
   const getUniqueEntriesByWorker = (entries: DocumentMatchingHistoryEntry[]) => {
     const byWorker = new Map<string, DocumentMatchingHistoryEntry>();
     for (const entry of entries) {
@@ -1249,45 +1243,32 @@ const UserManagement = () => {
     return Array.from(byWorker.values());
   };
 
-  const periodsOverlap = (a: DocumentMatchingHistoryEntry, b: DocumentMatchingHistoryEntry) => {
-    const aStart = getComparableDateValue(a.serviceStartDate);
-    const bStart = getComparableDateValue(b.serviceStartDate);
-    const aEnd = getComparableDateValue(a.serviceEndDate || "9999-12-31");
-    const bEnd = getComparableDateValue(b.serviceEndDate || "9999-12-31");
-    return aStart <= bEnd && bStart <= aEnd;
+  const renderHelperHistory = (user: ServiceUser & { id: string }) => {
+    const segments = buildServiceProviderHistorySegments(
+      getUniqueEntriesByWorker(getDocumentMatchingEntries(user)),
+    );
+    if (!segments.length) return <span>없음</span>;
+    return (
+      <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+        {segments.map((segment, index) => (
+          <span key={`${segment.key}-${segment.startDate}`} className="inline-flex items-center gap-1">
+            {index > 0 && <span className="font-semibold text-muted-foreground">→</span>}
+            <span className={segment.isCurrent
+              ? "inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 font-bold text-emerald-800 shadow-sm"
+              : "inline-flex items-center"
+            }>
+              {segment.label}
+              {segment.isCurrent && (
+                <span className="rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                  현재
+                </span>
+              )}
+            </span>
+          </span>
+        ))}
+      </span>
+    );
   };
-
-  const getOverlappingHelperNames = (entries: DocumentMatchingHistoryEntry[]) => {
-    const unique = getUniqueEntriesByWorker(entries);
-    for (let i = 0; i < unique.length; i += 1) {
-      const overlapping = unique.filter((entry, index) => index !== i && periodsOverlap(unique[i], entry));
-      if (overlapping.length > 0) {
-        return Array.from(new Set([unique[i], ...overlapping].map((entry) => entry.workerName || entry.workerId).filter(Boolean)));
-      }
-    }
-    return [];
-  };
-
-  const formatCurrentHelperPreview = (user: ServiceUser & { id: string }): string => {
-    const entries = getUniqueEntriesByWorker(getDocumentMatchingEntries(user));
-    const overlappingNames = getOverlappingHelperNames(entries);
-    if (overlappingNames.length > 1) return `1:다 (${overlappingNames.join(", ")})`;
-
-    const chronologicalNames = Array.from(new Set(
-      entries
-        .filter((entry) => entry.workerName || entry.workerId)
-        .sort((a, b) => getComparableDateValue(a.serviceStartDate).localeCompare(getComparableDateValue(b.serviceStartDate)))
-        .map((entry) => entry.workerName || entry.workerId)
-    ));
-    if (chronologicalNames.length > 1) return chronologicalNames.join(" → ");
-
-    const activeEntries = getActiveMatchingEntries(user);
-    if (activeEntries.length === 1) return activeEntries[0].workerName || activeEntries[0].workerId;
-    if (chronologicalNames.length === 1) return chronologicalNames[0];
-    return formatHelperList(user);
-  };
-  const getHelperHistoryLabel = (user: ServiceUser & { id: string }): string =>
-    formatServiceProviderHistory(getUniqueEntriesByWorker(getDocumentMatchingEntries(user)));
   const resetMatchingPeriodDrafts = (user: ServiceUser & { id: string }) => {
     const next = Object.fromEntries(
       getDocumentMatchingEntries(user).map((entry) => [
@@ -2155,9 +2136,30 @@ const UserManagement = () => {
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {[user.disabilityType, user.secondaryDisabilityType].filter(Boolean).join(" / ")}</p>
                       <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({formatVoucherTier(user)})</p>
-                      <p><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</p>                      <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? (effectiveUserStatus(user) === "서비스중" ? "총 " + getFormattedDuration(user.serviceStartDate) + "째 서비스 중" : user.serviceStartDate + " ~ " + (user.resignationDate || "종료일 미등록") + " (" + effectiveUserStatus(user) + ")") : "미등록"}</p>
-                      <p><span className="text-muted-foreground">담당지원사:</span> {formatCurrentHelperPreview(user as ServiceUser & { id: string }) || "없음"}</p>
-                      <p><span className="text-muted-foreground">담당지원사 이력:</span> {getHelperHistoryLabel(user)}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</span>
+                        <span className="inline-flex flex-wrap items-center gap-1">
+                          <span className="text-muted-foreground">최초 서비스제공일:</span>
+                          <span>{getFirstServiceStartDate(user) || "미등록"}</span>
+                          {getFirstServiceStartDate(user) && (
+                            <Badge
+                              variant="outline"
+                              className={isRecontractedUser(user)
+                                ? "border-blue-300 bg-blue-50 text-blue-700"
+                                : "border-slate-300 bg-slate-50 text-slate-600"
+                              }
+                            >
+                              {isRecontractedUser(user) ? "재계약 이력 있음" : "재계약 없음"}
+                            </Badge>
+                          )}
+                        </span>
+                      </div>
+                      <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? (effectiveUserStatus(user) === "서비스중" ? "총 " + getFormattedDuration(user.serviceStartDate) + "째 서비스 중" : user.serviceStartDate + " ~ " + (user.resignationDate || "종료일 미등록") + " (" + effectiveUserStatus(user) + ")") : "미등록"}</p>
+                      <p><span className="text-muted-foreground">서비스 제공시간:</span> {formatUserServiceScheduleOverview(user)}</p>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-muted-foreground">담당지원사 이력:</span>
+                        {renderHelperHistory(user)}
+                      </div>
                       {(user.assignedHelperIds?.length || 0) > 1 && (
                         <Button
                           size="sm"
