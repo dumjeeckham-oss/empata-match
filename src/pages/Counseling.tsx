@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useState, useRef } from "react";
+import { useMemo, useState, useRef } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, TERMINATION_REASONS } from "@/types";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
@@ -18,6 +18,28 @@ import { toast } from "@/hooks/use-toast";
 import { Printer } from "lucide-react";
 import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
 import { formatVoucherTier } from "@/lib/userVoucher";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+
+const escapeHtml = (value: unknown): string => String(value ?? "—")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#039;");
+
+const uniquePeople = (names: string[] = [], phones: string[] = []) => Array.from(
+  new Map(names.map((name, index) => [
+    name + "|" + (phones[index] || ""),
+    { name, phone: phones[index] || "" },
+  ])).values(),
+);
 
 const Counseling = () => {
   const { data: records, add: addRecord } = useCollection<CounselingRecord>("counseling");
@@ -29,6 +51,7 @@ const Counseling = () => {
   const [terminationOpen, setTerminationOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filterTarget, setFilterTarget] = useState<string>("all");
+  const [targetSearch, setTargetSearch] = useState("");
 
   // Quick Counseling Candidate Selection States
   const [candidateTab, setCandidateTab] = useState<"이용자" | "활동지원사">("이용자");
@@ -74,6 +97,7 @@ const Counseling = () => {
       category: "일반상담"
     });
     setIsTargetLocked(true);
+    setTargetSearch(target?.name || "");
     setDialogOpen(true);
   };
 
@@ -89,6 +113,7 @@ const Counseling = () => {
       category: "일반상담"
     });
     setIsTargetLocked(false);
+    setTargetSearch("");
     setDialogOpen(true);
   };
 
@@ -128,60 +153,76 @@ const Counseling = () => {
 
   const handlePrintRecord = (r: CounselingRecord) => {
     const printWindow = window.open("", "_blank");
-    if (printWindow) {
-      const target = r.targetType === "이용자" ? users.find(u => u.id === r.targetId) : workers.find(w => w.id === r.targetId);
-      const partnerInfo = r.targetType === "이용자" 
-        ? (target as ServiceUser)?.assignedHelperNames?.map((name, i) => `${name}(${(target as ServiceUser).assignedHelperPhones?.[i] || "-"})`).join(", ")
-        : (target as Worker)?.assignedUserNames?.map((name, i) => `${name}(${(target as Worker).assignedUserPhones?.[i] || "-"})`).join(", ");
+    if (!printWindow) return;
 
-      printWindow.document.write(`
-        <html><head><title>상담일지 - ${r.targetName}</title>
-        <style>
-          @page { size: A4 portrait; margin: 15mm 12mm 15mm 12mm; }
-          html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; }
-          *, *::before, *::after { box-sizing: border-box; }
-          body { font-family: 'Malgun Gothic', sans-serif; line-height: 1.45; color: #000; font-size: 10pt; }
-          .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 30px; }
-          .title { font-size: 20px; font-weight: 700; }
-          .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 14px; break-inside: avoid; page-break-inside: avoid; }
-          .info-table th, .info-table td { border: 1px solid #333; padding: 10px; text-align: left; }
-          .info-table th { background-color: #f5f5f5; width: 20%; }
-          .content-box { border: 1px solid #333; padding: 10px; min-height: 48mm; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
-          .footer { margin-top: 20px; text-align: right; }
-          @media print { .no-print { display: none !important; } }
-        </style></head><body>
-          <div class="header">
-            <div class="title">상담일지</div>
-            <img src="${dongbaekLogo}" style="height: 40px;" />
-          </div>
-          <table class="info-table">
-            <tr>
-              <th>상담대상</th><td>${r.targetName} (${r.targetType})</td>
-              <th>상담일자</th><td>${r.date}</td>
-            </tr>
-            <tr>
-              <th>상담자</th><td>${r.counselorName || "-"}</td>
-              <th>상담분류</th><td>${r.category}</td>
-            </tr>
-            <tr>
-              <th>매칭관계</th><td colspan="3">${partnerInfo || "배정된 인원 없음"}</td>
-            </tr>
+    const target = r.targetType === "이용자"
+      ? users.find((u) => u.id === r.targetId)
+      : workers.find((w) => w.id === r.targetId);
+    const user = r.targetType === "이용자" ? target as ServiceUser | undefined : undefined;
+    const worker = r.targetType === "활동지원사" ? target as Worker | undefined : undefined;
+    const linkedPeople = r.targetType === "이용자"
+      ? uniquePeople(user?.assignedHelperNames, user?.assignedHelperPhones)
+      : uniquePeople(worker?.assignedUserNames, worker?.assignedUserPhones);
+    const linkedTitle = r.targetType === "이용자" ? "연결된 활동지원사" : "연결된 이용자";
+    const linkedInfo = linkedPeople.length
+      ? linkedPeople.map((person) => escapeHtml(person.name) + (person.phone ? ` (${escapeHtml(person.phone)})` : "")).join("<br>")
+      : "연결된 대상자 없음";
+    const profileRows = r.targetType === "이용자"
+      ? `
+        <tr><th>이름</th><td>${escapeHtml(user?.name || r.targetName)}</td><th>대상자구분</th><td>이용자</td></tr>
+        <tr><th>생년월일</th><td>${escapeHtml(user?.birthDate || "-")}</td><th>성별</th><td>${escapeHtml(user?.gender || "-")}</td></tr>
+        <tr><th>휴대전화번호</th><td>${escapeHtml(user?.phone || "-")}</td><th>자택전화번호</th><td>-</td></tr>
+        <tr><th>주소</th><td colspan="3">${escapeHtml(user?.address || "-")}</td></tr>
+        <tr><th>장애유형</th><td colspan="3">${escapeHtml(user?.disabilityType || "-")}</td></tr>
+        <tr><th>활동지원등급</th><td colspan="3">${escapeHtml(user ? formatVoucherTier(user) : "-")}</td></tr>
+      `
+      : `
+        <tr><th>이름</th><td>${escapeHtml(worker?.name || r.targetName)}</td><th>대상자구분</th><td>활동지원사</td></tr>
+        <tr><th>나이</th><td>${escapeHtml(worker?.age ? `${worker.age}세` : "-")}</td><th>성별</th><td>${escapeHtml(worker?.gender || "-")}</td></tr>
+        <tr><th>휴대전화번호</th><td>${escapeHtml(worker?.phone || "-")}</td><th>활동지역</th><td>${escapeHtml(worker?.preferredArea || worker?.residenceArea || "-")}</td></tr>
+        <tr><th>주소</th><td colspan="3">${escapeHtml(worker?.address || "-")}</td></tr>
+        <tr><th>경력</th><td colspan="3">${escapeHtml(worker?.experience || "-")}</td></tr>
+      `;
+
+    printWindow.document.write(`
+      <html><head><title>상담일지 - ${escapeHtml(r.targetName)}</title>
+      <style>
+        @page { size: A4 portrait; margin: 12mm 10mm; }
+        html, body { width: 210mm; min-height: 297mm; margin: 0; padding: 0; }
+        *, *::before, *::after { box-sizing: border-box; }
+        body { font-family: 'Malgun Gothic', sans-serif; line-height: 1.35; color: #000; font-size: 9pt; }
+        .sheet { width: 190mm; margin: 0 auto; }
+        .title { text-align: center; font-size: 20px; font-weight: 700; margin: 0 0 10mm; }
+        .info-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 5mm; break-inside: avoid; page-break-inside: avoid; }
+        .info-table th, .info-table td { border: 1px solid #000; padding: 2.2mm 2.5mm; text-align: left; vertical-align: middle; }
+        .info-table th { width: 17%; text-align: center; font-weight: 700; }
+        .linked { border: 1px solid #000; padding: 3mm; min-height: 19mm; margin-bottom: 5mm; break-inside: avoid; page-break-inside: avoid; }
+        .section-table td { white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+        .content-box { border: 1px solid #000; padding: 3mm; min-height: 50mm; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
+        .result-box { min-height: 24mm; }
+        .footer { margin-top: 7mm; text-align: center; }
+        @media print { .no-print { display: none !important; } }
+      </style></head><body>
+        <main class="sheet">
+          <h1 class="title">상담일지</h1>
+          <table class="info-table">${profileRows}</table>
+          <div class="linked"><strong>＊ ${linkedTitle}</strong><br><br>${linkedInfo}</div>
+          <table class="info-table section-table">
+            <tr><th>작성자</th><td colspan="3">${escapeHtml(r.counselorName || "-")}</td></tr>
+            <tr><th>상담분류</th><td>${escapeHtml(r.category)}</td><th>상담방법</th><td>유선</td></tr>
+            <tr><th>시작일시</th><td>${escapeHtml(r.date)}</td><th>종료일시</th><td>${escapeHtml(r.date)}</td></tr>
+            <tr><th>제목</th><td colspan="3">${escapeHtml(r.category || "상담")}</td></tr>
+            <tr><th>상담내용</th><td colspan="3" class="content-box">${escapeHtml(r.content)}</td></tr>
+            <tr><th>상담결과</th><td colspan="3" class="content-box result-box">${escapeHtml(r.result || "")}</td></tr>
           </table>
-          <div style="font-weight: bold; margin-bottom: 10px;">상담 내용</div>
-          <div class="content-box">${r.content}</div>
-          <div style="font-weight: bold; margin-top: 20px; margin-bottom: 10px;">상담 결과</div>
-          <div class="content-box">${r.result || ""}</div>
-          <div class="footer">
-            부천의료복지사회적협동조합 동백장애인활동지원센터
-          </div>
-        </body></html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => { printWindow.print(); }, 500);
-    }
+          <div class="footer"><img src="${dongbaekLogo}" alt="동백" style="height: 28px;" /></div>
+        </main>
+      </body></html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 500);
   };
-
   const selectedTermUser = users.find((u) => u.id === termForm.userId);
   const sameNameUsers = termForm.userId ? users.filter((u) => u.name === selectedTermUser?.name) : [];
 
@@ -197,6 +238,11 @@ const Counseling = () => {
     (c.phone && c.phone.includes(candidateSearch))
   );
 
+  const targetOptions = useMemo(() => (form.targetType === "이용자" ? users : workers)
+    .filter((target) => {
+      const query = targetSearch.trim().toLowerCase();
+      return !query || target.name.toLowerCase().includes(query) || String(target.phone || "").includes(query);
+    }), [form.targetType, targetSearch, users, workers]);
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -295,7 +341,7 @@ const Counseling = () => {
           <Button onClick={handleOpenNewCounsel}>+ 상담기록 작성</Button>
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogContent className="max-w-lg w-[95vw] max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
               <DialogHeader><DialogTitle>상담기록 작성</DialogTitle></DialogHeader>
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
@@ -316,16 +362,33 @@ const Counseling = () => {
                     {isTargetLocked ? (
                       <Input value={form.targetName} disabled />
                     ) : (
-                      <Select value={form.targetId} onValueChange={handleSelectTarget}>
-                        <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                        <SelectContent>
-                          {(targets ?? []).filter((t) => !!t?.id).map((t) => (
-                            <SelectItem key={t.id} value={t.id!}>
-                              {t?.name || "이름없음"} ({t?.gender || "-"}, {t?.phone || "-"})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="rounded-md border bg-background">
+  <Command shouldFilter={false}>
+    <CommandInput
+      placeholder="이름 또는 연락처 검색..."
+      value={targetSearch}
+      onValueChange={setTargetSearch}
+    />
+    <CommandList className="max-h-48">
+      <CommandEmpty>검색된 대상자가 없습니다.</CommandEmpty>
+      <CommandGroup>
+        {targetOptions.filter((target) => !!target.id).map((target) => (
+          <CommandItem
+            key={target.id}
+            value={target.id}
+            onSelect={() => {
+              handleSelectTarget(target.id!);
+              setTargetSearch(target.name);
+            }}
+          >
+            <span>{target.name}</span>
+            <span className="ml-auto text-xs text-muted-foreground">{target.phone || "연락처 없음"}</span>
+          </CommandItem>
+        ))}
+      </CommandGroup>
+    </CommandList>
+  </Command>
+</div>
                     )}
                   </div>
                 </div>
@@ -394,7 +457,7 @@ const Counseling = () => {
                 <div><Label>상담 내용</Label><Textarea rows={3} value={form.content} onChange={(e) => setForm((f) => ({ ...f, content: e.target.value }))} placeholder="상담 내용을 입력하세요..." /><SpellCheckButton value={form.content} onApply={(content) => setForm((f) => ({ ...f, content }))} /></div>
                 <div><Label>상담 결과</Label><Textarea rows={3} value={form.result} onChange={(e) => setForm((f) => ({ ...f, result: e.target.value }))} placeholder="상담 결과를 입력하세요..." /><SpellCheckButton value={form.result} onApply={(result) => setForm((f) => ({ ...f, result }))} /></div>
                 <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setDialogOpen(false)}>취소</Button>
+                  <Button variant="outline" onClick={() => setDialogOpen(false)}>닫기 (작성 내용 유지)</Button>
                   <Button onClick={handleSaveRecord}>저장</Button>
                 </div>
               </div>
