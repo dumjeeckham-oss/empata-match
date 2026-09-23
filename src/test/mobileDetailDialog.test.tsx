@@ -28,11 +28,12 @@ describe("mobile detail dialog", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveClass("h-[100dvh]", "max-h-[100dvh]", "overflow-hidden");
-    expect(dialog).toHaveClass("flex");
+    expect(dialog).toHaveClass("flex", "flex-col");
     expect(dialog).not.toHaveClass("grid");
+    expect(dialog).toHaveClass("sm:max-w-6xl");
     expect(dialog).toHaveAttribute("data-no-swipe");
-    expect(screen.getByTestId("detail-body")).toHaveClass("flex-1", "overflow-y-auto", "overscroll-contain");
-    expect(screen.getByTestId("detail-footer")).toHaveClass("shrink-0", "grid-cols-2");
+    expect(screen.getByTestId("detail-body")).toHaveClass("w-full", "flex-1", "overflow-y-auto", "overscroll-contain");
+    expect(screen.getByTestId("detail-footer")).toHaveClass("w-full", "shrink-0", "grid-cols-2");
   });
 
   it("prevents page swipe navigation from interactions inside the detail screen", () => {
