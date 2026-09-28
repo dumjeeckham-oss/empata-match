@@ -2135,6 +2135,7 @@ const UserManagement = () => {
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {[user.disabilityType, user.secondaryDisabilityType].filter(Boolean).join(" / ")}</p>
+                      <p className="break-words"><span className="text-muted-foreground">주소:</span> {user.address || "미등록"}</p>
                       <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({formatVoucherTier(user)})</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</span>
