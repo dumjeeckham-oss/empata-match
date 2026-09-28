@@ -2069,7 +2069,7 @@ const UserManagement = () => {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
         <section className="space-y-4 xl:col-span-3">
-          <Card>
+          <Card className="sticky top-28 z-20 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">전체 이용자 명단 ({filtered.length}명)</CardTitle>
             </CardHeader>

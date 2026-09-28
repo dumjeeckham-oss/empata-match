@@ -459,16 +459,18 @@ const Matching = () => {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {/* 좌측: 매칭 대기 이용자 목록 */}
         <div className="space-y-4">
-          <div>
-            <h2 className="text-base font-semibold">매칭 대기중인 이용자 ({filteredUsers.length}명)</h2>
-            <p className="text-xs text-muted-foreground">카드를 선택하면 우측 지원사별 추천점수를 바로 비교할 수 있습니다.</p>
+          <div className="sticky top-28 z-20 space-y-3 bg-background pb-2">
+            <div>
+              <h2 className="text-base font-semibold">매칭 대기중인 이용자 ({filteredUsers.length}명)</h2>
+              <p className="text-xs text-muted-foreground">카드를 선택하면 우측 지원사별 추천점수를 바로 비교할 수 있습니다.</p>
+            </div>
+            <Input
+              placeholder="이름 검색..."
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              className="w-full"
+            />
           </div>
-          <Input
-            placeholder="이름 검색..."
-            value={nameSearch}
-            onChange={(e) => setNameSearch(e.target.value)}
-            className="w-full"
-          />
           <div className="h-[560px] overflow-y-auto rounded-lg border bg-card p-2">
             {filteredUsers.length === 0 ? (
               <p className="p-4 text-center text-sm text-muted-foreground">검색된 이용자가 없습니다.</p>
@@ -515,11 +517,13 @@ const Matching = () => {
         {/* 우측: 매칭 대기 활동지원사 목록 + 추천 결과 */}
         <div className="space-y-6">
           <div className="space-y-4">
-            <div>
-              <h2 className="text-base font-semibold">매칭 대기중인 활동지원사 ({visibleWorkers.length}명)</h2>
-              <p className="text-xs text-muted-foreground">퇴사자는 자동 제외되며, 카드를 누르면 선택 이용자와의 적합도를 확인할 수 있습니다.</p>
+            <div className="sticky top-28 z-20 space-y-3 bg-background pb-2">
+              <div>
+                <h2 className="text-base font-semibold">매칭 대기중인 활동지원사 ({visibleWorkers.length}명)</h2>
+                <p className="text-xs text-muted-foreground">퇴사자는 자동 제외되며, 카드를 누르면 선택 이용자와의 적합도를 확인할 수 있습니다.</p>
+              </div>
+              <Input placeholder="지원사 이름·연락처·주소 검색..." value={manualSearch} onChange={(event) => setManualSearch(event.target.value)} />
             </div>
-            <Input placeholder="지원사 이름·연락처·주소 검색..." value={manualSearch} onChange={(event) => setManualSearch(event.target.value)} />
             <div className="h-[560px] space-y-2 overflow-y-auto rounded-lg border bg-card p-2">
               {visibleWorkers.length === 0 ? (
                 <p className="p-6 text-center text-sm text-muted-foreground">조건에 맞는 대기 활동지원사가 없습니다.</p>

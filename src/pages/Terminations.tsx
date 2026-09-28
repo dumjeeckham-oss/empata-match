@@ -44,6 +44,10 @@ function safeMsg(e: unknown): string {
   return String(e);
 }
 
+const displayTerminationReason = (reason: string) => reason === "가족활동가" ? "가족이 직접 돌봄" : reason;
+const isTerminationReasonSelected = (reasons: string[], reason: string) =>
+  reasons.includes(reason) || (reason === "가족이 직접 돌봄" && reasons.includes("가족활동가"));
+
 export default function Terminations() {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
@@ -129,7 +133,9 @@ export default function Terminations() {
   const toggleReason = (reason: string) => {
     setForm((f) => ({
       ...f,
-      reasons: f.reasons.includes(reason) ? f.reasons.filter((r) => r !== reason) : [...f.reasons, reason],
+      reasons: isTerminationReasonSelected(f.reasons, reason)
+        ? f.reasons.filter((r) => r !== reason && !(reason === "가족이 직접 돌봄" && r === "가족활동가"))
+        : [...f.reasons, reason],
     }));
   };
 
@@ -402,7 +408,7 @@ export default function Terminations() {
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>이용 종결자</th>
                   <td style={{ fontWeight: 700 }}>{printDoc?.userName || "—"}</td>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>종결사유</th>
-                  <td>{(printDoc?.reasons || []).join(", ") || "—"}</td>
+                  <td>{(printDoc?.reasons || []).map(displayTerminationReason).join(", ") || "—"}</td>
                 </tr>
                 <tr>
                   <th style={{ backgroundColor: "#f5f5f5", textAlign: "center" }}>주민등록번호</th>
@@ -443,7 +449,7 @@ export default function Terminations() {
                           fontWeight: 700,
                           flexShrink: 0,
                         }}>
-                          {(printDoc?.reasons || []).includes(r) ? "✓" : ""}
+                          {isTerminationReasonSelected(printDoc?.reasons || [], r) ? "✓" : ""}
                         </span>
                         <span>{r}</span>
                       </div>
@@ -580,7 +586,7 @@ export default function Terminations() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <Label>종결사유</Label>
-              <Input value={form.reasons.join(", ") || ""} readOnly className="bg-muted" placeholder="하단 사유 선택 시 자동 채움" />
+              <Input value={form.reasons.map(displayTerminationReason).join(", ") || ""} readOnly className="bg-muted" placeholder="하단 사유 선택 시 자동 채움" />
             </div>
             <div>
               <Label>주민등록번호</Label>
@@ -604,7 +610,7 @@ export default function Terminations() {
               <div className="border rounded-md p-3 mt-2 space-y-1.5">
                 {TERMINATION_REASONS.map((r) => (
                   <label key={r} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/50 px-1 py-0.5 rounded">
-                    <Checkbox checked={form.reasons.includes(r)} onCheckedChange={() => toggleReason(r)} />{r}
+                    <Checkbox checked={isTerminationReasonSelected(form.reasons, r)} onCheckedChange={() => toggleReason(r)} />{r}
                   </label>
                 ))}
               </div>

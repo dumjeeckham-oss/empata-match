@@ -4,11 +4,11 @@ import { OFFICIAL_TERMINATION_PROJECT_NAME } from "@/lib/terminationWorkers";
 
 const PRINT_REASONS = [
   ["사망", "이중서비스", "기관변경", "타서비스전환"],
-  ["등급변경", "병원장기입원", "사업변경", "가족활동가"],
+  ["등급변경", "병원장기입원", "사업변경", "가족이 직접 돌봄"],
 ] as const;
 const reasonAliases: Record<string, string[]> = {
   이중서비스: ["이용자퇴소"], 병원장기입원: ["법령변경기인임"],
-  사업변경: ["품목변경", "시설변경"], 가족활동가: ["가족희망"],
+  사업변경: ["품목변경", "시설변경"], "가족이 직접 돌봄": ["가족활동가", "가족희망"],
 };
 const isSelected = (reasons: string[], reason: string) =>
   reasons.includes(reason) || (reasonAliases[reason] || []).some((alias) => reasons.includes(alias));

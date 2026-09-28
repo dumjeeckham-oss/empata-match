@@ -23,7 +23,7 @@ export const EXPERIENCE_OPTIONS = [
 
 export const TERMINATION_REASONS = [
   "사망", "이중서비스", "기관변경", "타서비스전환",
-  "등급변경", "병원장기입원", "사업변경", "가족활동가",
+  "등급변경", "병원장기입원", "사업변경", "가족이 직접 돌봄",
   "개인사정", "기타",
 ] as const;
 
