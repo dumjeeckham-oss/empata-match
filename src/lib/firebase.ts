@@ -1,8 +1,10 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
-import { getFirestore, collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, orderBy, onSnapshot, Timestamp, type DocumentData, type QueryConstraint } from "firebase/firestore";
-import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, type User } from "firebase/auth";
+import { getFirestore, connectFirestoreEmulator, collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc, writeBatch, query, where, orderBy, onSnapshot, Timestamp, type DocumentData, type QueryConstraint } from "firebase/firestore";
+import { getAuth, connectAuthEmulator, signInWithEmailAndPassword, signOut, onAuthStateChanged, type User } from "firebase/auth";
+import { connectFunctionsEmulator, getFunctions } from "firebase/functions";
+import { connectStorageEmulator, getStorage } from "firebase/storage";
 
-const firebaseConfig = {
+const productionFirebaseConfig = {
   apiKey: "AIzaSyAAGBRs52B_pWvG9t6NOwR7mgPBNkB_LH4",
   authDomain: "dong100-51735.firebaseapp.com",
   projectId: "dong100-51735",
@@ -10,6 +12,19 @@ const firebaseConfig = {
   messagingSenderId: "296812929766",
   appId: "1:296812929766:web:27f889ead244d8b9e65127"
 };
+
+export const usingFirebaseEmulators = import.meta.env.DEV || import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true";
+const demoProjectId = import.meta.env.VITE_FIREBASE_DEMO_PROJECT_ID || "demo-dongbaek-forms";
+const firebaseConfig = usingFirebaseEmulators
+  ? {
+      apiKey: "demo-api-key",
+      authDomain: `${demoProjectId}.firebaseapp.com`,
+      projectId: demoProjectId,
+      storageBucket: `${demoProjectId}.appspot.com`,
+      messagingSenderId: "000000000000",
+      appId: "1:000000000000:web:emulator",
+    }
+  : productionFirebaseConfig;
 
 /**
  * 배포 환경(GitHub Pages/Vite)에서 환경변수 누락으로 Firebase 설정이 깨지는 문제를 방지하기 위해
@@ -29,9 +44,20 @@ try {
  */
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const functions = getFunctions(app, import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || "asia-northeast3");
+export const storage = getStorage(app);
+
+if (usingFirebaseEmulators) {
+  // demo-* 프로젝트만 허용하여 실수로 운영 Firebase에 연결되는 것을 차단한다.
+  if (!app.options.projectId?.startsWith("demo-")) throw new Error("Emulator는 demo-* 프로젝트 ID에서만 실행할 수 있습니다.");
+  connectFirestoreEmulator(db, "127.0.0.1", 8081);
+  connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  connectStorageEmulator(storage, "127.0.0.1", 9199);
+}
 
 try {
-  console.log("Firebase 연결 시도 중... 프로젝트 ID:", app.options.projectId);
+  console.log(usingFirebaseEmulators ? "Firebase Emulator 연결:" : "Firebase 연결 시도 중... 프로젝트 ID:", app.options.projectId);
   console.log("Firestore 로딩 성공 여부:", !!db);
   console.log("🔥 Firebase 연결 엔진 기동 성공:", db.app.options.projectId);
 } catch (e) {

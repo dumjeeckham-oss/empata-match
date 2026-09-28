@@ -1,0 +1,36 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function staff() {
+      return signedIn()
+        && 'role' in request.auth.token
+        && (request.auth.token.role == 'admin' || request.auth.token.role == 'social_worker');
+    }
+
+    // 공개 사용자는 Firestore에 직접 접근하지 않으며 검증용 Function만 통한다.
+    match /eventForms/{id} { allow read: if staff(); allow write: if false; }
+    match /eventFormVersions/{id} { allow read: if staff(); allow write: if false; }
+    match /eventFormRounds/{id} { allow read: if staff(); allow write: if false; }
+    match /eventFormSubmissions/{id} { allow read: if staff(); allow write: if false; }
+    match /eventFormPublicTokens/{id} { allow read, write: if false; }
+    match /eventFormDuplicateKeys/{id} { allow read, write: if false; }
+    match /eventFormRateLimits/{id} { allow read, write: if false; }
+    match /eventFormAssets/{id} { allow read: if staff(); allow write: if false; }
+    match /eventFormAuditLogs/{id} { allow read: if staff(); allow write: if false; }
+
+    // 기존 앱 컬렉션은 로그인한 네 계정의 기존 동작을 유지한다.
+    match /{collectionName}/{document=**} {
+      allow read, write: if signedIn()
+        && collectionName != 'eventForms'
+        && collectionName != 'eventFormVersions'
+        && collectionName != 'eventFormRounds'
+        && collectionName != 'eventFormSubmissions'
+        && collectionName != 'eventFormPublicTokens'
+        && collectionName != 'eventFormDuplicateKeys'
+        && collectionName != 'eventFormRateLimits'
+        && collectionName != 'eventFormAssets'
+        && collectionName != 'eventFormAuditLogs';
+    }
+  }
+}

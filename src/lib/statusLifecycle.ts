@@ -33,7 +33,7 @@ export function getWorkerOperationalStatus(worker: Worker, asOf: Date | string =
   const legacyRetiredToday = !status && Boolean(retirementDate) && retirementDate <= today;
 
   if (retiredToday || legacyRetiredToday) return "퇴사";
-  return workerAssignmentIds(worker).length > 0 ? "서비스 제공중" : "대기";
+  return getActualEmploymentHistory(worker).some((entry) => !clean(entry.endDate)) ? "서비스 제공중" : "대기";
 }
 
 export function resolveWorkerContractStatus(worker: Worker, asOf: Date | string = new Date()): Worker["contractStatus"] {
@@ -128,25 +128,52 @@ export function ensureOpenContractHistory(user: ServiceUser): ContractHistoryEnt
   return history;
 }
 
+export function hasActualServicePeriod(worker: Worker): boolean {
+  const startDate = clean(worker.serviceStartDate);
+  if (!startDate) return false;
+  const hasAssignedUser = workerAssignmentIds(worker).length > 0;
+  const endDate = clean(worker.serviceEndDate || (worker.contractStatus === "퇴사" ? worker.retirementDate || worker.resignationDate : ""));
+  return hasAssignedUser || Boolean(endDate);
+}
+
+export function getActualEmploymentHistory(worker: Worker): EmploymentHistoryEntry[] {
+  const startDate = clean(worker.serviceStartDate);
+  const endDate = clean(worker.serviceEndDate || (worker.contractStatus === "퇴사" ? worker.retirementDate || worker.resignationDate : ""));
+  const hasCurrentService = workerAssignmentIds(worker).length > 0;
+  const history = (worker.employmentHistory || []).filter((entry) => {
+    const entryStart = clean(entry.startDate);
+    return Boolean(entryStart) && (Boolean(clean(entry.endDate)) || (hasCurrentService && entryStart === startDate));
+  }).map((entry) => ({ ...entry, startDate: clean(entry.startDate), endDate: clean(entry.endDate) || null }));
+  if (!startDate || (!hasCurrentService && !endDate)) return history;
+  const index = history.findIndex((entry) => entry.startDate === startDate);
+  const current: EmploymentHistoryEntry = {
+    id: index >= 0 ? history[index].id : "employment-" + startDate,
+    startDate,
+    endDate: endDate || null,
+    status: endDate ? "퇴사" : "재직중",
+    reason: endDate ? "서비스 종료" : undefined,
+  };
+  if (index >= 0) history[index] = { ...history[index], ...current };
+  else history.push(current);
+  return history.sort((a, b) => clean(a.startDate).localeCompare(clean(b.startDate)));
+}
+
 export function appendEmploymentTransition(worker: Worker, endDate: string, reason = "퇴사"): EmploymentHistoryEntry[] {
-  const history = [...(worker.employmentHistory || [])];
-  const existingIndex = history.findIndex((entry) => entry.endDate === endDate && entry.status === "퇴사");
-  if (existingIndex >= 0) return history;
-  const openIndex = history.findIndex((entry) => entry.endDate === null || entry.endDate === "");
-  if (openIndex >= 0) history[openIndex] = { ...history[openIndex], endDate, status: "퇴사", reason };
-  else history.push({ id: "employment-" + (worker.serviceStartDate || endDate), startDate: worker.serviceStartDate || worker.receiptDate || endDate, endDate, status: "퇴사", reason });
+  const history = getActualEmploymentHistory(worker);
+  const startDate = clean(worker.serviceStartDate);
+  if (!startDate || !hasActualServicePeriod(worker)) return history;
+  const index = history.findIndex((entry) => entry.startDate === startDate && !clean(entry.endDate));
+  if (index >= 0) {
+    history[index] = { ...history[index], endDate: clean(endDate) || null, status: "퇴사", reason };
+    return history;
+  }
+  history.push({ id: "employment-" + startDate, startDate, endDate: clean(endDate) || null, status: "퇴사", reason });
   return history;
 }
 
 export function ensureOpenEmploymentHistory(worker: Worker): EmploymentHistoryEntry[] {
-  if (worker.contractStatus === "퇴사") return worker.employmentHistory || [];
-  const history = [...(worker.employmentHistory || [])];
-  if (!history.some((entry) => entry.endDate === null || entry.endDate === "")) {
-    history.push({ id: "employment-" + (worker.serviceStartDate || Date.now()), startDate: worker.serviceStartDate || worker.receiptDate, endDate: null, status: "재직중" });
-  }
-  return history;
+  return getActualEmploymentHistory(worker);
 }
-
 export function formatPeriodHistory(entries: Array<{ startDate: string; endDate: string | null; status: string; reason?: string }>, activeLabel: string): string[] {
   return [...entries]
     .sort((a, b) => clean(a.startDate).localeCompare(clean(b.startDate)))
