@@ -1,5 +1,5 @@
 import type { ServiceUser, Worker } from "@/types";
-import { resolveWorkerContractStatus } from "@/lib/statusLifecycle";
+import { getWorkerAssignmentIds, resolveWorkerContractStatus } from "@/lib/statusLifecycle";
 
 function normalizePhone(phone: unknown): string {
   return String(phone ?? "").replace(/\D/g, "");
@@ -186,13 +186,7 @@ export function normalizeServiceUser(raw: Record<string, unknown>): Partial<Serv
 }
 
 export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
-  const ids = Array.isArray(raw.assignedUserIds)
-    ? (raw.assignedUserIds as string[])
-    : Array.isArray(raw.assigned_users)
-      ? (raw.assigned_users as string[])
-    : raw.assignedUserId
-      ? [String(raw.assignedUserId)]
-      : [];
+  const ids = getWorkerAssignmentIds(raw);
   const names = Array.isArray(raw.assignedUserNames)
     ? (raw.assignedUserNames as string[])
     : raw.assignedUserName
@@ -226,8 +220,8 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
   const derivedStatus = resolveWorkerContractStatus({
     ...raw,
     contractStatus: rawStatus,
-    assignedUserIds: ids.filter(Boolean),
-    assigned_users: ids.filter(Boolean),
+    assignedUserIds: ids,
+    assigned_users: ids,
     retirementDate,
     resignationDate: retirementDate || resignationDate,
   } as unknown as Worker);
@@ -240,8 +234,8 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
 
   return {
     ...raw,
-    assignedUserIds: ids.filter(Boolean),
-    assigned_users: ids.filter(Boolean),
+    assignedUserIds: ids,
+    assigned_users: ids,
     assignedUserNames: names,
     assignedUserPhones: phones,
     gender: String(raw.gender ?? raw.txtHSex ?? ""),
