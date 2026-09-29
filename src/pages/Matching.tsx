@@ -23,7 +23,10 @@ import {
   formatWorkerMatchingTime,
   getUserCautionTags,
   getUserRequestTags,
+  getWorkerAdditionalInfoTags,
   getWorkerAvailableTags,
+  getWorkerPreviewAddress,
+  getWorkerPreviewNotes,
   getWorkerUnavailableTags,
 } from "@/lib/matchingCardInfo";
 import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
@@ -527,7 +530,10 @@ const Matching = () => {
                 const score = scoreByWorkerId.get(worker.id);
                 const rank = recommendedRankByWorkerId.get(worker.id);
                 const availableTags = getWorkerAvailableTags(worker);
+                const additionalInfoTags = getWorkerAdditionalInfoTags(worker);
                 const unavailableTags = getWorkerUnavailableTags(worker);
+                const previewAddress = getWorkerPreviewAddress(worker);
+                const previewNotes = getWorkerPreviewNotes(worker);
                 return (
                   <div key={worker.id} className={`rounded-lg border p-3 transition hover:border-primary/50 ${manualWorkerId === worker.id ? "border-primary bg-primary/5 ring-1 ring-primary/20" : ""}`}>
                     <button type="button" className="w-full text-left" onClick={() => setManualWorkerId(worker.id || "")}>
@@ -537,25 +543,45 @@ const Matching = () => {
                             <span className="font-bold">{worker.name}</span>
                             {rank && <Badge className="bg-primary text-primary-foreground">추천 {rank}순위</Badge>}
                           </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">{worker.age || "나이 미등록"}세 · {worker.gender || "성별 미등록"} · {worker.address || worker.residenceArea || "주소 미등록"}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{worker.age || "나이 미등록"}세 · {worker.gender || "성별 미등록"}</p>
                         </div>
                         {score && <span className="whitespace-nowrap text-sm font-bold text-primary">{score.score.toFixed(0)}점</span>}
                       </div>
-                      <div className="mt-3 rounded-md bg-muted/40 p-2 text-xs">
-                        <p><strong>활동가능시간:</strong> {formatWorkerMatchingTime(worker)}</p>
-                        {worker.preferredArea && <p className="mt-1"><strong>희망지역:</strong> {worker.preferredArea}</p>}
-                      </div>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        <div>
-                          <p className="text-[11px] font-semibold text-emerald-700">업무가능 사항</p>
-                          <div className="mt-1 flex flex-wrap gap-1">{availableTags.length ? availableTags.map((tag) => <Badge key={tag} className="bg-emerald-600 text-[10px] text-white hover:bg-emerald-600">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
+                      <div className="mt-3 space-y-2 text-xs">
+                        <div className="rounded-md border bg-background p-2">
+                          <p className="font-semibold text-foreground">주소</p>
+                          <p className="mt-1 break-words text-muted-foreground">{previewAddress || "주소 미등록"}</p>
                         </div>
-                        <div>
-                          <p className="text-[11px] font-semibold text-red-600">불가능한 사항</p>
-                          <div className="mt-1 flex flex-wrap gap-1">{unavailableTags.length ? unavailableTags.map((tag) => <Badge key={tag} variant="outline" className="border-red-200 bg-red-50 text-[10px] text-red-700">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
+                        <div className="rounded-md bg-muted/40 p-2">
+                          <p className="font-semibold text-foreground">희망 근무 조건</p>
+                          <p className="mt-1 break-words"><strong>요일·시간:</strong> {formatWorkerMatchingTime(worker)}</p>
+                          {worker.preferredArea && <p className="mt-1 break-words"><strong>희망지역:</strong> {worker.preferredArea}</p>}
                         </div>
                       </div>
-                      <p className="mt-2 line-clamp-2 text-[11px] text-muted-foreground"><strong>특이사항:</strong> {worker.notes || "등록 없음"}</p>
+                      {availableTags.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] font-semibold text-emerald-700">활동 가능 조건·상담 체크항목</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{availableTags.map((tag) => <Badge key={tag} className="bg-emerald-600 text-[10px] text-white hover:bg-emerald-600">{tag}</Badge>)}</div>
+                        </div>
+                      )}
+                      {previewNotes && (
+                        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] text-amber-950">
+                          <p className="font-semibold">특이사항</p>
+                          <p className="mt-1 whitespace-pre-wrap break-words">{previewNotes}</p>
+                        </div>
+                      )}
+                      {additionalInfoTags.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] font-semibold text-sky-700">추가정보</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{additionalInfoTags.map((tag) => <Badge key={tag} variant="outline" className="border-sky-200 bg-sky-50 text-[10px] text-sky-700">{tag}</Badge>)}</div>
+                        </div>
+                      )}
+                      {unavailableTags.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] font-semibold text-red-600">거부사항</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{unavailableTags.map((tag) => <Badge key={tag} variant="outline" className="max-w-full whitespace-normal break-words border-red-200 bg-red-50 text-[10px] text-red-700">{tag}</Badge>)}</div>
+                        </div>
+                      )}
                       {score && <Progress value={(score.score / 90) * 100} className="mt-2 h-2" />}
                     </button>
                     <div className="mt-3 flex flex-wrap justify-end gap-2">
