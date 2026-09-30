@@ -9,6 +9,7 @@ import { EventFormImage } from "@/components/EventFormImage";
 import { KakaoAddressField } from "@/components/KakaoAddressField";
 import { eventFormApi } from "@/lib/eventFormSparkApi";
 import { validateEventFormAnswers } from "@/lib/eventForms";
+import { publicEventFormErrorMessage } from "@/lib/publicEventFormErrors";
 import type { EventFormAddressAnswer, EventFormAnswers, EventFormAnswerValue, EventFormChoiceAnswer, EventFormField, PublicEventFormPayload } from "@/types/eventForms";
 
 const emptyChoice = (): EventFormChoiceAnswer => ({ optionIds: [], otherSelected: false, otherText: "" });
@@ -41,9 +42,20 @@ export default function PublicEventForm() {
   const [message, setMessage] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void eventFormApi.getPublic(token).then(setForm).catch((error) => setMessage(error instanceof Error ? error.message : "신청서를 찾을 수 없습니다.")).finally(() => setLoading(false)); }, [token]);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setMessage("");
+    setForm(null);
+    void eventFormApi.getPublic(token)
+      .then((nextForm) => { if (active) setForm(nextForm); })
+      .catch((error: unknown) => { if (active) setMessage(publicEventFormErrorMessage(error)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [token, loadAttempt]);
   if (loading) return <div className="min-h-screen bg-muted p-8 text-center">신청서를 불러오는 중...</div>;
-  if (message && !form) return <div className="min-h-screen bg-muted p-8 text-center text-destructive">{message}</div>;
+  if (message && !form) return <div className="min-h-screen bg-muted p-8 text-center"><p className="text-destructive">{message}</p><Button className="mt-4" variant="outline" onClick={() => setLoadAttempt((attempt) => attempt + 1)}>다시 시도</Button></div>;
   if (!form) return null;
   if (form.status === "draft") return <div className="min-h-screen bg-muted p-8 text-center"><h1 className="text-2xl font-bold">{form.title}</h1><p className="mt-4">신청서를 준비하고 있습니다.</p></div>;
   if (form.status !== "open") return <div className="min-h-screen bg-muted p-8 text-center"><h1 className="text-2xl font-bold">{form.title}</h1><p className="mt-4">접수가 마감되었습니다.</p></div>;
@@ -56,10 +68,7 @@ export default function PublicEventForm() {
     if (localStorage.getItem(browserKey) && form.duplicatePolicy !== "none" && !confirm("이 브라우저에서 이미 제출한 기록이 있습니다. 다시 제출할까요?")) return;
     setBusy(true);
     try { await eventFormApi.submit(token, form.roundId, form.versionId, answers); localStorage.setItem(browserKey, new Date().toISOString()); setSubmitted(true); }
-    catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      setMessage(text.includes("permission-denied") || text.includes("already-exists") ? "이 회차에는 이미 제출했습니다." : text);
-    }
+    catch (error: unknown) { setMessage(publicEventFormErrorMessage(error, "submit")); }
     finally { setBusy(false); }
   };
   return <main className="min-h-screen bg-muted/50 px-3 py-6 sm:px-6"><div className="mx-auto max-w-2xl space-y-4"><Card><CardHeader><EventFormImage image={form.poster} className="mb-4 max-h-[32rem] w-full rounded" publicAccess /><CardTitle className="text-2xl sm:text-3xl">{form.title}</CardTitle></CardHeader><CardContent className="space-y-2"><p className="whitespace-pre-wrap text-muted-foreground">{form.description}</p>{form.eventDateTime && <p><strong>일시:</strong> {form.eventDateTime.replace("T", " ")}</p>}{form.location && <p><strong>장소:</strong> {form.location}</p>}</CardContent></Card><div data-event-form-fields className="space-y-4">{form.fields.map((field) => <Field key={field.id} field={field} value={answers[field.id]} error={errors[field.id]} onChange={(value) => setAnswers({ ...answers, [field.id]: value })} />)}</div>{message && <p className="rounded bg-destructive/10 p-3 text-sm text-destructive">{message}</p>}<Button size="lg" className="w-full" disabled={busy} onClick={() => void submit()}>{busy ? "제출 중..." : "신청서 제출"}</Button><p className="pb-6 text-center text-xs text-muted-foreground">주소 검색 결과는 실제 거주 사실을 인증하지 않습니다.</p></div></main>;
