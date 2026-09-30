@@ -69,7 +69,7 @@ const oldSubmission: EventFormSubmission = {
   submittedAt: "2026-01-01T00:00:00.000Z",
 };
 
-vi.mock("@/lib/eventFormApi", () => ({
+vi.mock("@/lib/eventFormSparkApi", () => ({
   eventFormApi: { updateSubmission: vi.fn() },
   loadEventForm: vi.fn(async () => currentForm),
   loadEventFormRounds: vi.fn(async () => [

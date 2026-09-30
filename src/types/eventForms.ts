@@ -19,10 +19,30 @@ export type EventFormFieldType =
 
 export interface EventFormImageRef {
   assetId: string;
-  storagePath: string;
+  /** Blaze/Storage 시절 문서의 읽기 호환용이며 Spark 새 저장에는 사용하지 않는다. */
+  storagePath?: string;
   downloadUrl?: string;
   alt: string;
   state: "temp" | "active" | "archived" | "unused";
+  contentType?: "image/webp";
+  encodedBytes?: number;
+}
+
+export interface EventFormImageBlob {
+  assetId: string;
+  formId: string;
+  state: EventFormImageRef["state"];
+  contentType: "image/webp";
+  dataBase64: string;
+  encodedBytes: number;
+  width: number;
+  height: number;
+  alt: string;
+  createdBy: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  publicTokenHash?: string;
+  versionId?: string;
 }
 
 export interface EventFormOption {
@@ -96,7 +116,8 @@ export interface EventFormVersion {
   roundId: string;
   version: number;
   fields: EventFormField[];
-  formSnapshot?: Pick<EventFormSlot, "title" | "description" | "eventDateTime" | "location" | "poster" | "completionMessage" | "applicationStartAt" | "applicationEndAt" | "expectedTargetCount">;
+  formSnapshot?: Pick<EventFormSlot, "title" | "description" | "eventDateTime" | "location" | "poster" | "completionMessage" | "applicationStartAt" | "applicationEndAt" | "expectedTargetCount">
+    & Partial<Pick<EventFormSlot, "duplicatePolicy" | "duplicateFieldId">>;
   publishedAt?: unknown;
   publishedBy?: string;
 }
@@ -154,10 +175,16 @@ export interface EventFormSubmission {
   versionId: string;
   sequence: number;
   answers: EventFormAnswers;
+  /** Spark 저장 문서의 UTF-8 JSON Base64. 화면에서는 answers로 안전하게 복원한다. */
+  answersBase64?: string;
+  answerIds?: string[];
+  invalidPayload?: boolean;
   status: "submitted" | "reviewed" | "excluded";
   duplicateWarning?: boolean;
   adminMemo?: string;
   submittedAt?: unknown;
+  submitterUid?: string;
+  tokenHash?: string;
   submissionUpdatedBy?: string;
   submissionUpdatedAt?: unknown;
 }
@@ -175,4 +202,6 @@ export interface PublicEventFormPayload {
   status: EventFormStatus;
   fields: EventFormField[];
   duplicatePolicy: EventFormSlot["duplicatePolicy"];
+  duplicateFieldId?: string;
+  publicAssetIds?: string[];
 }

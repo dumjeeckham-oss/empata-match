@@ -25,5 +25,11 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "eventFormImageBlobs",
+      "fieldPath": "dataBase64",
+      "indexes": []
+    }
+  ]
 }

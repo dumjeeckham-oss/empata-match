@@ -1,6 +1,9 @@
 # 행사·교육 신청 폼 운영 전환 보고서 (초안)
 
-작성 기준일: 2026-09-23. 현재 코드는 Firebase Local Emulator 전용이며 운영 배포·Blaze 전환·운영 데이터 변경은 하지 않았다.
+> **Blaze 전용 기존 설계 — 현재 운영에 사용하지 않음**
+> 이 문서는 Functions·Storage·Secret Manager를 사용하는 유료 전환 대안의 기록이다. 현재 운영 후보는 `event-form-spark-readiness.md`의 Spark 직접 Firestore 방식이며, 아래 Functions와 Storage 코드는 별도 Blaze 승인 전까지 배포하지 않는다.
+
+작성 기준일: 2026-09-29. 프런트엔드는 GitHub Pages에 반영되어 있으나 행사 폼 운영 Functions·Rules·Storage는 아직 배포하지 않았다. 운영 데이터 변경, Blaze 전환, Firebase Hosting 배포는 하지 않았다.
 
 ## 1. 운영에 필요한 Firebase Functions
 

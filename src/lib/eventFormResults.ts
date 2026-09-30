@@ -1,5 +1,5 @@
 import type { EventFormChoiceAnswer, EventFormField, EventFormSlot, EventFormSubmission, EventFormVersion } from "@/types/eventForms";
-import { sanitizeSpreadsheetCell, sortEventFormFields } from "@/lib/eventForms";
+import { normalizeDuplicateValue, sanitizeSpreadsheetCell, sortEventFormFields } from "@/lib/eventForms";
 
 export type EventFormPresentation = Pick<
   EventFormSlot,
@@ -50,24 +50,45 @@ export function buildEventFormSummaryRows(
 
 export function eventFormAnswerText(field: EventFormField, value: unknown): string {
   if (value === undefined || value === null) return "";
-  const record = value as Record<string, unknown>;
-  if (field.type === "address") return String(record.displayAddress || [record.roadAddress, record.detailAddress].filter(Boolean).join(" "));
-  if (field.type === "consent") return record.agreed ? "동의" : "미동의";
+  const record = typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  if (field.type === "address") {
+    if (!record) return "";
+    return String(record.displayAddress || [record.roadAddress, record.detailAddress].filter(Boolean).join(" "));
+  }
+  if (field.type === "consent") return record?.agreed === true ? "동의" : "미동의";
   if (["singleChoice", "multipleChoice", "dropdown", "attendance"].includes(field.type)) {
-    const choice = value as unknown as EventFormChoiceAnswer;
-    const labels = (choice.optionIds || []).map((id) => field.options?.find((option) => option.id === id)?.label || id);
-    if (choice.otherSelected) labels.push(`기타: ${choice.otherText || ""}`);
+    if (!record) return "";
+    const optionIds = Array.isArray(record.optionIds) ? record.optionIds.filter((id): id is string => typeof id === "string").slice(0, 100) : [];
+    const labels = optionIds.map((id) => field.options?.find((option) => option.id === id)?.label || id);
+    if (record.otherSelected === true) labels.push(`기타: ${typeof record.otherText === "string" ? record.otherText : ""}`);
     return labels.join(", ");
   }
-  return String(value);
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+}
+
+function selectedOptionIds(value: unknown): string[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const optionIds = (value as Partial<EventFormChoiceAnswer>).optionIds;
+  return Array.isArray(optionIds) ? optionIds.filter((id): id is string => typeof id === "string").slice(0, 100) : [];
+}
+
+export function markDuplicateEventFormSubmissions(fields: EventFormField[], submissions: EventFormSubmission[], duplicateFieldId?: string): EventFormSubmission[] {
+  if (!duplicateFieldId) return submissions.map((item) => ({ ...item, duplicateWarning: false }));
+  const field = fields.find((item) => item.id === duplicateFieldId);
+  if (!field) return submissions.map((item) => ({ ...item, duplicateWarning: false }));
+  const kind = field.type === "phone" ? "phone" : field.type === "email" ? "email" : "identifier";
+  const counts = new Map<string, number>();
+  const keys = submissions.map((item) => normalizeDuplicateValue(kind, eventFormAnswerText(field, item.answers[field.id])));
+  keys.filter(Boolean).forEach((key) => counts.set(key, (counts.get(key) || 0) + 1));
+  return submissions.map((item, index) => ({ ...item, duplicateWarning: Boolean(keys[index] && (counts.get(keys[index]) || 0) > 1) }));
 }
 
 export function buildEventFormStatistics(fields: EventFormField[], submissions: EventFormSubmission[], expectedTargetCount?: number) {
   const completed = submissions.filter((item) => item.status !== "excluded").length;
   const duplicateWarnings = submissions.filter((item) => item.duplicateWarning).length;
   const attendance = fields.find((field) => field.type === "attendance");
-  const attendanceCounts = attendance ? Object.fromEntries((attendance.options || []).map((option) => [option.label, submissions.filter((item) => ((item.answers[attendance.id] as EventFormChoiceAnswer | undefined)?.optionIds || []).includes(option.id)).length])) : null;
-  const choiceStats = fields.filter((field) => ["singleChoice", "multipleChoice", "attendance"].includes(field.type)).map((field) => ({ field, counts: (field.options || []).map((option) => ({ label: option.label, count: submissions.filter((submission) => ((submission.answers[field.id] as EventFormChoiceAnswer | undefined)?.optionIds || []).includes(option.id)).length })) }));
+  const attendanceCounts = attendance ? Object.fromEntries((attendance.options || []).map((option) => [option.label, submissions.filter((item) => selectedOptionIds(item.answers[attendance.id]).includes(option.id)).length])) : null;
+  const choiceStats = fields.filter((field) => ["singleChoice", "multipleChoice", "attendance"].includes(field.type)).map((field) => ({ field, counts: (field.options || []).map((option) => ({ label: option.label, count: submissions.filter((submission) => selectedOptionIds(submission.answers[field.id]).includes(option.id)).length })) }));
   return { total: submissions.length, completed, duplicateWarnings, expectedTargetCount, submissionRate: expectedTargetCount && expectedTargetCount > 0 ? Math.round(completed / expectedTargetCount * 1000) / 10 : null, attendanceCounts, choiceStats };
 }
 

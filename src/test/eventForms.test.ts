@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectEventFormImages,
+  createEventFormSubmissionId,
+  createPublicEventFormToken,
+  decodeEventFormAnswers,
+  encodeEventFormAnswers,
+  eventFormPayloadBytes,
+  getEventFormUsage,
+  hashPublicEventFormToken,
   normalizeDuplicateValue,
   sanitizeSpreadsheetCell,
   validateEventFormAnswers,
   validateEventFormForPublishing,
+  validateEventFormImageLimits,
 } from "@/lib/eventForms";
 import type { EventFormField } from "@/types/eventForms";
 
@@ -61,5 +70,46 @@ describe("event form schema and answer validation", () => {
     expect(normalizeDuplicateValue("email", " Staff@Example.COM ")).toBe("staff@example.com");
     expect(sanitizeSpreadsheetCell("=HYPERLINK(\"bad\")")).toBe("'=HYPERLINK(\"bad\")");
     expect(sanitizeSpreadsheetCell("01012345678")).toBe("01012345678");
+  });
+
+  it("creates a URL-safe public token, SHA-256 document id, and deterministic anonymous submission id", async () => {
+    const token = createPublicEventFormToken();
+    expect(token).toMatch(/^[A-Za-z0-9_-]{40,}$/);
+    expect(await hashPublicEventFormToken(token)).toMatch(/^[a-f0-9]{64}$/);
+    expect(createEventFormSubmissionId("round-1", "anonymous-uid")).toBe("round-1__anonymous-uid");
+  });
+
+  it("calculates Spark image limits without double-counting reused assets", () => {
+    const image = { assetId: "asset-1", alt: "사진", state: "temp" as const, contentType: "image/webp" as const, encodedBytes: 120_000 };
+    const fields = [field({ image, options: [{ id: "a", label: "A", order: 0, enabled: true, image }] })];
+    expect(collectEventFormImages(fields, image)).toHaveLength(1);
+    expect(getEventFormUsage(fields, image, 40)).toEqual({ fieldCount: 1, imageCount: 1, publicImageBytes: 120_000, estimatedMonthlyTransferBytes: 4_800_000, estimatedFirestoreStorageUpperBoundBytes: 2_850_720 });
+  });
+
+  it("blocks more than 12 images, a 250KB image, and a 2MB public image set", () => {
+    const image = (index: number, encodedBytes: number) => ({ assetId: `asset-${index}`, alt: `사진 ${index}`, state: "temp" as const, contentType: "image/webp" as const, encodedBytes });
+    const thirteen = Array.from({ length: 13 }, (_, index) => field({ id: `field-${index}`, image: image(index, 170_000) }));
+    expect(validateEventFormImageLimits(thirteen)).toEqual(expect.arrayContaining([
+      expect.stringContaining("최대 12개"),
+      expect.stringContaining("2MB"),
+    ]));
+    expect(validateEventFormImageLimits([field({ image: image(1, 250 * 1024 + 1) })])).toContain("250KB를 초과하거나 크기를 확인할 수 없는 이미지가 있습니다.");
+    expect(validateEventFormImageLimits([field({})])).toEqual([]);
+  });
+
+  it("encodes UTF-8 answers for the 50KB Rules guard and rejects malformed stored payloads safely", () => {
+    expect(eventFormPayloadBytes({ answer: "가".repeat(10) })).toBeGreaterThan(10);
+    const encoded = encodeEventFormAnswers({ answer: "한글 응답" });
+    expect(encoded.encodedBytes).toBe(eventFormPayloadBytes({ answer: "한글 응답" }));
+    expect(decodeEventFormAnswers(encoded.answersBase64)).toEqual({ answers: { answer: "한글 응답" }, invalidPayload: false });
+    expect(decodeEventFormAnswers("not-base64!")).toEqual({ answers: {}, invalidPayload: true });
+  });
+
+  it("caps long text, ordinary strings, addresses, consent snapshots, and choice arrays", () => {
+    expect(validateEventFormAnswers([field({ type: "longText" })], { "field-1": "가".repeat(5_001) })).toHaveProperty("field-1");
+    expect(validateEventFormAnswers([field({ type: "name" })], { "field-1": "가".repeat(101) })).toHaveProperty("field-1");
+    expect(validateEventFormAnswers([field({ type: "multipleChoice", options: Array.from({ length: 101 }, (_, index) => ({ id: `o-${index}`, label: `${index}`, order: index, enabled: true })) })], { "field-1": { optionIds: Array.from({ length: 101 }, (_, index) => `o-${index}`), otherSelected: false } })).toHaveProperty("field-1");
+    expect(validateEventFormAnswers([field({ type: "address" })], { "field-1": { zonecode: "12345", roadAddress: "가".repeat(501), detailAddress: "1호", displayAddress: "" } })).toHaveProperty("field-1");
+    expect(validateEventFormAnswers([field({ type: "consent" })], { "field-1": { agreed: true, consentVersion: "1", consentTextSnapshot: "가".repeat(5_001) } })).toHaveProperty("field-1");
   });
 });

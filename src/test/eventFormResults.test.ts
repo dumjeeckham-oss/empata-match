@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildEventFormSummaryRows, resolveEventFormPresentation, resolveEventFormResultFields } from "@/lib/eventFormResults";
-import type { EventFormSlot, EventFormVersion } from "@/types/eventForms";
+import { buildEventFormStatistics, buildEventFormSummaryRows, eventFormAnswerText, markDuplicateEventFormSubmissions, resolveEventFormPresentation, resolveEventFormResultFields } from "@/lib/eventFormResults";
+import type { EventFormSlot, EventFormSubmission, EventFormVersion } from "@/types/eventForms";
 
 const currentForm: EventFormSlot = {
   id: "form-1",
@@ -64,5 +64,20 @@ describe("행사 결과 회차 스냅샷", () => {
       ["장소", "과거 장소"],
       ["설명", "과거 설명"],
     ]);
+  });
+
+  it("Spark 모드에서는 정규화한 연락처 중복을 관리자 결과에서 경고한다", () => {
+    const phoneField = { id: "phone", type: "phone" as const, title: "연락처", required: true, visible: true, order: 0 };
+    const submissions = ["010-1234-5678", "+82 10 1234 5678", "010-9999-0000"].map((phone, index) => ({ id: `s-${index}`, formId: "form-1", roundId: "round-1", versionId: "version-1", sequence: index + 1, answers: { phone }, status: "submitted" as const })) satisfies EventFormSubmission[];
+    expect(markDuplicateEventFormSubmissions([phoneField], submissions, "phone").map((item) => item.duplicateWarning)).toEqual([true, true, false]);
+  });
+
+  it("조작된 선택형·주소 응답도 결과와 통계 화면을 중단시키지 않는다", () => {
+    const choiceField = { id: "choice", type: "multipleChoice" as const, title: "선택", required: false, visible: true, order: 0, options: [{ id: "safe", label: "정상", order: 0, enabled: true }] };
+    const addressField = { id: "address", type: "address" as const, title: "주소", required: false, visible: true, order: 1 };
+    const malformed = { id: "s-bad", formId: "form-1", roundId: "round-1", versionId: "version-1", sequence: 1, answers: { choice: "not-an-object", address: ["not-an-address"] }, status: "submitted" } as unknown as EventFormSubmission;
+    expect(eventFormAnswerText(choiceField, malformed.answers.choice)).toBe("");
+    expect(eventFormAnswerText(addressField, malformed.answers.address)).toBe("");
+    expect(() => buildEventFormStatistics([choiceField], [malformed], 40)).not.toThrow();
   });
 });

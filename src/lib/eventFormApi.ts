@@ -1,9 +1,17 @@
-import { httpsCallable } from "firebase/functions";
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
 import { collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { auth, db, functions, storage } from "@/lib/firebase";
+import { connectStorageEmulator, getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+import { app, auth, db, usingFirebaseEmulators } from "@/lib/firebase";
 import type { EventFormAnswers, EventFormField, EventFormImageRef, EventFormRound, EventFormSlot, EventFormSubmission, EventFormVersion, PublicEventFormPayload } from "@/types/eventForms";
 import { createEventFormId } from "@/lib/eventForms";
+
+// Blaze 전용 보존 API. Spark 운영 화면에서는 eventFormSparkApi를 사용한다.
+const functions = getFunctions(app, import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION || "asia-northeast3");
+const storage = getStorage(app);
+if (usingFirebaseEmulators) {
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+  connectStorageEmulator(storage, "127.0.0.1", 9199);
+}
 
 async function call<TRequest, TResponse>(name: string, data: TRequest): Promise<TResponse> {
   const serializable = JSON.parse(JSON.stringify(data)) as TRequest;

@@ -49,17 +49,22 @@ function makeSubmissions(count: number): EventFormSubmission[] {
 describe("event form scale", () => {
   it.each([100, 400])("builds statistics and export rows for %i fake submissions", (count) => {
     const submissions = makeSubmissions(count);
-    const startedAt = performance.now();
+    const statisticsStartedAt = performance.now();
     const statistics = buildEventFormStatistics(fields, submissions, 400);
+    const statisticsElapsedMs = performance.now() - statisticsStartedAt;
+    const rowsStartedAt = performance.now();
     const rows = buildEventFormExportRows(fields, submissions, (value) => String(value ?? ""));
-    const elapsedMs = performance.now() - startedAt;
+    const rowsElapsedMs = performance.now() - rowsStartedAt;
 
     expect(rows).toHaveLength(count);
     expect(rows[0]["연락처"]).toBe("01000000000");
     expect(rows[count - 1]["주소"]).toContain("테스트로");
     expect(statistics.total).toBe(count);
     expect(statistics.submissionRate).toBe(Math.round(count / 400 * 1000) / 10);
-    expect(elapsedMs).toBeLessThan(5_000);
+    expect(statisticsElapsedMs + rowsElapsedMs).toBeLessThan(5_000);
+    if (count === 400) {
+      console.info("EVENT_FORM_SCALE_400", JSON.stringify({ statisticsElapsedMs, rowsElapsedMs, addressIncluded: true }));
+    }
   });
 
   it("creates an in-memory XLSX workbook for 400 address-bearing rows", () => {
@@ -79,5 +84,6 @@ describe("event form scale", () => {
       미정: 53,
     });
     expect(elapsedMs).toBeLessThan(5_000);
+    console.info("EVENT_FORM_XLSX_400", JSON.stringify({ elapsedMs, fileBytes: output.byteLength, addressIncluded: true }));
   });
 });
