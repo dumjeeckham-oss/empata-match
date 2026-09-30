@@ -30,3 +30,4 @@ tmp/
 .firebase/
 emulator-data/
 functions/lib/
+backups/firebase/
