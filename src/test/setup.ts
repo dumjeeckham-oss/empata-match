@@ -1,7 +1,6 @@
 import "@testing-library/jest-dom";
 
-if (typeof window !== "undefined") {
-  Object.defineProperty(window, "matchMedia", {
+Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({
     matches: false,
@@ -13,5 +12,4 @@ if (typeof window !== "undefined") {
     removeEventListener: () => {},
     dispatchEvent: () => {},
   }),
-  });
-}
+});

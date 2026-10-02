@@ -2,18 +2,8 @@ import type { ServiceUser, Worker } from "@/types";
 import { calculateMonthlyRequiredHours, calculateTotalVoucherHours } from "@/lib/serviceHours";
 import { formatScheduleSummary } from "@/lib/workBoard";
 
-const cleanText = (value: unknown): string => {
-  if (typeof value === "string" || typeof value === "number") return String(value).trim();
-  return "";
-};
-
-const cleanList = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value.map(cleanText).filter(Boolean);
-  const single = cleanText(value);
-  return single ? single.split(/[,/]/).map((item) => item.trim()).filter(Boolean) : [];
-};
-
-const unique = (values: unknown[]) => Array.from(new Set(values.map(cleanText).filter(Boolean)));
+const unique = (values: Array<string | false | null | undefined>) =>
+  Array.from(new Set(values.filter((value): value is string => Boolean(value && value.trim()))));
 
 const formatHours = (hours: number) =>
   Number.isInteger(hours) ? String(hours) : hours.toFixed(1).replace(/\.0$/, "");
@@ -52,39 +42,21 @@ export function formatUserVoucherHours(user: ServiceUser): string {
 
 export function getWorkerAvailableTags(worker: Worker): string[] {
   return unique([
-    ...cleanList(worker.supportTypes),
+    ...(worker.supportTypes || []),
     worker.canDrive && "운전 가능",
-  ]);
-}
-
-export function getWorkerAdditionalInfoTags(worker: Worker): string[] {
-  return unique([
     worker.isForeigner && "외국인",
-    worker.hasF4 && "F4 체류자격",
-    worker.hasF5 && "F5 체류자격",
   ]);
 }
 
 export function getWorkerUnavailableTags(worker: Worker): string[] {
   return unique([
-    ...cleanList(worker.rejectionTypes).map((value) => value.replace(/거부$/, " 불가")),
+    ...(worker.rejectionTypes || []).map((value) => value.replace(/거부$/, " 불가")),
     worker.animalAllergy && "반려동물 불가",
-    cleanText(worker.rejectedTasks),
+    worker.rejectedTasks?.trim(),
   ]);
-}
-
-export function getWorkerPreviewAddress(worker: Worker): string {
-  const legacyAddress = worker as Worker & { roadAddress?: unknown; detailAddress?: unknown };
-  const roadAddress = cleanText(legacyAddress.roadAddress);
-  const detailAddress = cleanText(legacyAddress.detailAddress);
-  if (roadAddress) return [roadAddress, detailAddress].filter(Boolean).join(" ");
-  return cleanText(worker.address) || cleanText(worker.residenceArea);
-}
-
-export function getWorkerPreviewNotes(worker: Worker): string {
-  return cleanText(worker.notes);
 }
 
 export function formatWorkerMatchingTime(worker: Worker): string {
   return formatScheduleSummary(worker.weeklySchedule, worker.availableDays, worker.availableHours);
 }
+

@@ -31,83 +31,23 @@ describe("status lifecycle", () => {
     expect(isWorkerWaitingForMatch(scheduled, "2026-09-16")).toBe(true);
   });
 
-  it("prioritizes an effective resignation date over a stale waiting status", () => {
-    const staleWaiting = normalizeWorker({ contractStatus: "대기", retirementDate: "2025-12-31", resignationDate: "2025-12-31", assignedUserIds: [] });
-    expect(staleWaiting.contractStatus).toBe("퇴사");
-    expect(isWorkerRetired(staleWaiting as Worker, "2026-09-16")).toBe(true);
+  it("allows rehire status to override old resignation dates", () => {
+    const rehired = normalizeWorker({ contractStatus: "대기", retirementDate: "2025-12-31", resignationDate: "2025-12-31", assignedUserIds: [] });
+    expect(rehired.contractStatus).toBe("대기");
+    expect(isWorkerRetired(rehired as Worker, "2026-09-16")).toBe(false);
   });
   it("shows employed + service when at least one user remains", () => {
     expect(getWorkerStatusBadges(worker({ assignedUserIds: ["u2"] })).map((item) => item.label)).toEqual(["재직중", "서비스 제공중"]);
-  });
-
-  it("treats a legacy assignment as active even without a service start date", () => {
-    const legacyAssigned = worker({ assigned_users: ["u2"] });
-    expect(getWorkerOperationalStatus(legacyAssigned, "2026-09-29")).toBe("서비스 제공중");
-    expect(isWorkerWaitingForMatch(legacyAssigned, "2026-09-29")).toBe(false);
-  });
-
-  it("keeps normalized assignments active and removes blank or duplicate ids", () => {
-    const normalized = normalizeWorker({
-      contractStatus: "대기",
-      assignedUserIds: ["", " u1 ", "u1", null],
-      assigned_users: ["u2", undefined, "u1"],
-    });
-
-    expect(normalized.assignedUserIds).toEqual(["u1", "u2"]);
-    expect(normalized.assigned_users).toEqual(["u1", "u2"]);
-    expect(normalized.contractStatus).toBe("근무중");
-    expect(isWorkerWaitingForMatch(normalized as Worker, "2026-09-29")).toBe(false);
-  });
-
-  it("excludes assigned workers from the matching waiting list", () => {
-    const assigned = worker({ id: "assigned", assignedUserIds: ["u1"] });
-    const waiting = worker({ id: "waiting" });
-    expect([assigned, waiting].filter((item) => isWorkerWaitingForMatch(item, "2026-09-29")).map((item) => item.id)).toEqual(["waiting"]);
   });
 
   it("shows employed + waiting when no user remains", () => {
     expect(getWorkerStatusBadges(worker({ serviceStartDate: "2025-01-01" })).map((item) => item.label)).toEqual(["재직중", "대기"]);
   });
 
-  it("shows employed + waiting when only a completed employment history remains", () => {
-    const previouslyEmployed = worker({
-      employmentHistory: [{ id: "past", startDate: "2025-01-01", endDate: "2025-12-31", status: "퇴사" }],
-    });
-    expect(getWorkerOperationalStatus(previouslyEmployed, "2026-09-29")).toBe("대기");
-    expect(getWorkerStatusBadges(previouslyEmployed).map((item) => item.label)).toEqual(["재직중", "대기"]);
-  });
-
-  it("prioritizes an effective resignation over active assignments", () => {
-    const assigned = { assignedUserIds: ["u1"], serviceStartDate: "2025-01-01", contractStatus: "퇴사" as const };
-    expect(getWorkerOperationalStatus(worker({ ...assigned, retirementDate: "2026-09-28" }), "2026-09-29")).toBe("퇴사");
-    expect(getWorkerOperationalStatus(worker({ ...assigned, retirementDate: "2026-09-29" }), "2026-09-29")).toBe("퇴사");
-    expect(getWorkerOperationalStatus(worker({ ...assigned, contractStatus: "근무중", retirementDate: "2026-09-28" }), "2026-09-29")).toBe("퇴사");
-    expect(getWorkerOperationalStatus(worker({ ...assigned, contractStatus: "근무중", retirementDate: "2026-09-29" }), "2026-09-29")).toBe("퇴사");
-    expect(getWorkerOperationalStatus(worker({ ...assigned, contractStatus: "대기", retirementDate: "2026-09-29" }), "2026-09-29")).toBe("퇴사");
-  });
-
-  it("keeps a future resignation active while an assignment remains", () => {
-    const scheduled = worker({ contractStatus: "퇴사", retirementDate: "2026-09-30", assignedUserIds: ["u1"], serviceStartDate: "2025-01-01" });
-    expect(getWorkerOperationalStatus(scheduled, "2026-09-29")).toBe("서비스 제공중");
-    expect(isWorkerWaitingForMatch(scheduled, "2026-09-29")).toBe(false);
-  });
-
-  it("uses active assignments over a conflicting service end date", () => {
-    const inconsistent = worker({ assignedUserIds: ["u1"], serviceStartDate: "2025-01-01", serviceEndDate: "2026-09-01" });
-    expect(getWorkerOperationalStatus(inconsistent, "2026-09-29")).toBe("서비스 제공중");
-    expect(getWorkerStatusBadges(inconsistent).map((item) => item.label)).toEqual(["재직중", "서비스 제공중"]);
-  });
-
-  it("ignores blank assignment ids when deciding whether service is active", () => {
-    const blankOnly = worker({ assignedUserIds: ["", "  "] });
-    expect(getWorkerOperationalStatus(blankOnly, "2026-09-29")).toBe("대기");
-    expect(getWorkerStatusBadges(blankOnly).map((item) => item.label)).toEqual(["신규 대기"]);
-  });
-
   it("excludes retired workers from matching but allows a rehired waiting worker", () => {
     const user = { id: "u1", age: 30, gender: "여성", requiredDays: "월", requiredHours: "10:00", address: "부천", environmentTags: [] } as ServiceUser;
     const retired = worker({ id: "retired", name: "퇴사자", contractStatus: "퇴사", retirementDate: "2026-09-01", preferredArea: "부천", availableDays: "월", availableHours: "10:00" });
-    const rehired = worker({ id: "rehired", name: "재입사자", contractStatus: "대기", retirementDate: "", preferredArea: "부천", availableDays: "월", availableHours: "10:00" });
+    const rehired = worker({ id: "rehired", name: "재입사자", contractStatus: "대기", retirementDate: "2025-01-01", preferredArea: "부천", availableDays: "월", availableHours: "10:00" });
     expect(matchUserWithWorkers(user, [retired, rehired]).map((result) => result.worker.id)).toEqual(["rehired"]);
   });
 

@@ -1,34 +1,16 @@
 import { useState, useEffect } from "react";
 import { auth, onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "@/lib/firebase";
 
-export type StaffRole = "admin" | "social_worker";
-
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [role, setRole] = useState<StaffRole | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let active = true;
-    const unsub = onAuthStateChanged(auth, async (u) => {
-      if (!active) return;
+    const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (!u) {
-        setRole(null);
-        setLoading(false);
-        return;
-      }
-      try {
-        const token = await u.getIdTokenResult(true);
-        const claim = token.claims.role;
-        setRole(claim === "admin" || claim === "social_worker" ? claim : null);
-      } catch {
-        setRole(null);
-      } finally {
-        if (active) setLoading(false);
-      }
+      setLoading(false);
     });
-    return () => { active = false; unsub(); };
+    return unsub;
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -39,5 +21,5 @@ export function useAuth() {
     return signOut(auth);
   };
 
-  return { user, role, loading, login, logout };
+  return { user, loading, login, logout };
 }

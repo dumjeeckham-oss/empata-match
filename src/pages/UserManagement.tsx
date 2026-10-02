@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useCollection } from "@/hooks/useFirestore";
-import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, type WeeklySchedule, type ContractHistoryEntry, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
+import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, type WeeklySchedule, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
 import { BulkUploadDialog } from "@/components/BulkUploadDialog";
 import { PartialUpdateDialog, partialParsers } from "@/components/PartialUpdateDialog";
@@ -62,7 +62,7 @@ import { formatRequiredVoucherGap } from "@/lib/serviceHours";
 import { findAssignmentScheduleConflict, formatUserServiceScheduleOverview, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
 import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
-import { appendContractTransition, ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
+import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import {
@@ -532,12 +532,6 @@ const UserManagement = () => {
       });
       return;
     }
-    const existingBeforeSave = editingId ? users.find((user) => user.id === editingId) : undefined;
-    const endDateRequiredStatuses = ["대기", "계약해지", "타기관 계약"];
-    if (existingBeforeSave && effectiveUserStatus(existingBeforeSave) === "서비스중" && endDateRequiredStatuses.includes(form.contractStatus) && !form.resignationDate) {
-      toast({ title: "서비스 종료일을 입력해주세요", description: "서비스중에서 상태를 변경할 때는 종료날짜가 필요합니다.", variant: "destructive" });
-      return;
-    }
     if (!form.lat && form.address) await handleGeocode();
 
 
@@ -588,7 +582,7 @@ const UserManagement = () => {
     if (payload.contractStatus === "계약해지") {
       payload.txtUMemostop = payload.terminationReason;
       payload.resignationDate = payload.resignationDate || new Date().toISOString().slice(0, 10);
-    } else if (payload.contractStatus === "대기" || payload.contractStatus === "타기관 계약" || payload.contractStatus === "보류") {
+    } else if (payload.contractStatus === "타기관 계약" || payload.contractStatus === "보류") {
       // 그대로 유지
     } else if (payload.terminationReason?.trim()) {
       payload.contractStatus = "계약해지";
@@ -618,21 +612,6 @@ const UserManagement = () => {
       return;
     }
     payload.contractHistory = ensureOpenContractHistory(payload as ServiceUser);
-    if (
-      existingBeforeSave &&
-      effectiveUserStatus(existingBeforeSave) === "서비스중" &&
-      payload.resignationDate &&
-      ["대기", "계약해지", "타기관 계약"].includes(payload.contractStatus)
-    ) {
-      payload.contractHistory = appendContractTransition(
-        { ...existingBeforeSave, ...payload } as ServiceUser,
-        payload.resignationDate,
-        payload.contractStatus === "대기" ? "대기" : "계약해지",
-        payload.contractStatus === "타기관 계약"
-          ? "타기관 계약"
-          : payload.terminationReason || "상태 변경",
-      );
-    }
 
     const prevHelperIds = editingId
       ? users.find((u) => u.id === editingId)?.assignedHelperIds ?? []
@@ -1264,24 +1243,6 @@ const UserManagement = () => {
     return Array.from(byWorker.values());
   };
 
-  const formatUserContractPeriods = (user: ServiceUser & { id: string }): string => {
-    const fallback: ContractHistoryEntry[] = [{
-      id: "fallback-" + user.id,
-      startDate: user.serviceStartDate || user.receiptDate,
-      endDate: user.resignationDate || null,
-      status: effectiveUserStatus(user) === "서비스중"
-        ? "서비스중"
-        : effectiveUserStatus(user) === "계약해지"
-          ? "계약해지"
-          : "대기",
-      reason: user.terminationReason || user.txtUMemostop,
-    }];
-    const history = user.contractHistory?.length ? user.contractHistory : fallback;
-    return formatPeriodHistory(
-      ensureOpenContractHistory({ ...user, contractHistory: history }),
-      "서비스중",
-    ).join(" · ");
-  };
   const renderHelperHistory = (user: ServiceUser & { id: string }) => {
     const segments = buildServiceProviderHistorySegments(
       getUniqueEntriesByWorker(getDocumentMatchingEntries(user)),
@@ -1922,7 +1883,7 @@ const UserManagement = () => {
                           ...f,
                           contractStatus: v as any,
                           resignationDate:
-                            ["대기", "계약해지", "타기관 계약"].includes(v)
+                            v === "계약해지"
                               ? f.resignationDate || new Date().toISOString().slice(0, 10)
                               : "",
                         }))
@@ -1967,15 +1928,14 @@ const UserManagement = () => {
                       </p>
                     )}
                   </div>
-                  {["대기", "계약해지", "타기관 계약"].includes(form.contractStatus) && (
+                  {form.contractStatus === "계약해지" && (
                     <>
                       <div>
-                        <Label>서비스 종료일 {editingId ? "*" : ""}</Label>
+                        <Label>계약 해지일</Label>
                         <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
-                        {editingId && <p className="mt-1 text-xs text-muted-foreground">서비스중에서 상태를 변경할 때는 종료일을 입력해야 합니다.</p>}
                       </div>
                       <div>
-                        <Label>{form.contractStatus === "계약해지" ? "중단/해지 사유" : "상태 변경 사유"}</Label>
+                        <Label>중단/해지 사유</Label>
                         <Input value={form.terminationReason} onChange={(e) => setForm((f) => ({ ...f, terminationReason: e.target.value }))} placeholder="사유 입력" />
                       </div>
                     </>
@@ -2109,7 +2069,7 @@ const UserManagement = () => {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
         <section className="space-y-4 xl:col-span-3">
-          <Card>
+          <Card className="sticky top-28 z-20 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">전체 이용자 명단 ({filtered.length}명)</CardTitle>
             </CardHeader>
@@ -2175,7 +2135,7 @@ const UserManagement = () => {
                         </a>
                       </p>
                       <p><span className="text-muted-foreground">장애유형:</span> {[user.disabilityType, user.secondaryDisabilityType].filter(Boolean).join(" / ")}</p>
-                      <p><span className="text-muted-foreground">주소:</span> {user.address || "미등록"}</p>
+                      <p className="break-words"><span className="text-muted-foreground">주소:</span> {user.address || "미등록"}</p>
                       <p><span className="text-muted-foreground">바우처 시간:</span> {formatVoucherHours(user)} ({formatVoucherTier(user)})</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span><span className="text-muted-foreground">최초접수:</span> {user.receiptDate || "미등록"}</span>
@@ -2195,7 +2155,7 @@ const UserManagement = () => {
                           )}
                         </span>
                       </div>
-                      <p><span className="text-muted-foreground">계약 기간:</span> {formatUserContractPeriods(user as ServiceUser & { id: string }) || "미등록"}</p>
+                      <p><span className="text-muted-foreground">서비스 기간:</span> {user.serviceStartDate ? (effectiveUserStatus(user) === "서비스중" ? "총 " + getFormattedDuration(user.serviceStartDate) + "째 서비스 중" : user.serviceStartDate + " ~ " + (user.resignationDate || "종료일 미등록") + " (" + effectiveUserStatus(user) + ")") : "미등록"}</p>
                       <p><span className="text-muted-foreground">서비스 제공시간:</span> {formatUserServiceScheduleOverview(user)}</p>
                       <div className="flex flex-wrap items-center gap-1">
                         <span className="text-muted-foreground">담당지원사 이력:</span>

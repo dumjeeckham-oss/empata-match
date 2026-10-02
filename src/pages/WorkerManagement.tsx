@@ -441,12 +441,8 @@ const WorkerManagement = () => {
     const statusChanged = Boolean(existingWorker && existingWorker.contractStatus !== nextContractStatus);
     const historyWorker = {
       ...(existingWorker || form),
-      ...form,
       contractStatus: nextContractStatus,
       serviceStartDate: nextStartDate,
-      serviceEndDate: requestedRetirement ? nextRetirementDate : form.serviceEndDate || null,
-      assignedUserIds: arrays.ids,
-      assigned_users: arrays.ids,
       retirementDate: nextRetirementDate,
       resignationDate: nextRetirementDate,
     } as Worker;
@@ -1214,7 +1210,7 @@ const WorkerManagement = () => {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-5 xl:items-start">
         <section className="space-y-4 xl:col-span-3">
-          <Card>
+          <Card className="sticky top-28 z-20 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">전체 활동지원사 명단 ({filtered.length}명)</CardTitle>
             </CardHeader>
@@ -1662,14 +1658,13 @@ const WorkerManagement = () => {
               </Card>              <Card>
                 <CardHeader><CardTitle className="text-sm font-semibold">입퇴사 이력 (History)</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
-                  {(() => {
-                    const employmentHistory = ensureOpenEmploymentHistory(detailTarget);
-                    return employmentHistory.length > 0
-                      ? formatPeriodHistory(employmentHistory, "재직중").map((line) => (
-                          <p key={line} className="rounded-md border-l-4 border-blue-500 bg-muted/30 px-3 py-2 text-sm">{line}</p>
-                        ))
-                      : <p className="text-sm text-muted-foreground">실제 서비스 제공 이력이 없습니다.</p>;
-                  })()}              </CardContent>
+                  {formatPeriodHistory(
+                    ensureOpenEmploymentHistory(detailTarget).length > 0
+                      ? ensureOpenEmploymentHistory(detailTarget)
+                      : [{ startDate: detailTarget.serviceStartDate || detailTarget.receiptDate, endDate: detailTarget.retirementDate || detailTarget.resignationDate || null, status: effectiveWorkerStatus(detailTarget), reason: effectiveWorkerStatus(detailTarget) === "퇴사" ? "퇴사" : "" }],
+                    "재직중",
+                  ).map((line) => <p key={line} className="rounded-md border-l-4 border-blue-500 bg-muted/30 px-3 py-2 text-sm">{line}</p>)}
+                </CardContent>
               </Card>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1862,7 +1857,7 @@ const WorkerManagement = () => {
                         ? previousUserIds.filter((id) => id !== selectedUser.id)
                         : Array.from(new Set([...previousUserIds, selectedUser.id]));
                       const arrays = buildUserArraysFromIds(nextUserIds, users);
-                      const workerPayloadBase: Partial<Worker> = {
+                      const workerPayload: Partial<Worker> = {
                         assignedUserIds: arrays.ids,
                         assigned_users: arrays.ids,
                         assignedUserNames: arrays.names,
@@ -1870,13 +1865,6 @@ const WorkerManagement = () => {
                         contractStatus: arrays.ids.length > 0 ? "근무중" : "대기",
                         serviceStartDate: isEnded ? detailTarget.serviceStartDate : matchHistoryForm.date,
                         serviceEndDate: isEnded ? matchHistoryForm.endDate || matchHistoryForm.date : null,
-                      };
-                      const nextWorkerState = { ...detailTarget, ...workerPayloadBase } as Worker;
-                      const workerPayload: Partial<Worker> = {
-                        ...workerPayloadBase,
-                        employmentHistory: isEnded
-                          ? appendEmploymentTransition(nextWorkerState, matchHistoryForm.endDate || matchHistoryForm.date, "서비스 종료")
-                          : ensureOpenEmploymentHistory(nextWorkerState),
                       };
                       await update(detailTarget.id, workerPayload);
                       await syncWorkerToUsers(detailTarget.id, { ...detailTarget, ...workerPayload }, users, previousUserIds, updateUser);

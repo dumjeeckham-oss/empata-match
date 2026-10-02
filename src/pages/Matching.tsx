@@ -23,10 +23,7 @@ import {
   formatWorkerMatchingTime,
   getUserCautionTags,
   getUserRequestTags,
-  getWorkerAdditionalInfoTags,
   getWorkerAvailableTags,
-  getWorkerPreviewAddress,
-  getWorkerPreviewNotes,
   getWorkerUnavailableTags,
 } from "@/lib/matchingCardInfo";
 import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
@@ -462,16 +459,18 @@ const Matching = () => {
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {/* 좌측: 매칭 대기 이용자 목록 */}
         <div className="space-y-4">
-          <div>
-            <h2 className="text-base font-semibold">매칭 대기중인 이용자 ({filteredUsers.length}명)</h2>
-            <p className="text-xs text-muted-foreground">카드를 선택하면 우측 지원사별 추천점수를 바로 비교할 수 있습니다.</p>
+          <div className="sticky top-28 z-20 space-y-3 bg-background pb-2">
+            <div>
+              <h2 className="text-base font-semibold">매칭 대기중인 이용자 ({filteredUsers.length}명)</h2>
+              <p className="text-xs text-muted-foreground">카드를 선택하면 우측 지원사별 추천점수를 바로 비교할 수 있습니다.</p>
+            </div>
+            <Input
+              placeholder="이름 검색..."
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              className="w-full"
+            />
           </div>
-          <Input
-            placeholder="이름 검색..."
-            value={nameSearch}
-            onChange={(e) => setNameSearch(e.target.value)}
-            className="w-full"
-          />
           <div className="h-[560px] overflow-y-auto rounded-lg border bg-card p-2">
             {filteredUsers.length === 0 ? (
               <p className="p-4 text-center text-sm text-muted-foreground">검색된 이용자가 없습니다.</p>
@@ -518,11 +517,13 @@ const Matching = () => {
         {/* 우측: 매칭 대기 활동지원사 목록 + 추천 결과 */}
         <div className="space-y-6">
           <div className="space-y-4">
-            <div>
-              <h2 className="text-base font-semibold">매칭 대기중인 활동지원사 ({visibleWorkers.length}명)</h2>
-              <p className="text-xs text-muted-foreground">퇴사자는 자동 제외되며, 카드를 누르면 선택 이용자와의 적합도를 확인할 수 있습니다.</p>
+            <div className="sticky top-28 z-20 space-y-3 bg-background pb-2">
+              <div>
+                <h2 className="text-base font-semibold">매칭 대기중인 활동지원사 ({visibleWorkers.length}명)</h2>
+                <p className="text-xs text-muted-foreground">퇴사자는 자동 제외되며, 카드를 누르면 선택 이용자와의 적합도를 확인할 수 있습니다.</p>
+              </div>
+              <Input placeholder="지원사 이름·연락처·주소 검색..." value={manualSearch} onChange={(event) => setManualSearch(event.target.value)} />
             </div>
-            <Input placeholder="지원사 이름·연락처·주소 검색..." value={manualSearch} onChange={(event) => setManualSearch(event.target.value)} />
             <div className="h-[560px] space-y-2 overflow-y-auto rounded-lg border bg-card p-2">
               {visibleWorkers.length === 0 ? (
                 <p className="p-6 text-center text-sm text-muted-foreground">조건에 맞는 대기 활동지원사가 없습니다.</p>
@@ -530,10 +531,7 @@ const Matching = () => {
                 const score = scoreByWorkerId.get(worker.id);
                 const rank = recommendedRankByWorkerId.get(worker.id);
                 const availableTags = getWorkerAvailableTags(worker);
-                const additionalInfoTags = getWorkerAdditionalInfoTags(worker);
                 const unavailableTags = getWorkerUnavailableTags(worker);
-                const previewAddress = getWorkerPreviewAddress(worker);
-                const previewNotes = getWorkerPreviewNotes(worker);
                 return (
                   <div key={worker.id} className={`rounded-lg border p-3 transition hover:border-primary/50 ${manualWorkerId === worker.id ? "border-primary bg-primary/5 ring-1 ring-primary/20" : ""}`}>
                     <button type="button" className="w-full text-left" onClick={() => setManualWorkerId(worker.id || "")}>
@@ -543,45 +541,25 @@ const Matching = () => {
                             <span className="font-bold">{worker.name}</span>
                             {rank && <Badge className="bg-primary text-primary-foreground">추천 {rank}순위</Badge>}
                           </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">{worker.age || "나이 미등록"}세 · {worker.gender || "성별 미등록"}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{worker.age || "나이 미등록"}세 · {worker.gender || "성별 미등록"} · {worker.address || worker.residenceArea || "주소 미등록"}</p>
                         </div>
                         {score && <span className="whitespace-nowrap text-sm font-bold text-primary">{score.score.toFixed(0)}점</span>}
                       </div>
-                      <div className="mt-3 space-y-2 text-xs">
-                        <div className="rounded-md border bg-background p-2">
-                          <p className="font-semibold text-foreground">주소</p>
-                          <p className="mt-1 break-words text-muted-foreground">{previewAddress || "주소 미등록"}</p>
+                      <div className="mt-3 rounded-md bg-muted/40 p-2 text-xs">
+                        <p><strong>활동가능시간:</strong> {formatWorkerMatchingTime(worker)}</p>
+                        {worker.preferredArea && <p className="mt-1"><strong>희망지역:</strong> {worker.preferredArea}</p>}
+                      </div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <p className="text-[11px] font-semibold text-emerald-700">업무가능 사항</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{availableTags.length ? availableTags.map((tag) => <Badge key={tag} className="bg-emerald-600 text-[10px] text-white hover:bg-emerald-600">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
                         </div>
-                        <div className="rounded-md bg-muted/40 p-2">
-                          <p className="font-semibold text-foreground">희망 근무 조건</p>
-                          <p className="mt-1 break-words"><strong>요일·시간:</strong> {formatWorkerMatchingTime(worker)}</p>
-                          {worker.preferredArea && <p className="mt-1 break-words"><strong>희망지역:</strong> {worker.preferredArea}</p>}
+                        <div>
+                          <p className="text-[11px] font-semibold text-red-600">불가능한 사항</p>
+                          <div className="mt-1 flex flex-wrap gap-1">{unavailableTags.length ? unavailableTags.map((tag) => <Badge key={tag} variant="outline" className="border-red-200 bg-red-50 text-[10px] text-red-700">{tag}</Badge>) : <span className="text-xs text-muted-foreground">등록 없음</span>}</div>
                         </div>
                       </div>
-                      {availableTags.length > 0 && (
-                        <div className="mt-2">
-                          <p className="text-[11px] font-semibold text-emerald-700">활동 가능 조건·상담 체크항목</p>
-                          <div className="mt-1 flex flex-wrap gap-1">{availableTags.map((tag) => <Badge key={tag} className="bg-emerald-600 text-[10px] text-white hover:bg-emerald-600">{tag}</Badge>)}</div>
-                        </div>
-                      )}
-                      {previewNotes && (
-                        <div className="mt-2 rounded-md border border-amber-200 bg-amber-50/70 p-2 text-[11px] text-amber-950">
-                          <p className="font-semibold">특이사항</p>
-                          <p className="mt-1 whitespace-pre-wrap break-words">{previewNotes}</p>
-                        </div>
-                      )}
-                      {additionalInfoTags.length > 0 && (
-                        <div className="mt-2">
-                          <p className="text-[11px] font-semibold text-sky-700">추가정보</p>
-                          <div className="mt-1 flex flex-wrap gap-1">{additionalInfoTags.map((tag) => <Badge key={tag} variant="outline" className="border-sky-200 bg-sky-50 text-[10px] text-sky-700">{tag}</Badge>)}</div>
-                        </div>
-                      )}
-                      {unavailableTags.length > 0 && (
-                        <div className="mt-2">
-                          <p className="text-[11px] font-semibold text-red-600">거부사항</p>
-                          <div className="mt-1 flex flex-wrap gap-1">{unavailableTags.map((tag) => <Badge key={tag} variant="outline" className="max-w-full whitespace-normal break-words border-red-200 bg-red-50 text-[10px] text-red-700">{tag}</Badge>)}</div>
-                        </div>
-                      )}
+                      <p className="mt-2 line-clamp-2 text-[11px] text-muted-foreground"><strong>특이사항:</strong> {worker.notes || "등록 없음"}</p>
                       {score && <Progress value={(score.score / 90) * 100} className="mt-2 h-2" />}
                     </button>
                     <div className="mt-3 flex flex-wrap justify-end gap-2">
