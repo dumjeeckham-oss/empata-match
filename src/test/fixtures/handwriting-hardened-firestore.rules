@@ -1,0 +1,349 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function staff() {
+      return signedIn()
+        && 'role' in request.auth.token
+        && (request.auth.token.role == 'admin' || request.auth.token.role == 'social_worker');
+    }
+    function anonymousApplicant() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+    function admin() { return staff() && request.auth.token.role == 'admin'; }
+    function resettingByMe(formId) {
+      return admin()
+        && get(/databases/$(database)/documents/eventForms/$(formId)).data.status == 'resetting'
+        && get(/databases/$(database)/documents/eventFormResetJobs/$(formId)).data.actorUid == request.auth.uid;
+    }
+    function notResetting(formId) {
+      return !exists(/databases/$(database)/documents/eventForms/$(formId))
+        || get(/databases/$(database)/documents/eventForms/$(formId)).data.status != 'resetting';
+    }
+    function validStatus(value) { return value in ['draft', 'open', 'closed', 'archived', 'resetting']; }
+    function validSubmissionStatus(value) { return value in ['submitted', 'reviewed', 'excluded']; }
+    function validAuditAction(value) {
+      return value in ['form_created', 'draft_saved', 'form_published', 'status_changed', 'round_started', 'submission_updated', 'images_cleaned', 'form_reset'];
+    }
+
+    match /eventForms/{formId} {
+      allow read: if staff();
+      allow create: if staff()
+        && request.resource.data.slotNumber in [1, 2]
+        && getAfter(/databases/$(database)/documents/eventFormSlots/$(string(request.resource.data.slotNumber))).data.formId == formId
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && validStatus(request.resource.data.status);
+      allow update: if staff()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.get('slotNumber', 0) == resource.data.get('slotNumber', request.resource.data.get('slotNumber', 0))
+        && (request.resource.data.status != 'resetting' || (admin()
+          && resource.data.status in ['closed', 'resetting']
+          && getAfter(/databases/$(database)/documents/eventFormResetJobs/$(formId)).data.actorUid == request.auth.uid))
+        && (resource.data.status != 'resetting' || (resettingByMe(formId)
+          && ((request.resource.data.status == 'resetting' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'resetBy', 'updatedBy', 'updatedAt'])) || (request.resource.data.status == 'draft'
+            && getAfter(/databases/$(database)/documents/eventFormResetJobs/$(formId)).data.status == 'complete'))))
+        && request.resource.data.ownerUid == resource.data.ownerUid
+        && request.resource.data.publicToken == resource.data.publicToken
+        && request.resource.data.tokenHash == resource.data.tokenHash
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && validStatus(request.resource.data.status);
+      allow delete: if false;
+    }
+
+    match /eventFormVersions/{versionId} {
+      allow read: if staff();
+      allow create: if staff()
+        && request.resource.data.id == versionId
+        && getAfter(/databases/$(database)/documents/eventForms/$(request.resource.data.formId)).data.status != 'resetting'
+        && request.resource.data.publishedBy == request.auth.uid
+        && request.resource.data.publishedAt == request.time
+        && request.resource.data.fields is list
+        && request.resource.data.fields.size() <= 100;
+      allow update: if false;
+      allow delete: if resettingByMe(resource.data.formId);
+    }
+
+    match /eventFormRounds/{roundId} {
+      allow read: if staff();
+      allow create: if staff()
+        && request.resource.data.id == roundId
+        && getAfter(/databases/$(database)/documents/eventForms/$(request.resource.data.formId)).data.status != 'resetting'
+        && validStatus(request.resource.data.status);
+      allow update: if staff()
+        && notResetting(resource.data.formId)
+        && request.resource.data.id == resource.data.id
+        && request.resource.data.formId == resource.data.formId
+        && validStatus(request.resource.data.status);
+      allow delete: if resettingByMe(resource.data.formId);
+    }
+
+    match /eventFormPublic/{tokenHash} {
+      allow get: if staff() || (anonymousApplicant() && (!exists(/databases/$(database)/documents/eventFormPublic/$(tokenHash)) || resource.data.status != 'resetting'));
+      allow list: if false;
+      allow create, update: if staff()
+        && getAfter(/databases/$(database)/documents/eventForms/$(request.resource.data.formId)).data.status == request.resource.data.status
+        && (request.resource.data.status != 'resetting' || admin())
+        && (!exists(/databases/$(database)/documents/eventFormPublic/$(tokenHash)) || resource.data.status != 'resetting' || resettingByMe(resource.data.formId))
+        && request.resource.data.keys().hasOnly([
+          'formId', 'title', 'description', 'eventDateTime', 'location', 'poster',
+          'activeRoundId', 'activeVersionId', 'fields', 'fieldIds', 'publicAssetIds',
+          'publicImageBytes', 'requiredQuestionIds',
+          'applicationStartAt', 'applicationEndAt', 'status', 'completionMessage',
+          'duplicatePolicy', 'duplicateFieldId', 'updatedAt', 'schemaVersion', 'tokenHashVersion'
+        ])
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.tokenHashVersion == 'sha256'
+        && request.resource.data.fields is list
+        && request.resource.data.fields.size() <= 100
+        && request.resource.data.requiredQuestionIds is list
+        && request.resource.data.requiredQuestionIds.size() <= 100
+        && request.resource.data.requiredQuestionIds.hasOnly(request.resource.data.fieldIds)
+        && request.resource.data.publicAssetIds is list
+        && request.resource.data.publicAssetIds.size() <= 12
+        && request.resource.data.publicImageBytes is int
+        && request.resource.data.publicImageBytes >= 0
+        && request.resource.data.publicImageBytes <= 2 * 1024 * 1024
+        && validStatus(request.resource.data.status);
+      allow delete: if false;
+    }
+
+    match /eventFormSubmissions/{submissionId} {
+      function publicForm() {
+        return get(/databases/$(database)/documents/eventFormPublic/$(request.resource.data.tokenHash)).data;
+      }
+      function inApplicationWindow(publicData) {
+        return (publicData.applicationStartAt == null || request.time >= publicData.applicationStartAt)
+          && (publicData.applicationEndAt == null || request.time <= publicData.applicationEndAt);
+      }
+      allow create: if anonymousApplicant()
+        && request.resource.data.keys().hasOnly(['formId', 'roundId', 'versionId', 'tokenHash', 'submitterUid', 'answersBase64', 'answerIds', 'answeredQuestionIds', 'status', 'submittedAt'])
+        && request.resource.data.formId is string
+        && request.resource.data.formId.size() <= 128
+        && request.resource.data.roundId is string
+        && request.resource.data.roundId.size() <= 128
+        && request.resource.data.versionId is string
+        && request.resource.data.versionId.size() <= 128
+        && request.resource.data.tokenHash is string
+        && request.resource.data.tokenHash.size() == 64
+        && request.resource.data.submitterUid is string
+        && request.resource.data.submitterUid.size() <= 128
+        && request.resource.data.submitterUid == request.auth.uid
+        && submissionId == request.resource.data.roundId + '__' + request.auth.uid
+        && request.resource.data.submittedAt == request.time
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.answersBase64 is string
+        && request.resource.data.answersBase64.size() > 0
+        && request.resource.data.answersBase64.size() <= 68268
+        && request.resource.data.answerIds is list
+        && request.resource.data.answerIds.size() <= 100
+        && request.resource.data.answerIds.toSet().size() == request.resource.data.answerIds.size()
+        && request.resource.data.answerIds.hasOnly(publicForm().fieldIds)
+        && request.resource.data.answeredQuestionIds is list
+        && request.resource.data.answeredQuestionIds.size() <= 100
+        && request.resource.data.answeredQuestionIds.toSet().size() == request.resource.data.answeredQuestionIds.size()
+        && request.resource.data.answeredQuestionIds.hasOnly(request.resource.data.answerIds)
+        && request.resource.data.answeredQuestionIds.hasAll(publicForm().get('requiredQuestionIds', []))
+        && publicForm().formId == request.resource.data.formId
+        && publicForm().status == 'open'
+        && publicForm().activeRoundId == request.resource.data.roundId
+        && publicForm().activeVersionId == request.resource.data.versionId
+        && inApplicationWindow(publicForm());
+      allow read, list: if staff();
+      allow update: if staff()
+        && notResetting(resource.data.formId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'adminMemo', 'submissionUpdatedBy', 'submissionUpdatedAt'])
+        && validSubmissionStatus(request.resource.data.status)
+        && request.resource.data.submissionUpdatedBy == request.auth.uid
+        && request.resource.data.submissionUpdatedAt == request.time
+        && request.resource.data.get('adminMemo', '') is string
+        && request.resource.data.get('adminMemo', '').size() <= 5000;
+      allow delete: if resettingByMe(resource.data.formId);
+    }
+
+    match /eventFormImageBlobs/{assetId} {
+      function validImage() {
+        return request.resource.data.assetId == assetId
+          && request.resource.data.formId is string
+          && request.resource.data.contentType == 'image/webp'
+          && request.resource.data.dataBase64 is string
+          && request.resource.data.dataBase64.size() <= 250 * 1024
+          && request.resource.data.encodedBytes == request.resource.data.dataBase64.size()
+          && request.resource.data.state in ['temp', 'active', 'archived', 'unused']
+          && request.resource.data.alt is string
+          && request.resource.data.alt.size() <= 500;
+      }
+      function publicImage() {
+        return resource.data.state == 'active'
+          && resource.data.publicTokenHash is string
+          && exists(/databases/$(database)/documents/eventFormPublic/$(resource.data.publicTokenHash))
+          && get(/databases/$(database)/documents/eventFormPublic/$(resource.data.publicTokenHash)).data.status == 'open'
+          && assetId in get(/databases/$(database)/documents/eventFormPublic/$(resource.data.publicTokenHash)).data.publicAssetIds;
+      }
+      allow get: if staff() || (anonymousApplicant() && publicImage());
+      allow list: if staff();
+      allow create: if staff() && validImage() && notResetting(request.resource.data.formId)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+      allow update: if staff() && validImage() && notResetting(resource.data.formId)
+        && request.resource.data.formId == resource.data.formId
+        && request.resource.data.assetId == resource.data.assetId
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time;
+      allow delete: if (staff() && notResetting(resource.data.formId) && resource.data.state in ['temp', 'unused']) || resettingByMe(resource.data.formId);
+    }
+
+    match /eventFormAuditLogs/{auditId} {
+      allow read: if staff();
+      allow create: if staff()
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.at == request.time
+        && validAuditAction(request.resource.data.action)
+        && request.resource.data.keys().hasOnly(['formId', 'actorUid', 'action', 'details', 'at']);
+      allow update, delete: if false;
+    }
+
+    match /eventFormSlots/{slotId} {
+      allow read: if staff();
+      allow create: if staff() && slotId in ['1', '2']
+        && request.resource.data.keys().hasOnly(['formId', 'slotNumber', 'createdBy', 'createdAt'])
+        && request.resource.data.slotNumber in [1, 2]
+        && string(request.resource.data.slotNumber) == slotId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && getAfter(/databases/$(database)/documents/eventForms/$(request.resource.data.formId)).data.slotNumber == request.resource.data.slotNumber;
+      allow update, delete: if false;
+    }
+    match /eventFormExportReceipts/{receiptId} {
+      allow read: if staff();
+      allow create: if staff()
+        && request.resource.data.keys().hasOnly(['formId', 'roundId', 'versionId', 'responseCount', 'fingerprint', 'sha256', 'actorUid', 'downloadedAt'])
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.sha256 is string && request.resource.data.sha256.matches('^[a-f0-9]{64}$')
+        && request.resource.data.fingerprint is string && request.resource.data.fingerprint.matches('^[a-f0-9]{64}$')
+        && request.resource.data.responseCount is int && request.resource.data.responseCount >= 0
+        && get(/databases/$(database)/documents/eventForms/$(request.resource.data.formId)).data.status == 'closed';
+      allow update, delete: if false;
+    }
+    match /eventFormResetJobs/{formId} {
+      allow read: if staff();
+      allow create: if admin()
+        && request.resource.data.formId == formId
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.status == 'running'
+        && request.resource.data.deleted == 0
+        && request.resource.data.total is int && request.resource.data.total >= 0
+        && get(/databases/$(database)/documents/eventForms/$(formId)).data.status == 'closed'
+        && getAfter(/databases/$(database)/documents/eventForms/$(formId)).data.status == 'resetting';
+      allow update: if admin()
+        && request.resource.data.formId == resource.data.formId
+        && request.resource.data.actorUid == request.auth.uid
+        && (resource.data.status == 'complete' || resource.data.actorUid == request.auth.uid)
+        && request.resource.data.status in ['running', 'complete']
+        && (resource.data.status == 'complete'
+          || request.resource.data.executionId == resource.data.executionId
+          || resource.data.leaseUntil <= request.time)
+        && (resource.data.status == 'complete' || request.resource.data.deleted >= resource.data.deleted)
+        && request.resource.data.updatedAt == request.time
+        && getAfter(/databases/$(database)/documents/eventForms/$(formId)).data.status in ['resetting', 'draft'];
+      allow delete: if false;
+    }
+
+    // Handwriting-only candidate. Independent confirmation/version metadata is absent.
+    match /counselingHandwritingMemos/{memoId} {
+      function validMemo() {
+        let m = request.resource.data;
+        let fields = ['schemaVersion', 'targetType', 'targetId', 'targetKey', 'counselingRecordId', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'revision', 'width', 'height', 'strokesJson', 'transcribedRevision', 'transcribedAt'];
+        return m.keys().hasAll(fields) && m.keys().hasOnly(fields)
+          && m.schemaVersion is int && m.schemaVersion == 1
+          && m.targetType in ['이용자', '활동지원사']
+          && m.targetId is string && m.targetId.size() > 0 && m.targetId.size() <= 128 && m.targetId.matches('^[^/]+$')
+          && m.targetKey is string && m.targetKey == (m.targetType == '이용자' ? 'user:' : 'worker:') + m.targetId
+          && m.counselingRecordId is string && m.counselingRecordId.size() <= 128 && (m.counselingRecordId == '' || m.counselingRecordId.matches('^[^/]+$'))
+          && m.createdBy is string && m.createdAt is timestamp
+          && m.updatedBy is string && m.updatedBy == request.auth.uid
+          && m.updatedAt is timestamp && m.updatedAt == request.time
+          && m.revision is int && m.revision >= 1
+          && m.width is int && m.width >= 300 && m.width <= 1600
+          && m.height is int && m.height >= 300 && m.height <= 1600
+          && m.strokesJson is string && m.strokesJson.size() >= 2 && m.strokesJson.size() <= 524288
+          && m.strokesJson.matches('^[ -~]*$') && m.strokesJson.matches('^\\[.*\\]$')
+          && m.transcribedRevision is int
+          && (m.transcribedAt == null || m.transcribedAt is timestamp);
+      }
+      function matchingRecord(record) {
+        return record.targetId == resource.data.targetId
+          && record.targetType == resource.data.targetType
+          && record.content is string && record.content.matches('(?s).*\\S.*');
+      }
+      allow read: if staff();
+      allow create: if staff() && validMemo()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.revision == 1
+        && request.resource.data.counselingRecordId == ''
+        && request.resource.data.transcribedRevision == -1
+        && request.resource.data.transcribedAt == null;
+      allow update: if staff() && validMemo()
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.targetId == resource.data.targetId
+        && request.resource.data.targetType == resource.data.targetType
+        && request.resource.data.targetKey == resource.data.targetKey
+        && request.resource.data.width == resource.data.width
+        && request.resource.data.height == resource.data.height
+        && (
+          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['strokesJson', 'revision', 'updatedBy', 'updatedAt', 'transcribedRevision', 'transcribedAt'])
+            && request.resource.data.revision == resource.data.revision + 1
+            && request.resource.data.transcribedRevision == -1
+            && request.resource.data.transcribedAt == null)
+          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['counselingRecordId', 'transcribedRevision', 'transcribedAt', 'updatedBy', 'updatedAt'])
+            && request.resource.data.revision == resource.data.revision
+            && request.resource.data.transcribedRevision == resource.data.revision
+            && request.resource.data.transcribedAt == request.time
+            && request.resource.data.counselingRecordId != ''
+            && (resource.data.counselingRecordId == '' || request.resource.data.counselingRecordId == resource.data.counselingRecordId)
+            && matchingRecord(getAfter(/databases/$(database)/documents/counseling/$(request.resource.data.counselingRecordId)).data)
+            && getAfter(/databases/$(database)/documents/counseling/$(request.resource.data.counselingRecordId)).data.updatedAt == request.time)
+        );
+      // Do not equate a saved transcription with independent employee confirmation.
+      // No safe positive delete policy can be proven under the current schema.
+      allow delete: if false;
+    }
+
+    // Blaze 전용 기존 컬렉션은 Spark 운영 클라이언트에서 사용하지 않는다.
+    match /eventFormPublicTokens/{id} { allow read, write: if false; }
+    match /eventFormDuplicateKeys/{id} { allow read, write: if false; }
+    match /eventFormRateLimits/{id} { allow read, write: if false; }
+    match /eventFormAssets/{id} { allow read, write: if false; }
+
+    // 기존 앱 컬렉션은 승인된 관리자·전담사회복지사 계정만 접근한다.
+    match /{collectionName}/{document=**} {
+      allow read, write: if staff()
+        && collectionName != 'counselingHandwritingMemos'
+        && collectionName != 'eventForms'
+        && collectionName != 'eventFormVersions'
+        && collectionName != 'eventFormRounds'
+        && collectionName != 'eventFormSubmissions'
+        && collectionName != 'eventFormPublic'
+        && collectionName != 'eventFormPublicTokens'
+        && collectionName != 'eventFormDuplicateKeys'
+        && collectionName != 'eventFormRateLimits'
+        && collectionName != 'eventFormAssets'
+        && collectionName != 'eventFormImageBlobs'
+        && collectionName != 'eventFormAuditLogs'
+        && collectionName != 'eventFormSlots'
+        && collectionName != 'eventFormExportReceipts'
+        && collectionName != 'eventFormResetJobs';
+    }
+  }
+}

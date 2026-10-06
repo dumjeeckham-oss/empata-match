@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState, useRef } from "react";
 import { useCollection } from "@/hooks/useFirestore";
+import { CounselingHandwritingEntry, PendingHandwritingMemos } from "@/components/CounselingHandwritingEntry";
 import { type ServiceUser, type Worker, type CounselingRecord, TERMINATION_REASONS } from "@/types";
 import dongbaekLogo from "@/assets/dongbaek-logo.png";
 import { Button } from "@/components/ui/button";
@@ -245,6 +246,7 @@ const Counseling = () => {
     }), [form.targetType, targetSearch, users, workers]);
   return (
     <div>
+      <PendingHandwritingMemos targetName={(type, id) => (type === "이용자" ? users : workers).find(person => person.id === id)?.name || "상담 대상"} />
       <div className="flex items-center justify-between mb-6">
         <h1 className="page-header mb-0">상담기록</h1>
         <div className="flex gap-2">
@@ -444,6 +446,14 @@ const Counseling = () => {
                     </div>
                   );
                 })()}
+                <div className="space-y-2 no-print">
+                  {form.targetId ? (
+                    <CounselingHandwritingEntry key={`${form.targetType}:${form.targetId}`} targetType={form.targetType} targetId={form.targetId} targetName={form.targetName} />
+                  ) : (
+                    <Button variant="outline" className="min-h-11 whitespace-normal" disabled>✏️ 손글씨 메모</Button>
+                  )}
+                  <p className="text-sm text-muted-foreground">{form.targetId ? "상담 중 사용하는 임시 자료입니다. 필요한 내용은 정식 상담내용으로 옮겨주세요." : "상담 대상을 선택한 후 손글씨 메모를 사용할 수 있습니다."}</p>
+                </div>
                 <div><Label>상담일</Label><Input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} /></div>
                 <div><Label>상담자</Label><Input value={form.counselorName} onChange={(e) => setForm((f) => ({ ...f, counselorName: e.target.value }))} /></div>
                 <div><Label>분류</Label>

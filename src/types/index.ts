@@ -224,6 +224,7 @@ export interface Worker {
 }
 
 export interface CounselingRecord {
+  revision?: number;
   id?: string;
   targetType: "이용자" | "활동지원사";
   targetId: string;

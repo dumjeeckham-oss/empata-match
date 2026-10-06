@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { auth, db, collection, addDoc, updateDoc, deleteDoc, doc, onAuthStateChanged, onSnapshot, query, Timestamp, type QueryConstraint } from "@/lib/firebase";
 import { normalizeServiceUser, normalizeWorker } from "@/lib/assignments";
 import { sanitizeForFirestore } from "@/lib/bulkUpload";
-import { USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { COUNSELING_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { createCounselingRecord, updateCounselingRecord } from "@/lib/counselingRevision";
 import { toast } from "@/hooks/use-toast";
 
 const EMPTY_CONSTRAINTS: QueryConstraint[] = [];
@@ -195,6 +196,7 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
 
   const add = useCallback(async (item: Omit<T, "id">) => {
     const payload = sanitizeForFirestore(item as Record<string, unknown>);
+    if (collectionName === COUNSELING_COLLECTION) return createCounselingRecord(db, payload);
     return addDoc(collection(db, collectionName), {
       ...payload,
       createdAt: Timestamp.now(),
@@ -204,6 +206,7 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
 
   const update = useCallback(async (id: string, updates: Partial<T>) => {
     const payload = sanitizeForFirestore(updates as Record<string, unknown>);
+    if (collectionName === COUNSELING_COLLECTION) return updateCounselingRecord(db, id, payload);
     return updateDoc(doc(db, collectionName, id), {
       ...payload,
       updatedAt: Timestamp.now(),

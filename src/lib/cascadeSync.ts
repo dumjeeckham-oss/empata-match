@@ -1,4 +1,5 @@
 import { db, collection, doc, getDocs, query, where, writeBatch, Timestamp } from "@/lib/firebase";
+import { increment, serverTimestamp } from "firebase/firestore";
 import {
   COUNSELING_COLLECTION,
   HANDOVERS_COLLECTION,
@@ -49,7 +50,8 @@ async function commitUpdates(updates: UpdateItem[]) {
     for (const update of updates.slice(offset, offset + MAX_BATCH_WRITES)) {
       batch.update(doc(db, update.collectionName, update.id), {
         ...update.data,
-        updatedAt: Timestamp.now(),
+        ...(update.collectionName === COUNSELING_COLLECTION ? { revision: increment(1) } : {}),
+        updatedAt: update.collectionName === COUNSELING_COLLECTION ? serverTimestamp() : Timestamp.now(),
       });
     }
     await batch.commit();

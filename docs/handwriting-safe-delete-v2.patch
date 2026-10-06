@@ -1,0 +1,118 @@
+diff --git a/production-firestore.rules b/handwriting-safe-delete-v2.rules
+index 6dc37c6..eba10a3 100644
+--- a/production-firestore.rules
++++ b/handwriting-safe-delete-v2.rules
+@@ -258,6 +258,104 @@ service cloud.firestore {
+       allow delete: if false;
+     }
+ 
++    // Counseling revision contract; legacy documents acquire revision on their first update.
++    match /counseling/{recordId} {
++      allow read, delete: if staff();
++      allow create: if staff() && request.resource.data.revision is int
++        && request.resource.data.revision == 1
++        && request.resource.data.createdAt == request.time
++        && request.resource.data.updatedAt == request.time;
++      allow update: if staff() && request.resource.data.revision is int
++        && ((!('revision' in resource.data) && request.resource.data.revision == 1)
++          || (resource.data.revision is int && resource.data.revision >= 1
++            && request.resource.data.revision == resource.data.revision + 1))
++        && (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt)
++        && request.resource.data.updatedAt == request.time;
++    }
++
++    // V2: authenticated staff acknowledgement bound to unchanged transcription state.
++    match /counselingHandwritingMemos/{memoId} {
++      function validMemo() {
++        let m = request.resource.data;
++        let fields = ['schemaVersion', 'targetType', 'targetId', 'targetKey', 'counselingRecordId', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'revision', 'width', 'height', 'strokesJson', 'transcribedRevision', 'transcribedAt', 'transcribedCounselingRevision', 'confirmedBy', 'confirmedAt'];
++        return m.keys().hasAll(fields) && m.keys().hasOnly(fields)
++          && m.schemaVersion is int && m.schemaVersion == 1
++          && m.targetType in ['이용자', '활동지원사']
++          && m.targetId is string && m.targetId.size() > 0 && m.targetId.size() <= 128 && m.targetId.matches('^[^/]+$')
++          && m.targetKey is string && m.targetKey == (m.targetType == '이용자' ? 'user:' : 'worker:') + m.targetId
++          && m.counselingRecordId is string && m.counselingRecordId.size() <= 128 && (m.counselingRecordId == '' || m.counselingRecordId.matches('^[^/]+$'))
++          && m.createdBy is string && m.createdAt is timestamp
++          && m.updatedBy is string && m.updatedBy == request.auth.uid
++          && m.updatedAt is timestamp && m.updatedAt == request.time
++          && m.revision is int && m.revision >= 1
++          && m.width is int && m.width >= 300 && m.width <= 1600
++          && m.height is int && m.height >= 300 && m.height <= 1600
++          && m.strokesJson is string && m.strokesJson.size() >= 2 && m.strokesJson.size() <= 524288
++          && m.strokesJson.matches('^[ -~]*$') && m.strokesJson.matches('^\\[.*\\]$')
++          && m.transcribedRevision is int
++          && (m.transcribedAt == null || m.transcribedAt is timestamp)
++          && m.transcribedCounselingRevision is int
++          && m.confirmedBy is string
++          && (m.confirmedAt == null || m.confirmedAt is timestamp);
++      }
++      function matchingRecord(record) {
++        return record.targetId == resource.data.targetId
++          && record.targetType == resource.data.targetType
++          && record.content is string && record.content.matches('(?s).*\\S.*');
++      }
++      function currentTranscription() {
++        let m = resource.data;
++        let r = getAfter(/databases/$(database)/documents/counseling/$(m.counselingRecordId)).data;
++        return m.counselingRecordId != '' && m.revision == m.transcribedRevision
++          && m.transcribedAt is timestamp && m.transcribedCounselingRevision >= 1
++          && matchingRecord(r) && r.revision == m.transcribedCounselingRevision
++          && (!(r.createdAt is timestamp) || r.createdAt <= m.transcribedAt);
++      }
++      allow read: if staff();
++      allow create: if staff() && validMemo()
++        && request.resource.data.createdBy == request.auth.uid
++        && request.resource.data.createdAt == request.time
++        && request.resource.data.revision == 1
++        && request.resource.data.counselingRecordId == ''
++        && request.resource.data.transcribedRevision == -1
++        && request.resource.data.transcribedAt == null
++        && request.resource.data.transcribedCounselingRevision == -1
++        && request.resource.data.confirmedBy == '' && request.resource.data.confirmedAt == null;
++      allow update: if staff() && validMemo()
++        && request.resource.data.createdBy == resource.data.createdBy
++        && request.resource.data.createdAt == resource.data.createdAt
++        && request.resource.data.targetId == resource.data.targetId
++        && request.resource.data.targetType == resource.data.targetType
++        && request.resource.data.targetKey == resource.data.targetKey
++        && request.resource.data.width == resource.data.width
++        && request.resource.data.height == resource.data.height
++        && (
++          (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['strokesJson', 'revision', 'updatedBy', 'updatedAt', 'transcribedRevision', 'transcribedAt', 'transcribedCounselingRevision', 'confirmedBy', 'confirmedAt'])
++            && request.resource.data.revision == resource.data.revision + 1
++            && request.resource.data.transcribedRevision == -1
++            && request.resource.data.transcribedAt == null
++            && request.resource.data.transcribedCounselingRevision == -1
++            && request.resource.data.confirmedBy == '' && request.resource.data.confirmedAt == null)
++          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['counselingRecordId', 'transcribedRevision', 'transcribedAt', 'updatedBy', 'updatedAt', 'transcribedCounselingRevision', 'confirmedBy', 'confirmedAt'])
++            && request.resource.data.revision == resource.data.revision
++            && request.resource.data.transcribedRevision == resource.data.revision
++            && request.resource.data.transcribedAt == request.time
++            && request.resource.data.counselingRecordId != ''
++            && (resource.data.counselingRecordId == '' || request.resource.data.counselingRecordId == resource.data.counselingRecordId)
++            && matchingRecord(getAfter(/databases/$(database)/documents/counseling/$(request.resource.data.counselingRecordId)).data)
++            && getAfter(/databases/$(database)/documents/counseling/$(request.resource.data.counselingRecordId)).data.updatedAt == request.time
++            && request.resource.data.transcribedCounselingRevision == getAfter(/databases/$(database)/documents/counseling/$(request.resource.data.counselingRecordId)).data.revision
++            && request.resource.data.confirmedBy == '' && request.resource.data.confirmedAt == null)
++          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirmedBy', 'confirmedAt', 'updatedBy', 'updatedAt'])
++            && currentTranscription()
++            && request.resource.data.confirmedBy == request.auth.uid
++            && request.resource.data.confirmedAt == request.time)
++        );
++      allow delete: if staff() && currentTranscription()
++        && resource.data.confirmedBy == request.auth.uid
++        && resource.data.confirmedAt is timestamp;
++    }
++
+     // Blaze 전용 기존 컬렉션은 Spark 운영 클라이언트에서 사용하지 않는다.
+     match /eventFormPublicTokens/{id} { allow read, write: if false; }
+     match /eventFormDuplicateKeys/{id} { allow read, write: if false; }
+@@ -267,6 +365,8 @@ service cloud.firestore {
+     // 기존 앱 컬렉션은 승인된 관리자·전담사회복지사 계정만 접근한다.
+     match /{collectionName}/{document=**} {
+       allow read, write: if staff()
++        && collectionName != 'counselingHandwritingMemos'
++        && collectionName != 'counseling'
+         && collectionName != 'eventForms'
+         && collectionName != 'eventFormVersions'
+         && collectionName != 'eventFormRounds'
