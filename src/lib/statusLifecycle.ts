@@ -21,19 +21,24 @@ const toYmd = (value: Date | string) => {
   return clean(value).slice(0, 10);
 };
 
-const workerAssignmentIds = (worker: Worker) =>
-  (worker.assignedUserIds || worker.assigned_users || []).filter(Boolean);
+export function getWorkerAssignmentIds(worker: unknown): string[] {
+  const source = worker && typeof worker === "object" ? worker as Record<string, unknown> : {};
+  const current = Array.isArray(source.assignedUserIds) ? source.assignedUserIds : [];
+  const legacy = Array.isArray(source.assigned_users) ? source.assigned_users : [];
+  const single = clean(source.assignedUserId);
+  return Array.from(new Set([...current, ...legacy, single].map(clean).filter(Boolean)));
+}
 
 /** 오늘 기준 실제 배정과 재직 여부만으로 활동지원사 상태를 판정한다. */
 export function getWorkerOperationalStatus(worker: Worker, asOf: Date | string = new Date()): WorkerOperationalStatus {
   const status = clean(worker.contractStatus).replace(/\s+/g, "");
   const today = toYmd(asOf);
   const retirementDate = clean(worker.retirementDate || worker.resignationDate).slice(0, 10);
-  const retiredToday = status === "퇴사" && (!retirementDate || retirementDate <= today);
-  const legacyRetiredToday = !status && Boolean(retirementDate) && retirementDate <= today;
+  const retiredWithoutDate = status === "퇴사" && !retirementDate;
+  const retirementIsEffective = Boolean(retirementDate) && retirementDate <= today;
 
-  if (retiredToday || legacyRetiredToday) return "퇴사";
-  return workerAssignmentIds(worker).length > 0 ? "서비스 제공중" : "대기";
+  if (retiredWithoutDate || retirementIsEffective) return "퇴사";
+  return getWorkerAssignmentIds(worker).length > 0 ? "서비스 제공중" : "대기";
 }
 
 export function resolveWorkerContractStatus(worker: Worker, asOf: Date | string = new Date()): Worker["contractStatus"] {
@@ -60,7 +65,7 @@ export function getWorkerStatusBadges(worker: Worker): WorkerBadge[] {
     ];
   }
   const hasEmploymentStarted = Boolean(clean(worker.serviceStartDate))
-    || (worker.employmentHistory || []).some((entry) => !clean(entry.endDate));
+    || (worker.employmentHistory || []).some((entry) => Boolean(clean(entry.startDate)));
   return hasEmploymentStarted
     ? [
         { label: "재직중", className: "bg-blue-600 text-white hover:bg-blue-600" },
@@ -128,25 +133,52 @@ export function ensureOpenContractHistory(user: ServiceUser): ContractHistoryEnt
   return history;
 }
 
+export function hasActualServicePeriod(worker: Worker): boolean {
+  const startDate = clean(worker.serviceStartDate);
+  if (!startDate) return false;
+  const hasAssignedUser = getWorkerAssignmentIds(worker).length > 0;
+  const endDate = clean(worker.serviceEndDate || (worker.contractStatus === "퇴사" ? worker.retirementDate || worker.resignationDate : ""));
+  return hasAssignedUser || Boolean(endDate);
+}
+
+export function getActualEmploymentHistory(worker: Worker): EmploymentHistoryEntry[] {
+  const startDate = clean(worker.serviceStartDate);
+  const endDate = clean(worker.serviceEndDate || (worker.contractStatus === "퇴사" ? worker.retirementDate || worker.resignationDate : ""));
+  const hasCurrentService = getWorkerAssignmentIds(worker).length > 0;
+  const history = (worker.employmentHistory || []).filter((entry) => {
+    const entryStart = clean(entry.startDate);
+    return Boolean(entryStart) && (Boolean(clean(entry.endDate)) || (hasCurrentService && entryStart === startDate));
+  }).map((entry) => ({ ...entry, startDate: clean(entry.startDate), endDate: clean(entry.endDate) || null }));
+  if (!startDate || (!hasCurrentService && !endDate)) return history;
+  const index = history.findIndex((entry) => entry.startDate === startDate);
+  const current: EmploymentHistoryEntry = {
+    id: index >= 0 ? history[index].id : "employment-" + startDate,
+    startDate,
+    endDate: endDate || null,
+    status: endDate ? "퇴사" : "재직중",
+    reason: endDate ? "서비스 종료" : undefined,
+  };
+  if (index >= 0) history[index] = { ...history[index], ...current };
+  else history.push(current);
+  return history.sort((a, b) => clean(a.startDate).localeCompare(clean(b.startDate)));
+}
+
 export function appendEmploymentTransition(worker: Worker, endDate: string, reason = "퇴사"): EmploymentHistoryEntry[] {
-  const history = [...(worker.employmentHistory || [])];
-  const existingIndex = history.findIndex((entry) => entry.endDate === endDate && entry.status === "퇴사");
-  if (existingIndex >= 0) return history;
-  const openIndex = history.findIndex((entry) => entry.endDate === null || entry.endDate === "");
-  if (openIndex >= 0) history[openIndex] = { ...history[openIndex], endDate, status: "퇴사", reason };
-  else history.push({ id: "employment-" + (worker.serviceStartDate || endDate), startDate: worker.serviceStartDate || worker.receiptDate || endDate, endDate, status: "퇴사", reason });
+  const history = getActualEmploymentHistory(worker);
+  const startDate = clean(worker.serviceStartDate);
+  if (!startDate || !hasActualServicePeriod(worker)) return history;
+  const index = history.findIndex((entry) => entry.startDate === startDate && !clean(entry.endDate));
+  if (index >= 0) {
+    history[index] = { ...history[index], endDate: clean(endDate) || null, status: "퇴사", reason };
+    return history;
+  }
+  history.push({ id: "employment-" + startDate, startDate, endDate: clean(endDate) || null, status: "퇴사", reason });
   return history;
 }
 
 export function ensureOpenEmploymentHistory(worker: Worker): EmploymentHistoryEntry[] {
-  if (worker.contractStatus === "퇴사") return worker.employmentHistory || [];
-  const history = [...(worker.employmentHistory || [])];
-  if (!history.some((entry) => entry.endDate === null || entry.endDate === "")) {
-    history.push({ id: "employment-" + (worker.serviceStartDate || Date.now()), startDate: worker.serviceStartDate || worker.receiptDate, endDate: null, status: "재직중" });
-  }
-  return history;
+  return getActualEmploymentHistory(worker);
 }
-
 export function formatPeriodHistory(entries: Array<{ startDate: string; endDate: string | null; status: string; reason?: string }>, activeLabel: string): string[] {
   return [...entries]
     .sort((a, b) => clean(a.startDate).localeCompare(clean(b.startDate)))

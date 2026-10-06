@@ -4,12 +4,19 @@
  */
 export const USERS_COLLECTION = "users" as const;
 export const WORKERS_COLLECTION = "workers" as const;
+export const EVENT_FORM_COLLECTIONS = {
+  forms: "eventForms", slots: "eventFormSlots", rounds: "eventFormRounds",
+  versions: "eventFormVersions", submissions: "eventFormSubmissions",
+  images: "eventFormImageBlobs", public: "eventFormPublic",
+  receipts: "eventFormExportReceipts", resetJobs: "eventFormResetJobs", audit: "eventFormAuditLogs",
+} as const;
 export const TERMINATIONS_COLLECTION = "terminations" as const;
 export const HANDOVERS_COLLECTION = "handovers" as const;
 export const MATCHING_HISTORY_COLLECTION = "matchingHistory" as const;
 export const COUNSELING_COLLECTION = "counseling" as const;
 /** 전사 완료 후 삭제하는 전달용 임시자료. 상담기록·이력으로 보존하지 않는다. */
 export const COUNSELING_HANDWRITING_COLLECTION = "counselingHandwritingMemos" as const;
+export const REGISTRATION_HANDWRITING_COLLECTION = "registrationHandwritingMemos" as const;
 export const WORK_TODOS_COLLECTION = "workTodos" as const;
 export const MATCHING_BOARD_COLLECTION = "matchingBoard" as const;
 export const ANNUAL_SCHEDULES_COLLECTION = "annualSchedules" as const;
@@ -26,5 +33,3 @@ export type CoreCollectionName =
   | typeof TERMINATIONS_COLLECTION
   | typeof HANDOVERS_COLLECTION
   | typeof MATCHING_HISTORY_COLLECTION;
-
-export const REGISTRATION_HANDWRITING_COLLECTION = "registrationHandwritingMemos" as const;

@@ -1,0 +1,24 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "eventFormSubmissions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "roundId", "order": "ASCENDING" },
+        { "fieldPath": "submittedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "counselingHandwritingMemos",
+      "fieldPath": "strokesJson",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "eventFormImageBlobs",
+      "fieldPath": "dataBase64",
+      "indexes": []
+    }
+  ]
+}
