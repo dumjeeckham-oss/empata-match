@@ -27,7 +27,7 @@ import { clearAllHandwritingDrafts } from "@/lib/counselingHandwriting";
 describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST || !process.env.FIREBASE_AUTH_EMULATOR_HOST)("actual Counseling UI + demo Firebase V2 E2E", () => {
  let env: RulesTestEnvironment;
  beforeAll(async () => {
-  env = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync("src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8") } });
+  env = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync(process.env.HANDWRITING_RULES_FIXTURE || "src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8") } });
   await env.clearFirestore();
   vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
   vi.stubGlobal("PointerEvent", MouseEvent);

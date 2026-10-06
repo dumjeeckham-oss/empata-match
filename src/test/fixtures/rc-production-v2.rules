@@ -278,11 +278,7 @@ service cloud.firestore {
       function validMemo() {
         let m = request.resource.data;
         let fields = ['schemaVersion', 'targetType', 'targetId', 'targetKey', 'counselingRecordId', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'revision', 'width', 'height', 'strokesJson', 'transcribedRevision', 'transcribedAt', 'transcribedCounselingRevision', 'confirmedBy', 'confirmedAt'];
-        let forceFields = ['forceDeleteConfirmedBy', 'forceDeleteConfirmedAt', 'forceDeleteConfirmedRevision'];
-        return m.keys().hasAll(fields) && m.keys().hasOnly(fields.concat(forceFields))
-          && (!m.keys().hasAny(forceFields) || (m.keys().hasAll(forceFields)
-            && m.forceDeleteConfirmedBy is string && m.forceDeleteConfirmedAt is timestamp
-            && m.forceDeleteConfirmedRevision is int && m.forceDeleteConfirmedRevision >= 1))
+        return m.keys().hasAll(fields) && m.keys().hasOnly(fields)
           && m.schemaVersion is int && m.schemaVersion == 1
           && m.targetType in ['이용자', '활동지원사']
           && m.targetId is string && m.targetId.size() > 0 && m.targetId.size() <= 128 && m.targetId.matches('^[^/]+$')
@@ -320,7 +316,6 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt == request.time
         && request.resource.data.revision == 1
-        && !request.resource.data.keys().hasAny(['forceDeleteConfirmedBy', 'forceDeleteConfirmedAt', 'forceDeleteConfirmedRevision'])
         && request.resource.data.counselingRecordId == ''
         && request.resource.data.transcribedRevision == -1
         && request.resource.data.transcribedAt == null
@@ -355,90 +350,10 @@ service cloud.firestore {
             && currentTranscription()
             && request.resource.data.confirmedBy == request.auth.uid
             && request.resource.data.confirmedAt == request.time)
-          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['forceDeleteConfirmedBy', 'forceDeleteConfirmedAt', 'forceDeleteConfirmedRevision', 'updatedBy', 'updatedAt'])
-            && request.resource.data.forceDeleteConfirmedBy == request.auth.uid
-            && request.resource.data.forceDeleteConfirmedAt == request.time
-            && request.resource.data.forceDeleteConfirmedRevision == resource.data.revision)
         );
-      allow delete: if staff() && ((currentTranscription()
+      allow delete: if staff() && currentTranscription()
         && resource.data.confirmedBy == request.auth.uid
-        && resource.data.confirmedAt is timestamp)
-        || (resource.data.get('forceDeleteConfirmedBy', '') == request.auth.uid
-          && resource.data.get('forceDeleteConfirmedAt', null) is timestamp
-          && resource.data.revision == resource.data.get('forceDeleteConfirmedRevision', -1)));
-    }
-
-    // Registration memos have a reserved UUID target identity, independent of counseling.
-    match /registrationHandwritingMemos/{draftId} {
-      function validRegistrationMemo() {
-        let m = request.resource.data;
-        let fields = ['schemaVersion', 'draftId', 'targetType', 'targetId', 'registered', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'revision', 'width', 'height', 'strokesJson'];
-        let force = ['forceDeleteConfirmedBy', 'forceDeleteConfirmedAt', 'forceDeleteConfirmedRevision'];
-        return m.keys().hasAll(fields) && m.keys().hasOnly(fields.concat(force))
-          && m.schemaVersion == 1 && m.schemaVersion is int
-          && draftId.matches('^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$')
-          && m.draftId == draftId && m.targetId == draftId
-          && m.targetType in ['이용자', '활동지원사'] && m.registered is bool
-          && m.createdBy is string && m.createdAt is timestamp
-          && m.updatedBy == request.auth.uid && m.updatedAt == request.time
-          && m.revision is int && m.revision >= 1
-          && m.width is int && m.width >= 300 && m.width <= 1600
-          && m.height is int && m.height >= 300 && m.height <= 1600
-          && m.strokesJson is string && m.strokesJson.size() >= 2 && m.strokesJson.size() <= 524288
-          && m.strokesJson.matches('^[ -~]*$') && m.strokesJson.matches('^\\[.*\\]$')
-          && (!m.keys().hasAny(force) || (m.keys().hasAll(force)
-            && m.forceDeleteConfirmedBy is string && m.forceDeleteConfirmedAt is timestamp
-            && m.forceDeleteConfirmedRevision is int && m.forceDeleteConfirmedRevision >= 1));
-      }
-      function newlyRegistered() {
-        let targetCollection = resource.data.targetType == '이용자' ? 'users' : 'workers';
-        return !resource.data.registered && request.resource.data.registered
-          && resource.data.createdBy == request.auth.uid
-          && !exists(/databases/$(database)/documents/$(targetCollection)/$(draftId))
-          && getAfter(/databases/$(database)/documents/$(targetCollection)/$(draftId)).data.registrationDraftId == draftId;
-      }
-      allow read: if staff();
-      allow create: if staff() && validRegistrationMemo()
-        && request.resource.data.createdBy == request.auth.uid && request.resource.data.createdAt == request.time
-        && request.resource.data.revision == 1 && !request.resource.data.registered
-        && !exists(/databases/$(database)/documents/$(request.resource.data.targetType == '이용자' ? 'users' : 'workers')/$(draftId))
-        && !request.resource.data.keys().hasAny(['forceDeleteConfirmedBy', 'forceDeleteConfirmedAt', 'forceDeleteConfirmedRevision']);
-      allow update: if staff() && validRegistrationMemo()
-        && request.resource.data.draftId == resource.data.draftId
-        && request.resource.data.targetId == resource.data.targetId && request.resource.data.targetType == resource.data.targetType
-        && request.resource.data.createdBy == resource.data.createdBy && request.resource.data.createdAt == resource.data.createdAt
-        && request.resource.data.width == resource.data.width && request.resource.data.height == resource.data.height
-        && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['strokesJson', 'revision', 'updatedBy', 'updatedAt'])
-            && request.resource.data.revision == resource.data.revision + 1)
-          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['registered', 'updatedBy', 'updatedAt']) && newlyRegistered())
-          || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['forceDeleteConfirmedBy', 'forceDeleteConfirmedAt', 'forceDeleteConfirmedRevision', 'updatedBy', 'updatedAt'])
-            && request.resource.data.forceDeleteConfirmedBy == request.auth.uid
-            && request.resource.data.forceDeleteConfirmedAt == request.time
-            && request.resource.data.forceDeleteConfirmedRevision == resource.data.revision));
-      allow delete: if staff() && resource.data.get('forceDeleteConfirmedBy', '') == request.auth.uid
-        && resource.data.get('forceDeleteConfirmedAt', null) is timestamp
-        && resource.data.revision == resource.data.get('forceDeleteConfirmedRevision', -1);
-    }
-    function registrationTargetCreate(type, id) {
-      let draft = request.resource.data.get('registrationDraftId', '');
-      return draft == '' || (draft == id
-        && get(/databases/$(database)/documents/registrationHandwritingMemos/$(draft)).data.createdBy == request.auth.uid
-        && getAfter(/databases/$(database)/documents/registrationHandwritingMemos/$(draft)).data.targetType == type
-        && getAfter(/databases/$(database)/documents/registrationHandwritingMemos/$(draft)).data.registered);
-    }
-    match /users/{id} {
-      allow read, delete: if staff();
-      allow create: if staff() && registrationTargetCreate('이용자', id);
-      allow update: if staff() && request.resource.data.get('registrationDraftId', '') == resource.data.get('registrationDraftId', '');
-      // Preserve prior staff access to existing business subcollections.
-      match /{subcollection}/{document=**} { allow read, write: if staff(); }
-    }
-    match /workers/{id} {
-      allow read, delete: if staff();
-      allow create: if staff() && registrationTargetCreate('활동지원사', id);
-      allow update: if staff() && request.resource.data.get('registrationDraftId', '') == resource.data.get('registrationDraftId', '');
-      // Preserve prior staff access to existing business subcollections.
-      match /{subcollection}/{document=**} { allow read, write: if staff(); }
+        && resource.data.confirmedAt is timestamp;
     }
 
     // Blaze 전용 기존 컬렉션은 Spark 운영 클라이언트에서 사용하지 않는다.
@@ -451,9 +366,6 @@ service cloud.firestore {
     match /{collectionName}/{document=**} {
       allow read, write: if staff()
         && collectionName != 'counselingHandwritingMemos'
-        && collectionName != 'registrationHandwritingMemos'
-        && collectionName != 'users'
-        && collectionName != 'workers'
         && collectionName != 'counseling'
         && collectionName != 'eventForms'
         && collectionName != 'eventFormVersions'

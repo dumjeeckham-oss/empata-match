@@ -14,7 +14,7 @@ import { createCounselingRecord, updateCounselingRecord } from "@/lib/counseling
 
 describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)("actual counseling write paths with V2 Rules", () => {
  let env: RulesTestEnvironment;
- beforeAll(async () => { env = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync("src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8") } }); }, 20000);
+ beforeAll(async () => { env = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync(process.env.HANDWRITING_RULES_FIXTURE || "src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8") } }); }, 20000);
  beforeEach(async () => { await env.clearFirestore(); boundary.db = env.authenticatedContext("staff", { role: "admin" }).firestore() as unknown as Firestore; });
  afterAll(async () => { boundary.db = null; await env.cleanup(); });
 

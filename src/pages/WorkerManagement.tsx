@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo, useState, useEffect } from "react";
+import { RegistrationHandwriting } from "@/components/RegistrationHandwriting";
+import { registrationHandwritingApi } from "@/lib/registrationHandwritingApi";
 import { useCollection } from "@/hooks/useFirestore";
 import { type Worker, type ServiceUser, type CounselingRecord, type MatchingHistoryRecord, type DocumentMatchingHistoryEntry, WORKER_REJECTION_TYPES, EXPERIENCE_OPTIONS, SUPPORT_TYPES } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -62,6 +64,7 @@ import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, resolveWorkerContractStatus } from "@/lib/statusLifecycle";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
+  weeklySchedule: [],
   name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
@@ -271,6 +274,7 @@ const WorkerManagement = () => {
 
   const displayWorkers = useMemo(() => workers.map(toDisplayWorker), [workers]);
   const [form, setForm] = useState(emptyWorker);
+  const [registrationDraftId, setRegistrationDraftId] = useState(() => crypto.randomUUID());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
@@ -537,7 +541,7 @@ const WorkerManagement = () => {
               : undefined,
       });
     } else {
-      const ref = await add(payload as Omit<Worker, "id">);
+      const ref = await registrationHandwritingApi.register("활동지원사", registrationDraftId, payload as Record<string, unknown>);
       savedId = ref.id;
       toast({ title: "등록 완료" });
     }
@@ -971,14 +975,16 @@ const WorkerManagement = () => {
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
           <PartialUpdateDialog<Worker & { id: string }> title="활동지원사 일괄 정보 업데이트" existing={workers} fields={WORKER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, normalizeWorkerPartialUpdates(updates, workers.find((worker) => worker.id === id)))} />
           <Button variant="outline" size="sm" onClick={() => openWorkerSummaryModal("health")}>미검진자 모아보기</Button>
+          <RegistrationHandwriting targetType="활동지원사" pendingOnly />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => { setForm(emptyWorker); setEditingId(null); setExplicitOks(new Set()); }}>+ 신규등록</Button>
+              <Button onClick={() => { setRegistrationDraftId(crypto.randomUUID()); setForm(emptyWorker); setEditingId(null); setExplicitOks(new Set()); }}>+ 신규등록</Button>
             </DialogTrigger>
             <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle>{editingId ? "활동지원사 수정" : "활동지원사 신규등록"}</DialogTitle>
               </DialogHeader>
+              {!editingId && <RegistrationHandwriting targetType="활동지원사" draftId={registrationDraftId} />}
               <div className="space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>

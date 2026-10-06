@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { RegistrationHandwriting } from "@/components/RegistrationHandwriting";
+import { registrationHandwritingApi } from "@/lib/registrationHandwritingApi";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type MatchingHistoryRecord, type HandoverDocument, type DocumentMatchingHistoryEntry, type MatchingHistoryReason, type WeeklySchedule, DISABILITY_TYPES, SUPPORT_TYPES, ENVIRONMENT_TAGS, VOUCHER_HOURS, TERMINATION_REASONS } from "@/types";
 import { geocodeAddress } from "@/lib/kakao";
@@ -102,6 +104,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 }
 
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
+  weeklySchedule: [],
 
   name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", secondaryDisabilityType: "", birthDate: "", disabilityDegree: "", voucherTier: 1, voucherTierLabel: "", voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
@@ -262,6 +265,7 @@ const UserManagement = () => {
   const handoverDocs = handoverDocsRaw || [];
 
   const [form, setForm] = useState(emptyUser);
+  const [registrationDraftId, setRegistrationDraftId] = useState(() => crypto.randomUUID());
   const [ageInput, setAgeInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -686,7 +690,7 @@ const UserManagement = () => {
         setPendingOverwrite({ existingId: existing.id, payload });
         return;
       }
-      const ref = await add(payload as Omit<ServiceUser, "id">);
+      const ref = await registrationHandwritingApi.register("이용자", registrationDraftId, payload as Record<string, unknown>);
       savedId = ref.id;
       toast({ title: "등록 완료" });
     }
@@ -934,7 +938,7 @@ const UserManagement = () => {
     setPendingOverwrite(null);
     if (!proceed) {
       // create new record instead of overwriting
-      const ref = await add(payload as Omit<ServiceUser, "id">);
+      const ref = await registrationHandwritingApi.register("이용자", registrationDraftId, payload as Record<string, unknown>);
       toast({ title: "신규 등록 완료 (덮어쓰기 거부)" });
       if (ref?.id) {
         await syncUserToWorkers(ref.id, payload, workers, [], updateWorker);
@@ -1657,14 +1661,16 @@ const UserManagement = () => {
           <Button variant="outline" size="sm" onClick={downloadExcel}>📊 엑셀 다운로드</Button>
           <Button variant="outline" size="sm" onClick={() => navigate("/waiting-ledger")}>📋 대기 매칭대장 미리보기</Button>
           <PartialUpdateDialog<ServiceUser & { id: string }> title="이용자 일괄 정보 업데이트" existing={users} fields={USER_PARTIAL_UPDATE_FIELDS as any} onUpdate={(id, updates) => update(id, { ...updates, ...(updates.gender ? { txtUSex: updates.gender } : {}), ...(updates.terminationReason ? { txtUMemostop: updates.terminationReason } : {}) })} />
+          <RegistrationHandwriting targetType="이용자" pendingOnly />
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={() => { setForm(emptyUser); setAgeInput(""); setEditingId(null); }}>+ 신규등록</Button>
+              <Button onClick={() => { setRegistrationDraftId(crypto.randomUUID()); setForm(emptyUser); setAgeInput(""); setEditingId(null); }}>+ 신규등록</Button>
             </DialogTrigger>
             <DialogContent className="max-w-5xl w-[96vw] max-h-[92vh] overflow-y-auto" onPointerDownOutside={(event) => event.preventDefault()}>
               <DialogHeader>
                 <DialogTitle>{editingId ? "이용자 수정" : "이용자 신규등록"}</DialogTitle>
               </DialogHeader>
+              {!editingId && <RegistrationHandwriting targetType="이용자" draftId={registrationDraftId} />}
               <div className="space-y-6">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>

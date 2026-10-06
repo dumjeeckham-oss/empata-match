@@ -10,7 +10,7 @@ import { createCounselingRecord, updateCounselingRecord } from "@/lib/counseling
 import { clearAllHandwritingDrafts, encodeStrokes, getHandwritingDraft, setHandwritingDraft, type HandwritingMemo } from "@/lib/counselingHandwriting";
 import { COUNSELING_COLLECTION, COUNSELING_HANDWRITING_COLLECTION } from "@/lib/collectionNames";
 
-const rules = readFileSync("src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8");
+const rules = readFileSync(process.env.HANDWRITING_RULES_FIXTURE || "src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8");
 const json = encodeStrokes([{ id: "synthetic", width: 4, points: [[10, 20, 0.5]] }]);
 const seed: HandwritingMemo = { id: "safe-delete", schemaVersion: 1, targetType: "이용자", targetId: "synthetic-user", targetKey: "user:synthetic-user", counselingRecordId: "", createdBy: "staff", createdAt: null, updatedBy: "staff", updatedAt: null, revision: 0, width: 1600, height: 1000, strokesJson: "[]", transcribedRevision: -1, transcribedAt: null };
 const form = { targetType: seed.targetType, targetId: seed.targetId, targetName: "합성 이용자", content: "전사된 내용\n둘째 줄", result: "확인", category: "일반상담", counselorName: "합성 직원", date: "2026-10-06" };

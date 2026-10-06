@@ -26,3 +26,5 @@ export type CoreCollectionName =
   | typeof TERMINATIONS_COLLECTION
   | typeof HANDOVERS_COLLECTION
   | typeof MATCHING_HISTORY_COLLECTION;
+
+export const REGISTRATION_HANDWRITING_COLLECTION = "registrationHandwritingMemos" as const;

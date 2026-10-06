@@ -5,7 +5,7 @@ import { clearHandwritingDraft, decodeStrokes, encodeStrokes, getHandwritingDraf
 export type HandwritingPhase = "CLEAN" | "DIRTY" | "SAVING" | "SAVE_ERROR" | "CONFLICT" | "REMOTE_DELETED" | "REMOTE_DELETED_WITH_LOCAL_CHANGES";
 export const MIN_HANDWRITING_WRITE_INTERVAL = 5000;
 
-export function useCounselingHandwriting(initial: HandwritingMemo, uid: string, writeInterval = MIN_HANDWRITING_WRITE_INTERVAL) {
+export function useCounselingHandwriting(initial: HandwritingMemo, uid: string, writeInterval = MIN_HANDWRITING_WRITE_INTERVAL, service: Pick<typeof handwritingApi, "save" | "subscribe"> = handwritingApi) {
   const recovered = getHandwritingDraft(uid, initial.id);
   const [seed] = useState(() => {
     try { return { strokes: recovered?.strokes || decodeStrokes(initial.strokesJson, initial.width, initial.height), invalid: false }; }
@@ -56,7 +56,7 @@ export function useCounselingHandwriting(initial: HandwritingMemo, uid: string, 
         if (current.deleted || remoteDeleted.current || recovery.current || drawing.current) throw new Error("현재 필기 상태를 다시 확인해 주세요.");
         const generation = current.generation;
         const json = encodeStrokes(current.strokes);
-        const revision = await handwritingApi.save(current.memo, json, current.saved);
+        const revision = await service.save(current.memo, json, current.saved);
         if (current.deleted || remoteDeleted.current) return;
         // A listener can observe a later write while this request is in flight.
         // Never acknowledge an older response over that newer server state.
@@ -89,7 +89,7 @@ export function useCounselingHandwriting(initial: HandwritingMemo, uid: string, 
       }
     })();
     try { await flight.current; } finally { flight.current = null; }
-  }, [refresh, remember, seed.invalid, transition, writeInterval]);
+  }, [refresh, remember, seed.invalid, transition, writeInterval, service]);
 
   const change = useCallback((strokes: HandwritingStroke[]) => {
     const current = state.current;
@@ -123,7 +123,7 @@ export function useCounselingHandwriting(initial: HandwritingMemo, uid: string, 
       transition("REMOTE_DELETED");
     };
     const unsubscribeClear = onHandwritingDraftCleared((id, owner) => { if (id === null || (owner === uid && id === initial.id)) forget(); });
-    const unsubscribe = handwritingApi.subscribe(initial.id, remote => {
+    const unsubscribe = service.subscribe(initial.id, remote => {
       const current = state.current;
       if (!remote) {
         if (current.saved) {
@@ -178,7 +178,7 @@ export function useCounselingHandwriting(initial: HandwritingMemo, uid: string, 
       clearTimeout(timer.current); clearInterval(interval);
       window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); window.removeEventListener("beforeunload", warnUnload);
     };
-  }, [initial.id, uid, flush, refresh, remember, transition]);
+  }, [initial.id, uid, flush, refresh, remember, transition, service]);
 
   const stage = useCallback((strokes: HandwritingStroke[]) => {
     if (state.current.deleted || seed.invalid) return;

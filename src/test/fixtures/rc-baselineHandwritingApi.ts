@@ -1,4 +1,3 @@
-import { createManualForceDeleteApi } from "@/lib/manualForceDeleteApi";
 import { collection, doc, getDoc, onSnapshot, query, where, runTransaction, serverTimestamp, type Firestore } from "firebase/firestore";
 import { auth, db, onAuthStateChanged } from "@/lib/firebase";
 import { COUNSELING_COLLECTION, COUNSELING_HANDWRITING_COLLECTION } from "@/lib/collectionNames";
@@ -30,7 +29,7 @@ function sameTimestamp(a: unknown, b: unknown): boolean {
 }
 
 /** Firestore 경계에서 인증·역할을 다시 검사한다. 실제 허용 여부는 Rules가 결정한다. */
-export async function requireStaff(): Promise<string> {
+async function requireStaff(): Promise<string> {
   const user = auth.currentUser;
   if (!user) throw new HandwritingConflict("로그인이 필요합니다.");
   const token = await user.getIdTokenResult();
@@ -91,7 +90,6 @@ export function createHandwritingApi(database: Firestore, currentStaff: () => Pr
         transaction.update(ref(memo.id), { confirmedBy: uid, confirmedAt: serverTimestamp(), updatedBy: uid, updatedAt: serverTimestamp() });
       });
     },
-    ...createManualForceDeleteApi(database, COUNSELING_HANDWRITING_COLLECTION, currentStaff),
     async deleteConfirmed(memo: HandwritingMemo): Promise<void> {
       const uid = await currentStaff();
       await runTransaction(database, async transaction => {

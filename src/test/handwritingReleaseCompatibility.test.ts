@@ -15,12 +15,18 @@ const form = { targetType: "이용자" as const, targetId: "release-synthetic", 
 const memo: HandwritingMemo = { id: "release-synthetic-memo", schemaVersion: 1, targetType: form.targetType, targetId: form.targetId, targetKey: "user:" + form.targetId, counselingRecordId: "", createdBy: "staff", updatedBy: "staff", createdAt: null, updatedAt: null, revision: 0, width: 1600, height: 1000, strokesJson: "[]", transcribedRevision: -1, transcribedAt: null };
 
 it("release Rules artifact is the verified V2 and preserves the exact production rollback", () => {
-  expect(finalRules).toBe(readFileSync("src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8"));
+  const baseline = readFileSync("src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8");
+  expect(createHash("sha256").update(baseline).digest("hex").toUpperCase()).toBe("5D7418D1948883ACA400F6BBBCAE027D9FD77A337CA3AAB7EA2869E1A8999487");
+  const outsideMemo = (rules: string) => rules.slice(0, rules.indexOf("    // V2:")) + rules.slice(rules.indexOf("    // Blaze 전용")).replace("        && collectionName != 'registrationHandwritingMemos'\n", "").replace("        && collectionName != 'users'\n", "").replace("        && collectionName != 'workers'\n", "");
+  expect(outsideMemo(finalRules)).toBe(outsideMemo(baseline));
   expect(createHash("sha256").update(production).digest("hex").toUpperCase()).toBe("04D46D9EC51D167493DD0C92ACEC89DEF0FE1DFB462B699D5E6B7C93B4F71948");
   const start = finalRules.indexOf("    // Counseling revision contract;"), end = finalRules.indexOf("    // Blaze 전용", start);
   const restored = (finalRules.slice(0, start) + finalRules.slice(end))
     .replace("        && collectionName != 'counselingHandwritingMemos'\n", "")
-    .replace("        && collectionName != 'counseling'\n", "");
+    .replace("        && collectionName != 'counseling'\n", "")
+    .replace("        && collectionName != 'registrationHandwritingMemos'\n", "")
+    .replace("        && collectionName != 'users'\n", "")
+    .replace("        && collectionName != 'workers'\n", "");
   expect(restored).toBe(production);
 });
 

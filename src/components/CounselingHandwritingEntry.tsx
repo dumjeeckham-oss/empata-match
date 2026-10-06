@@ -6,6 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { handwritingApi, handwritingError } from "@/lib/counselingHandwritingApi";
 import { getHandwritingDraft, reconcileHandwritingDrafts, isStaleMemo, memoTargetKey, timestampMillis, type HandwritingMemo, type MemoTargetType } from "@/lib/counselingHandwriting";
 
+import { ForceDeleteMemoButton } from "@/components/ForceDeleteMemoButton";
+
 const Whiteboard = lazy(() => import("@/components/CounselingWhiteboard"));
 type Props = { targetType: MemoTargetType; targetId: string; targetName: string; initialMemo?: HandwritingMemo; label?: string; autoOpen?: boolean; onClosed?: () => void; onDisposed?: () => void };
 function newMemo(type: MemoTargetType, id: string, uid: string): HandwritingMemo {
@@ -73,6 +75,7 @@ export function PendingHandwritingMemos({ targetName }: { targetName: (type: Mem
   const [memos, setMemos] = useState<HandwritingMemo[]>([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [notice, setNotice] = useState("");
   const [opened, setOpened] = useState<HandwritingMemo | null>(null);
   const uid = user?.uid;
   useEffect(() => {
@@ -82,11 +85,12 @@ export function PendingHandwritingMemos({ targetName }: { targetName: (type: Mem
   if (loading || !user || !isStaff) return null;
   if (!loaded) return <p role="status">임시 손글씨 확인 중…</p>;
   if (error) return <p role="alert">{error}</p>;
-  if (!memos.length && !opened) return null;
+  if (!memos.length && !opened && !notice) return null;
   return <section className="space-y-2 rounded-lg border border-amber-300 bg-amber-50/30 p-3 no-print" aria-label="미전사 임시 손글씨">
+    {notice && <p role="status">{notice}</p>}
     <p className="font-medium">✏️ 전사되지 않은 임시 손글씨 {memos.length}건</p>
     <p className="text-sm">임시자료입니다. 정식 상담내용으로 옮긴 후 삭제해주세요.</p>
-    <div className="flex flex-wrap gap-2">{[...memos].sort((a, b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt)).map(memo => <Button key={memo.id} variant="outline" className="min-h-11 whitespace-normal" onClick={() => setOpened(memo)}>{isStaleMemo(timestampMillis(memo.createdAt)) ? "⚠ 3일 이상 지난 메모 · " : ""}{targetName(memo.targetType, memo.targetId)} 이어보기</Button>)}</div>
+    <div className="flex flex-wrap gap-2">{[...memos].sort((a, b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt)).map(memo => <div key={memo.id} className="flex flex-wrap gap-2"><Button variant="outline" className="min-h-11 whitespace-normal" onClick={() => setOpened(memo)}>{isStaleMemo(timestampMillis(memo.createdAt)) ? "⚠ 3일 이상 지난 메모 · " : ""}{targetName(memo.targetType, memo.targetId)} 열기</Button><ForceDeleteMemoButton memo={memo} uid={user.uid} onDeleted={() => { setMemos(items => items.filter(item => item.id !== memo.id)); setNotice("임시 손글씨를 삭제했습니다."); }} /></div>)}</div>
     {opened && <CounselingHandwritingEntry key={opened.id} initialMemo={opened} autoOpen targetType={opened.targetType} targetId={opened.targetId} targetName={targetName(opened.targetType, opened.targetId)} onClosed={() => setOpened(null)} onDisposed={() => setOpened(previous => previous ? { ...previous, strokesJson: "[]" } : null)} />}
   </section>;
 }

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+﻿import { readFileSync } from "node:fs";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { initializeTestEnvironment } from "@firebase/rules-unit-testing";
@@ -6,7 +6,7 @@ import { deleteApp, initializeApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, signInAnonymously } from "firebase/auth";
 import { connectFirestoreEmulator, doc, getDoc, getFirestore, type Firestore } from "firebase/firestore";
 import { COUNSELING_COLLECTION, COUNSELING_HANDWRITING_COLLECTION } from "@/lib/collectionNames";
-import { clearAllHandwritingDrafts, type HandwritingMemo } from "@/lib/counselingHandwriting";
+import { clearAllHandwritingDrafts, getHandwritingDraft, type HandwritingMemo } from "@/lib/counselingHandwriting";
 
 const boundary = vi.hoisted(() => ({ service: null as ReturnType<typeof import("@/lib/counselingHandwritingApi").createHandwritingApi> | null }));
 vi.mock("@/lib/counselingHandwritingApi", async importOriginal => {
@@ -22,7 +22,7 @@ afterEach(() => { cleanup(); clearAllHandwritingDrafts(); boundary.service = nul
 
 describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)("candidate Rules와 실제 hook autosave", () => {
   it("실제 Auth → 대상 memo → timer autosave → PC 재열기 → 전사 → 확인 → 삭제 E2E와 5초 최소 간격", async () => {
-    const environment = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync("src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8") } });
+    const environment = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync(process.env.HANDWRITING_RULES_FIXTURE || "src/test/fixtures/handwriting-safe-delete-v2.rules", "utf8") } });
     const app = initializeApp({ projectId: "demo-dongbaek-forms", apiKey: "demo-key" }, `autosave-v2-${crypto.randomUUID()}`);
     try {
       await environment.clearFirestore();
@@ -62,4 +62,27 @@ describe.skipIf(!process.env.FIRESTORE_EMULATOR_HOST)("candidate Rules와 실제
       expect((await getDoc(doc(pc, COUNSELING_COLLECTION, id))).data()).toMatchObject({ revision: 1, content: "PC 전사" });
     } finally { cleanup(); await environment.cleanup(); await deleteApp(app); }
   }, 30000);
+  it("FD14: real remote force deletion retains dirty hook and blocks resurrection", async () => {
+    const env = await initializeTestEnvironment({ projectId: "demo-dongbaek-forms", firestore: { rules: readFileSync("firestore.rules", "utf8") } });
+    try {
+      await env.clearFirestore();
+      const db = env.authenticatedContext("device-a", { role: "admin" }).firestore() as unknown as Firestore;
+      const remoteDb = env.authenticatedContext("device-b", { role: "social_worker" }).firestore() as unknown as Firestore;
+      boundary.service = createHandwritingApi(db, async () => "device-a");
+      const seed: HandwritingMemo = { id: "force-dirty", schemaVersion: 1, targetType: "이용자", targetId: "synthetic", targetKey: "user:synthetic", counselingRecordId: "", createdBy: "device-a", updatedBy: "device-a", createdAt: null, updatedAt: null, revision: 0, width: 1600, height: 1000, strokesJson: "[]", transcribedRevision: -1, transcribedAt: null };
+      await boundary.service.save(seed, "[]", false);
+      const memo = { ...(await getDoc(doc(db, COUNSELING_HANDWRITING_COLLECTION, seed.id))).data(), id: seed.id } as HandwritingMemo;
+      const hook = renderHook(() => useCounselingHandwriting(memo, "device-a"));
+      await waitFor(() => expect(hook.result.current.phase).toBe("CLEAN"));
+      act(() => hook.result.current.stage([{ id: "dirty", width: 4, points: [[10, 20, 0.5]] }]));
+      const remote = createHandwritingApi(remoteDb, async () => "device-b");
+      await remote.confirmForceDelete(memo); await remote.forceDeleteConfirmed(memo);
+      await waitFor(() => expect(hook.result.current.phase).toBe("REMOTE_DELETED_WITH_LOCAL_CHANGES"), { timeout: 5000 });
+      expect(getHandwritingDraft("device-a", memo.id)?.strokes[0].id).toBe("dirty");
+      await expect(hook.result.current.flush()).rejects.toThrow();
+      expect((await getDoc(doc(db, COUNSELING_HANDWRITING_COLLECTION, memo.id))).exists()).toBe(false);
+      hook.unmount();
+    } finally { cleanup(); await env.cleanup(); }
+  }, 20000);
+
 });
