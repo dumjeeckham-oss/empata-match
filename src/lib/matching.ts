@@ -104,7 +104,7 @@ function conditionMatchScore(condition: string, user: ServiceUser, worker: Worke
 }
 
 export function matchUserWithWorkers(user: ServiceUser, workers: Worker[], condition = "", conditionTargetType: "이용자" | "활동지원사" = "이용자"): MatchResult[] {
-  const availableWorkers = workers.filter((worker) => !isWorkerRetired(worker));
+  const availableWorkers = workers.filter((worker) => worker.employedElsewhere !== true && !isWorkerRetired(worker));
 
   return availableWorkers
     .map((worker) => {

@@ -65,10 +65,10 @@ import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHi
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   weeklySchedule: [],
-  name: "", age: 0, gender: "여성", phone: "", residenceArea: "", preferredArea: "",
+  name: "", age: 0, birthDate: "", gender: "여성", phone: "", residenceArea: "", preferredArea: "",
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
-  isForeigner: false, hasF4: false, hasF5: false,
+  isForeigner: false, hasF4: false, hasF5: false, canSupportDiaper: false, canSupportAdults: false, canSupportMaleUsers: false, employedElsewhere: false,
   certificateNumber: "", certificateDate: "", contractStatus: "대기", serviceStartDate: "", serviceEndDate: null, retirementDate: "", resignationDate: "", psychiatricCheckDate: "", psychiatricCheckUnchecked: false, workplaceCheckDate: "", workplaceCheckUnchecked: false, notes: "",
   assignedUserIds: [], assignedUserNames: [], assignedUserPhones: [],
   supportTypes: [],
@@ -80,6 +80,7 @@ const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
   { key: "gender", label: "성별", aliases: ["남녀", "지원사성별"] },
   { key: "age", label: "나이", aliases: ["연령", "만나이"], parse: partialParsers.number },
+  { key: "birthDate", label: "생년월일", aliases: ["출생일", "생년월일자"], parse: partialParsers.date },
   { key: "residenceArea", label: "거주지역", aliases: ["거주지", "사는지역"] },
   { key: "preferredArea", label: "희망지역", aliases: ["업무희망지역", "근무희망지역"] },
   { key: "address", label: "주소", aliases: ["상세주소", "지원사주소"] },
@@ -91,6 +92,10 @@ const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "rejectedTasks", label: "거부업무", aliases: ["불가업무", "기피업무"] },
   { key: "canDrive", label: "운전가능", aliases: ["운전", "차량운행"], parse: partialParsers.boolean },
   { key: "animalAllergy", label: "동물알레르기", aliases: ["반려동물알레르기", "애완동물알레르기"], parse: partialParsers.boolean },
+  { key: "canSupportDiaper", label: "기저귀지원", aliases: ["기저귀가능"], parse: partialParsers.boolean },
+  { key: "canSupportAdults", label: "성인지원", aliases: ["성인지원가능"], parse: partialParsers.boolean },
+  { key: "canSupportMaleUsers", label: "남성이용자지원", aliases: ["남성지원가능"], parse: partialParsers.boolean },
+  { key: "employedElsewhere", label: "타기관취업", aliases: ["타기관근무"], parse: partialParsers.boolean },
   { key: "isForeigner", label: "외국인", aliases: ["외국인여부"], parse: partialParsers.boolean },
   { key: "hasF4", label: "F4", aliases: ["F-4", "F4비자"], parse: partialParsers.boolean },
   { key: "hasF5", label: "F5", aliases: ["F-5", "F5비자"], parse: partialParsers.boolean },
@@ -418,6 +423,11 @@ const WorkerManagement = () => {
     const today = new Date().toISOString().slice(0, 10);
     const requestedRetirement = form.contractStatus === "퇴사";
 
+    if (form.employedElsewhere && arrays.ids.length > 0) {
+      toast({ title: "타기관 취업 처리 불가", description: "담당 이용자 배정을 먼저 종료해 주세요.", variant: "destructive" });
+      return;
+    }
+
     if (requestedRetirement && arrays.ids.length > 0) {
       if (existingWorker?.id) setWorkerTransitionTarget(existingWorker);
       toast({
@@ -439,6 +449,8 @@ const WorkerManagement = () => {
       : "";
     const nextContractStatus: Worker["contractStatus"] = requestedRetirement
       ? "퇴사"
+      : form.employedElsewhere
+        ? "대기"
       : arrays.ids.length > 0
         ? "근무중"
         : "대기";
@@ -446,6 +458,7 @@ const WorkerManagement = () => {
     const historyWorker = {
       ...(existingWorker || form),
       contractStatus: nextContractStatus,
+      employedElsewhere: Boolean(form.employedElsewhere),
       serviceStartDate: nextStartDate,
       retirementDate: nextRetirementDate,
       resignationDate: nextRetirementDate,
@@ -466,7 +479,7 @@ const WorkerManagement = () => {
       workplaceCheckDate: form.workplaceCheckUnchecked ? "" : preserveWorkerDateOnStatusChange(form.workplaceCheckDate, existingWorker?.workplaceCheckDate, statusChanged),
       retirementDate: nextRetirementDate,
       resignationDate: nextRetirementDate,
-      waitingForMatch: !requestedRetirement && arrays.ids.length === 0,
+      waitingForMatch: !requestedRetirement && !form.employedElsewhere && arrays.ids.length === 0,
       employmentHistory: existingWorker
         ? (requestedRetirement
           ? appendEmploymentTransition(existingWorker, nextRetirementDate)
@@ -1018,6 +1031,7 @@ const WorkerManagement = () => {
                       }}
                     />
                   </div>
+                  <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))} /></div>
                 </div>
 
                 <div className="space-y-2">
@@ -1078,7 +1092,7 @@ const WorkerManagement = () => {
                               onCheckedChange={(checked) => {
                                 if (checked) {
                                   setExplicitOks(prev => new Set(prev).add(okKey));
-                                  setForm(f => ({ ...f, rejectionTypes: f.rejectionTypes.filter(v => v !== type) }));
+                                  setForm(f => ({ ...f, rejectionTypes: f.rejectionTypes.filter(v => v !== type), ...(type === "기저귀거부" ? { canSupportDiaper: true } : {}), ...(type === "성인거부" ? { canSupportAdults: true } : {}), ...(type === "남성거부" ? { canSupportMaleUsers: true } : {}) }));
                                 } else {
                                   setExplicitOks(prev => { const s = new Set(prev); s.delete(okKey); return s; });
                                 }
@@ -1092,7 +1106,7 @@ const WorkerManagement = () => {
                               checked={isRejected}
                               onCheckedChange={(checked) => {
                                 if (checked && !form.rejectionTypes.includes(type)) {
-                                  setForm(f => ({ ...f, rejectionTypes: [...f.rejectionTypes, type] }));
+                                  setForm(f => ({ ...f, rejectionTypes: [...f.rejectionTypes, type], ...(type === "기저귀거부" ? { canSupportDiaper: false } : {}), ...(type === "성인거부" ? { canSupportAdults: false } : {}), ...(type === "남성거부" ? { canSupportMaleUsers: false } : {}) }));
                                   setExplicitOks(prev => { const s = new Set(prev); s.delete(okKey); return s; });
                                 }
                               }}
@@ -1114,6 +1128,9 @@ const WorkerManagement = () => {
                     <div className="flex items-center space-x-2"><Checkbox id="hasF5" checked={form.hasF5} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF5: !!checked }))} /><Label htmlFor="hasF5">F5 여부</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="canDrive" checked={form.canDrive} onCheckedChange={(checked) => setForm((f) => ({ ...f, canDrive: !!checked }))} /><Label htmlFor="canDrive">운전가능</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="animalAllergy" checked={form.animalAllergy} onCheckedChange={(checked) => setForm((f) => ({ ...f, animalAllergy: !!checked }))} /><Label htmlFor="animalAllergy">동물알러지</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="canSupportDiaper" checked={!!form.canSupportDiaper} onCheckedChange={(checked) => setForm((f) => ({ ...f, canSupportDiaper: !!checked }))} /><Label htmlFor="canSupportDiaper">기저귀 지원 가능</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="canSupportAdults" checked={!!form.canSupportAdults} onCheckedChange={(checked) => setForm((f) => ({ ...f, canSupportAdults: !!checked }))} /><Label htmlFor="canSupportAdults">성인 이용자 지원 가능</Label></div>
+                    <div className="flex items-center space-x-2"><Checkbox id="canSupportMaleUsers" checked={!!form.canSupportMaleUsers} onCheckedChange={(checked) => setForm((f) => ({ ...f, canSupportMaleUsers: !!checked }))} /><Label htmlFor="canSupportMaleUsers">남성 이용자 지원 가능</Label></div>
                   </div>
                 </div>
 
@@ -1185,6 +1202,7 @@ const WorkerManagement = () => {
                     </Select>
                   </div>
                   <div><Label>최초 근무일</Label><Input type="date" value={form.serviceStartDate} onChange={(e) => setForm((f) => ({ ...f, serviceStartDate: e.target.value }))} /></div>
+                  <div className="flex items-center gap-2 rounded-md border p-3"><Checkbox id="employedElsewhere" checked={!!form.employedElsewhere} onCheckedChange={(checked) => setForm((f) => ({ ...f, employedElsewhere: !!checked, contractStatus: checked ? "대기" : f.contractStatus }))} /><Label htmlFor="employedElsewhere">타기관 취업(검색·매칭 제외)</Label></div>
                   {form.contractStatus === "퇴사" && (
                     <div>
                       <Label>퇴사일</Label>
@@ -1623,7 +1641,7 @@ const WorkerManagement = () => {
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">재직/서비스 상태</p>
-                  <p className="font-medium">{getWorkerStatusBadges(detailTarget).map((badge) => badge.label).join(" + ")}</p>
+                  <p className="font-medium">{detailTarget.employedElsewhere ? "타기관 취업 · 검색/매칭 제외" : getWorkerStatusBadges(detailTarget).map((badge) => badge.label).join(" + ")}</p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">담당 이용자</p>

@@ -36,6 +36,15 @@ describe("status lifecycle", () => {
     expect(rehired.contractStatus).toBe("대기");
     expect(isWorkerRetired(rehired as Worker, "2026-09-16")).toBe(false);
   });
+  it("excludes other-institution workers without changing retirement semantics", () => {
+    const employedElsewhere = worker({ id: "elsewhere", contractStatus: "대기", employedElsewhere: true });
+    const returned = worker({ id: "returned", contractStatus: "대기", employedElsewhere: false, retirementDate: "2025-12-31" });
+    expect(getWorkerOperationalStatus(employedElsewhere, "2026-09-16")).toBe("대기");
+    expect(isWorkerWaitingForMatch(employedElsewhere, "2026-09-16")).toBe(false);
+    expect(isWorkerWaitingForMatch(returned, "2026-09-16")).toBe(true);
+    const user = { id: "u1", age: 30, gender: "여성", requiredDays: "월", requiredHours: "10:00", address: "부천", environmentTags: [] } as ServiceUser;
+    expect(matchUserWithWorkers(user, [employedElsewhere, returned]).map((result) => result.worker.id)).toEqual(["returned"]);
+  });
   it("keeps an explicitly active worker current despite a historical resignation date", () => {
     const rehired = normalizeWorker({ contractStatus: "근무중", retirementDate: "2025-12-31", assignedUserIds: ["u1"] });
     expect(rehired.contractStatus).toBe("근무중");

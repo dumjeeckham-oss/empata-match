@@ -60,6 +60,7 @@ export function isWorkerRetired(worker: Worker, asOf: Date | string = new Date()
 }
 
 export function isWorkerWaitingForMatch(worker: Worker, asOf: Date | string = new Date()): boolean {
+  if (worker.employedElsewhere === true) return false;
   return getWorkerOperationalStatus(worker, asOf) === "대기";
 }
 

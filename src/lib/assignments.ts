@@ -246,6 +246,7 @@ export function normalizeWorker(raw: Record<string, unknown>): Partial<Worker> {
     assignedUserPhones: phones,
     gender: String(raw.gender ?? raw.txtHSex ?? ""),
     txtHSex: String(raw.txtHSex ?? raw.gender ?? ""),
+    birthDate: toYmd(raw.birthDate ?? raw["생년월일"] ?? raw["출생일"]),
     contractStatus: derivedStatus,
     experience: derivedExperience,
     certificateDate: toYmd(raw.certificateDate ?? raw["이수일자"] ?? raw["교육이수일"]),

@@ -28,6 +28,7 @@ import {
 } from "@/lib/matchingCardInfo";
 import { recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { getWorkerStatusBadges, isWorkerWaitingForMatch } from "@/lib/statusLifecycle";
+import { matchesWorkerFilters, type WorkerTimeBand } from "@/lib/workerFilters";
 
 const FAILURE_REASONS = MATCHING_FAILURE_REASONS;
 const FAILURE_SCORE_DELTA = MATCHING_FAILURE_SCORE_DELTA;
@@ -63,6 +64,11 @@ const Matching = () => {
   const [filterWeekend, setFilterWeekend] = useState(false);
   const [filterCanDrive, setFilterCanDrive] = useState(false);
   const [supportFilters, setSupportFilters] = useState<string[]>([]);
+  const [genderFilters, setGenderFilters] = useState<string[]>([]);
+  const [ageRange, setAgeRange] = useState<[number, number]>([20, 70]);
+  const [ageFilterActive, setAgeFilterActive] = useState(false);
+  const [timeBandFilters, setTimeBandFilters] = useState<WorkerTimeBand[]>([]);
+  const [capabilityFilters, setCapabilityFilters] = useState<string[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [results, setResults] = useState<MatchResult[]>([]);
   const [manualSearch, setManualSearch] = useState<string>("");
@@ -143,9 +149,18 @@ const Matching = () => {
       }
       if (supportFilters.length > 0 && !w.supportTypes?.some((t) => supportFilters.includes(t))) return false;
       if (filterCanDrive && !w.canDrive) return false;
-      return true;
+      return matchesWorkerFilters(w, {
+        genders: genderFilters,
+        minAge: ageFilterActive ? ageRange[0] : undefined,
+        maxAge: ageFilterActive ? ageRange[1] : undefined,
+        timeBands: timeBandFilters,
+        canSupportDiaper: capabilityFilters.includes("diaper"),
+        noAnimalAllergy: capabilityFilters.includes("no-animal-allergy"),
+        canSupportAdults: capabilityFilters.includes("adults"),
+        canSupportMaleUsers: capabilityFilters.includes("male-users"),
+      });
     });
-  }, [waitingWorkers, filterForeigners, filterWeekend, supportFilters, filterCanDrive]);
+  }, [waitingWorkers, filterForeigners, filterWeekend, supportFilters, filterCanDrive, genderFilters, ageRange, ageFilterActive, timeBandFilters, capabilityFilters]);
 
   const globalTopMatches = useMemo(() => {
     return waitingUsers.map(u => {
@@ -170,6 +185,11 @@ const Matching = () => {
     setFilterWeekend(false);
     setFilterCanDrive(false);
     setSupportFilters([]);
+    setGenderFilters([]);
+    setAgeRange([20, 70]);
+    setAgeFilterActive(false);
+    setTimeBandFilters([]);
+    setCapabilityFilters([]);
     setSelectedUserId("");
     setManualWorkerId("");
     setResults([]);
@@ -467,6 +487,12 @@ const Matching = () => {
             <Button type="button" variant="outline" onClick={resetSearchFilters}>필터 초기화</Button>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
+            {["여성", "남성"].map((gender) => (
+              <div key={gender} className="flex items-center gap-2">
+                <Checkbox id={`gender-filter-${gender}`} checked={genderFilters.includes(gender)} onCheckedChange={(checked) => setGenderFilters((prev) => checked ? [...new Set([...prev, gender])] : prev.filter((item) => item !== gender))} />
+                <label htmlFor={`gender-filter-${gender}`} className="cursor-pointer text-sm">{gender}</label>
+              </div>
+            ))}
             <div className="flex items-center gap-2">
               <Checkbox id="filterForeigners" checked={filterForeigners} onCheckedChange={(checked) => setFilterForeigners(!!checked)} />
               <label htmlFor="filterForeigners" className="cursor-pointer text-sm">외국인만</label>
@@ -485,6 +511,18 @@ const Matching = () => {
                 <label htmlFor={`support-filter-${type}`} className="cursor-pointer text-sm">{type}</label>
               </div>
             ))}
+          </div>
+          <div className="grid gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-2">
+            <div>
+              <div className="flex items-center justify-between"><span className="text-sm font-medium">나이 범위</span><Checkbox id="age-filter-active" checked={ageFilterActive} onCheckedChange={(checked) => setAgeFilterActive(!!checked)} /><label htmlFor="age-filter-active" className="text-xs">사용</label></div>
+              <div className="mt-2 flex items-center gap-2 text-xs"><input aria-label="최소 나이" type="range" min={20} max={70} value={ageRange[0]} disabled={!ageFilterActive} onChange={(event) => setAgeRange(([_, max]) => [Math.min(Number(event.target.value), max), max])} /><input aria-label="최대 나이" type="range" min={20} max={70} value={ageRange[1]} disabled={!ageFilterActive} onChange={(event) => setAgeRange(([min]) => [min, Math.max(Number(event.target.value), min)])} /><span>{ageRange[0]}~{ageRange[1]}세</span></div>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {(["오전", "오후"] as WorkerTimeBand[]).map((band) => <div key={band} className="flex items-center gap-2"><Checkbox id={`time-filter-${band}`} checked={timeBandFilters.includes(band)} onCheckedChange={(checked) => setTimeBandFilters((prev) => checked ? [...new Set([...prev, band])] : prev.filter((item) => item !== band))} /><label htmlFor={`time-filter-${band}`} className="text-sm">{band} 가능</label></div>)}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 md:col-span-2">
+              {[["diaper", "기저귀 지원 가능"], ["no-animal-allergy", "동물 알레르기 없음"], ["adults", "성인 이용자 지원"], ["male-users", "남성 이용자 지원"]].map(([key, label]) => <div key={key} className="flex items-center gap-2"><Checkbox id={`capability-filter-${key}`} checked={capabilityFilters.includes(key)} onCheckedChange={(checked) => setCapabilityFilters((prev) => checked ? [...new Set([...prev, key])] : prev.filter((item) => item !== key))} /><label htmlFor={`capability-filter-${key}`} className="text-sm">{label}</label></div>)}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
             <Badge variant="outline">대기 이용자 {filteredUsers.length}명</Badge>

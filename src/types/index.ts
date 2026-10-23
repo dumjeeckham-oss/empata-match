@@ -160,6 +160,7 @@ export interface Worker {
   id?: string;
   name: string;
   age: number;
+  birthDate?: string;
   gender: string;
   /** Excel/Firebase 원본 필드 호환: 활동지원사 성별 */
   txtHSex?: string;
@@ -178,6 +179,10 @@ export interface Worker {
   rejectedTasks: string;
   canDrive: boolean;
   animalAllergy: boolean;
+  canSupportDiaper?: boolean;
+  canSupportAdults?: boolean;
+  canSupportMaleUsers?: boolean;
+  employedElsewhere?: boolean;
   isForeigner?: boolean;
   hasF4?: boolean;
   hasF5?: boolean;
