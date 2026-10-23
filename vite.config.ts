@@ -15,6 +15,11 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  build: {
+    // The gzip-size report is diagnostic only and was exhausting the Windows build process
+    // after chunk rendering. Bundle output itself is unchanged by disabling this report.
+    reportCompressedSize: false,
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

@@ -36,6 +36,16 @@ describe("status lifecycle", () => {
     expect(rehired.contractStatus).toBe("대기");
     expect(isWorkerRetired(rehired as Worker, "2026-09-16")).toBe(false);
   });
+  it("keeps an explicitly active worker current despite a historical resignation date", () => {
+    const rehired = normalizeWorker({ contractStatus: "근무중", retirementDate: "2025-12-31", assignedUserIds: ["u1"] });
+    expect(rehired.contractStatus).toBe("근무중");
+    expect(getWorkerOperationalStatus(rehired as Worker, "2026-09-16")).toBe("서비스 제공중");
+  });
+  it("uses the historical-date fallback when no valid current status is supplied", () => {
+    const unknown = normalizeWorker({ contractStatus: "알 수 없음", retirementDate: "2025-12-31", assignedUserIds: [] });
+    expect(unknown.contractStatus).toBe("퇴사");
+    expect(isWorkerRetired(unknown as Worker, "2026-09-16")).toBe(true);
+  });
   it("shows employed + service when at least one user remains", () => {
     expect(getWorkerStatusBadges(worker({ assignedUserIds: ["u2"] })).map((item) => item.label)).toEqual(["재직중", "서비스 제공중"]);
   });

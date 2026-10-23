@@ -34,11 +34,19 @@ export function getWorkerOperationalStatus(worker: Worker, asOf: Date | string =
   const status = clean(worker.contractStatus).replace(/\s+/g, "");
   const today = toYmd(asOf);
   const retirementDate = clean(worker.retirementDate || worker.resignationDate).slice(0, 10);
+  const assignmentCount = getWorkerAssignmentIds(worker).length;
+
+  // A valid current contract status takes precedence over a historical resignation date.
+  // Assignment state still determines whether the current worker is serving or waiting.
+  if (status === "대기" || status === "근무중") {
+    return assignmentCount > 0 ? "서비스 제공중" : "대기";
+  }
+
   const retiredWithoutDate = status === "퇴사" && !retirementDate;
   const retirementIsEffective = Boolean(retirementDate) && retirementDate <= today;
 
   if (retiredWithoutDate || retirementIsEffective) return "퇴사";
-  return getWorkerAssignmentIds(worker).length > 0 ? "서비스 제공중" : "대기";
+  return assignmentCount > 0 ? "서비스 제공중" : "대기";
 }
 
 export function resolveWorkerContractStatus(worker: Worker, asOf: Date | string = new Date()): Worker["contractStatus"] {
