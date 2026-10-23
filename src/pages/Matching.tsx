@@ -61,6 +61,7 @@ const Matching = () => {
   const [nameSearch, setNameSearch] = useState<string>("");
   const [filterForeigners, setFilterForeigners] = useState(false);
   const [filterWeekend, setFilterWeekend] = useState(false);
+  const [filterCanDrive, setFilterCanDrive] = useState(false);
   const [supportFilters, setSupportFilters] = useState<string[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string>("");
   const [results, setResults] = useState<MatchResult[]>([]);
@@ -141,9 +142,10 @@ const Matching = () => {
         if (!hasWeekend) return false;
       }
       if (supportFilters.length > 0 && !w.supportTypes?.some((t) => supportFilters.includes(t))) return false;
+      if (filterCanDrive && !w.canDrive) return false;
       return true;
     });
-  }, [waitingWorkers, filterForeigners, filterWeekend, supportFilters]);
+  }, [waitingWorkers, filterForeigners, filterWeekend, supportFilters, filterCanDrive]);
 
   const globalTopMatches = useMemo(() => {
     return waitingUsers.map(u => {
@@ -159,6 +161,19 @@ const Matching = () => {
     if (!selectedUser) return;
     const res = matchUserWithWorkers(selectedUser, filteredWorkers);
     setResults(res);
+  };
+
+  const resetSearchFilters = () => {
+    setNameSearch("");
+    setManualSearch("");
+    setFilterForeigners(false);
+    setFilterWeekend(false);
+    setFilterCanDrive(false);
+    setSupportFilters([]);
+    setSelectedUserId("");
+    setManualWorkerId("");
+    setResults([]);
+    navigate("/matching");
   };
 
   const handleSelectUser = (userId: string) => {
@@ -331,7 +346,13 @@ const Matching = () => {
 
   return (
     <div>
-      <h1 className="page-header">이용자-활동지원사 매칭</h1>
+      <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="page-header mb-1">활동지원사 조건 검색·비교</h1>
+          <p className="text-sm text-muted-foreground">이용자 조건과 활동지원사 근무 조건을 확인하고, 후보별 추천점수를 비교합니다.</p>
+        </div>
+        <Badge variant="outline" className="w-fit">읽기 전용 비교 · 매칭 확정은 별도 동작</Badge>
+      </div>
       <Card className="mb-6 border-primary/20">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">매칭 성과 대시보드</CardTitle>
@@ -424,8 +445,8 @@ const Matching = () => {
         <CardHeader className="pb-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <CardTitle className="text-base">필터링 선택 및 추천매칭</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">필터를 적용한 뒤 이용자를 선택하면 우측 지원사 카드에 추천점수가 표시됩니다.</p>
+              <CardTitle className="text-base">활동지원사 검색필터</CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">조건을 여러 개 선택하면 대기 중인 지원사 목록과 추천 결과가 즉시 좁혀집니다.</p>
             </div>
             <Button onClick={runMatching} disabled={!selectedUser} className="w-full sm:w-auto">
               {selectedUser ? `${selectedUser.name} 추천매칭 실행` : "이용자를 먼저 선택하세요"}
@@ -433,6 +454,18 @@ const Matching = () => {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+            <div>
+              <label htmlFor="worker-filter-search" className="mb-1 block text-xs font-medium text-muted-foreground">활동지원사 이름·연락처·지역</label>
+              <Input
+                id="worker-filter-search"
+                placeholder="검색어를 입력하세요"
+                value={manualSearch}
+                onChange={(e) => setManualSearch(e.target.value)}
+              />
+            </div>
+            <Button type="button" variant="outline" onClick={resetSearchFilters}>필터 초기화</Button>
+          </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2">
             <div className="flex items-center gap-2">
               <Checkbox id="filterForeigners" checked={filterForeigners} onCheckedChange={(checked) => setFilterForeigners(!!checked)} />
@@ -441,6 +474,10 @@ const Matching = () => {
             <div className="flex items-center gap-2">
               <Checkbox id="filterWeekend" checked={filterWeekend} onCheckedChange={(checked) => setFilterWeekend(!!checked)} />
               <label htmlFor="filterWeekend" className="cursor-pointer text-sm">주말 가능</label>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox id="filterCanDrive" checked={filterCanDrive} onCheckedChange={(checked) => setFilterCanDrive(!!checked)} />
+              <label htmlFor="filterCanDrive" className="cursor-pointer text-sm">차량 운전 가능</label>
             </div>
             {SUPPORT_TYPES.map((type) => (
               <div key={type} className="flex items-center gap-2">
@@ -453,6 +490,9 @@ const Matching = () => {
             <Badge variant="outline">대기 이용자 {filteredUsers.length}명</Badge>
             <Badge variant="outline">조건에 맞는 대기 지원사 {filteredWorkers.length}명</Badge>
           </div>
+          {filteredWorkers.length === 0 && (
+            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">현재 조건에 맞는 활동지원사가 없습니다. 필터를 바꾸거나 초기화해 주세요.</p>
+          )}
         </CardContent>
       </Card>
 
