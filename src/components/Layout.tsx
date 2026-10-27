@@ -6,6 +6,9 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { getAdjacentPath, getSwipeDirection, shouldIgnoreSwipeTarget, type SwipePoint } from "@/lib/swipeNavigation";
+import { fetchKpiWorkerUser } from "@/lib/kpiWorkerApi";
+
+type DirectorMenuState = "AUTH_LOADING" | "DIRECTOR_VERIFIED" | "NOT_DIRECTOR" | "UNAUTHENTICATED" | "AUTH_ERROR";
 
 const navItems = [
   { path: "/", label: "대시보드", icon: "📊" },
@@ -23,8 +26,19 @@ const navItems = [
 ];
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { logout, role } = useAuth();
-  const visibleNavItems = navItems.filter((item) => !item.directorOnly || role === "admin");
+  const { logout, role, user } = useAuth();
+  const [directorMenuState, setDirectorMenuState] = useState<DirectorMenuState>("AUTH_LOADING");
+  useEffect(() => {
+    let active = true;
+    if (!user) { setDirectorMenuState("UNAUTHENTICATED"); return () => { active = false; }; }
+    if (role !== "admin") { setDirectorMenuState("NOT_DIRECTOR"); return () => { active = false; }; }
+    setDirectorMenuState("AUTH_LOADING");
+    void fetchKpiWorkerUser()
+      .then((workerUser) => { if (active) setDirectorMenuState(workerUser.role === "director" ? "DIRECTOR_VERIFIED" : "NOT_DIRECTOR"); })
+      .catch(() => { if (active) setDirectorMenuState("AUTH_ERROR"); });
+    return () => { active = false; };
+  }, [role, user]);
+  const visibleNavItems = navItems.filter((item) => !item.directorOnly || directorMenuState === "DIRECTOR_VERIFIED");
   const location = useLocation();
   const navigate = useNavigate();
   const mobileNav = useRef<HTMLElement | null>(null);
