@@ -13,6 +13,13 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      "/kpi-api": {
+        target: "https://dongbaek-kpi-supervision-staging.dong100center.workers.dev",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/kpi-api/, ""),
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   build: {

@@ -31,9 +31,9 @@ import { CounselingHandwritingEntry } from "@/components/CounselingHandwritingEn
 function user(role: string) {
   return { uid: "synthetic-staff", getIdTokenResult: vi.fn(async () => ({ claims: { role } })) } as unknown as User;
 }
-function openForm() {
+async function openForm() {
   render(<App />);
-  fireEvent.click(screen.getByRole("button", { name: "+ 상담기록 작성" }));
+  fireEvent.click(await screen.findByRole("button", { name: "+ 상담기록 작성" }));
 }
 beforeEach(() => {
   vi.clearAllMocks();
@@ -44,40 +44,40 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
-it("AUTH-1: 실제 원격 useAuth는 role 없는 contract를 유지한다", () => {
+it("AUTH-1: 실제 원격 useAuth는 Firebase claim role을 반환한다", async () => {
   const { result } = renderHook(() => useAuth());
+  await waitFor(() => expect(result.current.loading).toBe(false));
   expect(result.current.user).toBe(session.user);
-  expect(result.current.loading).toBe(false);
-  expect(result.current).not.toHaveProperty("role");
+  expect(result.current.role).toBe("social_worker");
 });
 it.each(["admin", "social_worker"])("AUTH-2: 실제 App/router/useAuth에서 %s 대상 선택 후 Entry 표시", async role => {
   session.user = user(role);
-  openForm();
+  await openForm();
   fireEvent.click(screen.getByRole("option", { name: /합성 A/ }));
   expect(await screen.findByRole("button", { name: "✏️ 손글씨 메모" })).toBeEnabled();
   expect(session.user.getIdTokenResult).toHaveBeenCalled();
 });
 it("AUTH-3: 실제 신규 상담 대상 미선택은 비활성이며 저장 없음", async () => {
-  openForm();
-  const button = screen.getByRole("button", { name: "✏️ 손글씨 메모" });
+  await openForm();
+  const button = await screen.findByRole("button", { name: "✏️ 손글씨 메모" });
   expect(button).toBeDisabled();
   fireEvent.click(button);
   await waitFor(() => expect(service.subscribePending).toHaveBeenCalled());
   expect(service.save).not.toHaveBeenCalled();
 });
-it("AUTH-4: 미로그인은 실제 App과 독립 Entry 모두 진입 불가", () => {
+it("AUTH-4: 미로그인은 실제 App과 독립 Entry 모두 진입 불가", async () => {
   session.user = null;
   render(<App />);
-  expect(screen.getByText("로그인 필요")).toBeInTheDocument();
+  await waitFor(() => expect(screen.getByText("로그인 필요")).toBeInTheDocument());
   render(<CounselingHandwritingEntry targetType="이용자" targetId="a" targetName="합성 A" autoOpen />);
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(service.subscribePending).not.toHaveBeenCalled();
 });
 it("AUTH-5: App 로그인 guard를 유지하면서 비직원의 손글씨 진입은 차단", async () => {
   session.user = user("viewer");
-  openForm();
-  fireEvent.click(screen.getByRole("option", { name: /합성 A/ }));
-  await waitFor(() => expect(session.user?.getIdTokenResult).toHaveBeenCalled());
+  render(<App />);
+  await waitFor(() => expect(screen.getByText("접근 권한이 없습니다")).toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "+ 상담기록 작성" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "✏️ 손글씨 메모" })).not.toBeInTheDocument();
   expect(service.subscribePending).not.toHaveBeenCalled();
   expect(service.save).not.toHaveBeenCalled();

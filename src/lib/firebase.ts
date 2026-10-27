@@ -11,7 +11,10 @@ const productionFirebaseConfig = {
   appId: "1:296812929766:web:27f889ead244d8b9e65127"
 };
 
-export const usingFirebaseEmulators = import.meta.env.DEV || import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true";
+// 개발 환경도 명시적으로 false를 지정하면 실제 Firebase 인증을 검증할 수 있다.
+// 기본값은 기존 안전 동작(개발 중 Emulator)으로 유지한다.
+export const usingFirebaseEmulators = import.meta.env.VITE_USE_FIREBASE_EMULATORS === "true"
+  || (import.meta.env.DEV && import.meta.env.VITE_USE_FIREBASE_EMULATORS !== "false");
 const demoProjectId = import.meta.env.VITE_FIREBASE_DEMO_PROJECT_ID || "demo-dongbaek-forms";
 export const firebaseConfig: FirebaseOptions = usingFirebaseEmulators
   ? {

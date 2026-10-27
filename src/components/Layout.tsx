@@ -19,10 +19,12 @@ const navItems = [
   { path: "/salary-changes", label: "급여변경 사유서", icon: "💳" },
   { path: "/event-forms", label: "행사·교육 신청", icon: "📋" },
   { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
+  { path: "/kpi", label: "KPI·슈퍼비전", icon: "📈", directorOnly: true },
 ];
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { logout } = useAuth();
+  const { logout, role } = useAuth();
+  const visibleNavItems = navItems.filter((item) => !item.directorOnly || role === "admin");
   const location = useLocation();
   const navigate = useNavigate();
   const mobileNav = useRef<HTMLElement | null>(null);
@@ -48,7 +50,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     const touch = event.changedTouches[0];
     const direction = getSwipeDirection(start, { x: touch.clientX, y: touch.clientY, at: Date.now() });
     if (!direction) return;
-    const nextPath = getAdjacentPath(navItems.map((item) => item.path), location.pathname, direction);
+    const nextPath = getAdjacentPath(visibleNavItems.map((item) => item.path), location.pathname, direction);
     if (!nextPath) return;
     setSwipeDirection(direction);
     window.setTimeout(() => navigate(nextPath), 120);
@@ -91,7 +93,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <nav className="hidden basis-full flex-wrap items-center gap-2 xl:order-3 xl:flex">
-              {navItems.map((item) => renderNavLink(item))}
+              {visibleNavItems.map((item) => renderNavLink(item))}
             </nav>
 
             <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -110,7 +112,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
         <nav ref={mobileNav} className="xl:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
           <div className="flex min-w-max px-2">
-            {navItems.map((item) => renderNavLink(item, true))}
+            {visibleNavItems.map((item) => renderNavLink(item, true))}
           </div>
         </nav>
       </header>

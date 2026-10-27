@@ -39,6 +39,7 @@ const EventForms = lazyWithRetry(() => import("@/pages/EventForms"));
 const EventFormEditor = lazyWithRetry(() => import("@/pages/EventFormEditor"));
 const EventFormResults = lazyWithRetry(() => import("@/pages/EventFormResults"));
 const PublicEventForm = lazyWithRetry(() => import("@/pages/PublicEventForm"));
+const Kpi = lazyWithRetry(() => import("@/pages/Kpi"));
 
 const queryClient = new QueryClient();
 
@@ -98,6 +99,7 @@ const AuthenticatedApp = () => {
             <Route path="/event-forms" element={<ErrorBoundary><EventForms /></ErrorBoundary>} />
             <Route path="/event-forms/:formId/edit" element={<ErrorBoundary><EventFormEditor /></ErrorBoundary>} />
             <Route path="/event-forms/:formId/results" element={<ErrorBoundary><EventFormResults /></ErrorBoundary>} />
+            <Route path="/kpi" element={<ErrorBoundary><Kpi /></ErrorBoundary>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </ErrorBoundary>
