@@ -40,6 +40,7 @@ const EventFormEditor = lazyWithRetry(() => import("@/pages/EventFormEditor"));
 const EventFormResults = lazyWithRetry(() => import("@/pages/EventFormResults"));
 const PublicEventForm = lazyWithRetry(() => import("@/pages/PublicEventForm"));
 const Kpi = lazyWithRetry(() => import("@/pages/Kpi"));
+const SubstituteSearch = lazyWithRetry(() => import("@/pages/SubstituteSearch"));
 
 const queryClient = new QueryClient();
 
@@ -88,6 +89,7 @@ const AuthenticatedApp = () => {
             <Route path="/users" element={<ErrorBoundary><UserManagement /></ErrorBoundary>} />
             <Route path="/workers" element={<ErrorBoundary><WorkerManagement /></ErrorBoundary>} />
             <Route path="/matching" element={<ErrorBoundary><Matching /></ErrorBoundary>} />
+            <Route path="/substitute-search" element={<ErrorBoundary><SubstituteSearch /></ErrorBoundary>} />
             <Route path="/counseling" element={<ErrorBoundary><Counseling /></ErrorBoundary>} />
             <Route path="/terminations" element={<ErrorBoundary><Terminations /></ErrorBoundary>} />
             <Route path="/handovers" element={<ErrorBoundary><Handovers /></ErrorBoundary>} />

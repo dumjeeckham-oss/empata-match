@@ -16,6 +16,7 @@ const navItems = [
   { path: "/users", label: "이용자 관리", icon: "👤" },
   { path: "/workers", label: "활동지원사 관리", icon: "🤝" },
   { path: "/matching", label: "활동지원사 검색·비교", icon: "🔗" },
+  { path: "/substitute-search", label: "대체 지원사 검색", icon: "🔎" },
   { path: "/counseling", label: "상담기록", icon: "📝" },
   { path: "/terminations", label: "종결확인서", icon: "📄" },
   { path: "/handovers", label: "인계·인수서", icon: "🔁" },
