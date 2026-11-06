@@ -6,11 +6,21 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { getAdjacentPath, getSwipeDirection, shouldIgnoreSwipeTarget, type SwipePoint } from "@/lib/swipeNavigation";
-import { fetchKpiWorkerUser } from "@/lib/kpiWorkerApi";
 
-type DirectorMenuState = "AUTH_LOADING" | "DIRECTOR_VERIFIED" | "NOT_DIRECTOR" | "UNAUTHENTICATED" | "AUTH_ERROR";
+type NavItem = { path: string; label: string; icon: string; href?: string; directorOnly?: boolean };
 
-const navItems = [
+const KPI_APP_URL = (() => {
+  const raw = String(import.meta.env.VITE_KPI_APP_URL ?? "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+})();
+
+const navItems: NavItem[] = [
   { path: "/", label: "대시보드", icon: "📊" },
   { path: "/work-board", label: "업무 종합 보드", icon: "🗂️" },
   { path: "/users", label: "이용자 관리", icon: "👤" },
@@ -23,23 +33,14 @@ const navItems = [
   { path: "/salary-changes", label: "급여변경 사유서", icon: "💳" },
   { path: "/event-forms", label: "행사·교육 신청", icon: "📋" },
   { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
-  { path: "/kpi", label: "KPI·슈퍼비전", icon: "📈", directorOnly: true },
 ];
 
 const Layout = ({ children }: { children: React.ReactNode }) => {
-  const { logout, role, user } = useAuth();
-  const [directorMenuState, setDirectorMenuState] = useState<DirectorMenuState>("AUTH_LOADING");
-  useEffect(() => {
-    let active = true;
-    if (!user) { setDirectorMenuState("UNAUTHENTICATED"); return () => { active = false; }; }
-    if (role !== "admin") { setDirectorMenuState("NOT_DIRECTOR"); return () => { active = false; }; }
-    setDirectorMenuState("AUTH_LOADING");
-    void fetchKpiWorkerUser()
-      .then((workerUser) => { if (active) setDirectorMenuState(workerUser.role === "director" ? "DIRECTOR_VERIFIED" : "NOT_DIRECTOR"); })
-      .catch(() => { if (active) setDirectorMenuState("AUTH_ERROR"); });
-    return () => { active = false; };
-  }, [role, user]);
-  const visibleNavItems = navItems.filter((item) => !item.directorOnly || directorMenuState === "DIRECTOR_VERIFIED");
+  const { logout, role } = useAuth();
+  const canAccessKpiMenu = role === "admin" || role === "social_worker";
+  const visibleNavItems = canAccessKpiMenu && KPI_APP_URL
+    ? [...navItems.filter((item) => !item.directorOnly), { path: "/kpi", label: "2027 성과관리(KPI)", icon: "📈", href: KPI_APP_URL }]
+    : navItems.filter((item) => !item.directorOnly);
   const location = useLocation();
   const navigate = useNavigate();
   const mobileNav = useRef<HTMLElement | null>(null);
@@ -65,7 +66,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     const touch = event.changedTouches[0];
     const direction = getSwipeDirection(start, { x: touch.clientX, y: touch.clientY, at: Date.now() });
     if (!direction) return;
-    const nextPath = getAdjacentPath(visibleNavItems.map((item) => item.path), location.pathname, direction);
+    const nextPath = getAdjacentPath(visibleNavItems.filter((item) => !item.href).map((item) => item.path), location.pathname, direction);
     if (!nextPath) return;
     setSwipeDirection(direction);
     window.setTimeout(() => navigate(nextPath), 120);
@@ -73,6 +74,18 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
   const renderNavLink = (item: (typeof navItems)[number], mobile = false) => {
     const isActive = location.pathname === item.path;
+    if (item.href) return <a key={item.path} href={item.href} className={cn(
+      mobile
+        ? "relative inline-flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-semibold transition-colors"
+        : "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-2 text-sm font-medium transition-all",
+      isActive
+        ? mobile
+          ? "text-primary after:absolute after:bottom-0 after:left-3 after:right-3 after:h-0.5 after:rounded-full after:bg-primary"
+          : "border-primary/20 bg-primary/10 text-primary shadow-sm"
+        : mobile
+          ? "text-muted-foreground hover:text-foreground"
+          : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+    )} rel="noopener noreferrer" referrerPolicy="no-referrer" aria-label={`${item.label} 외부 서비스 열기`}><span>{item.icon}</span><span>{item.label}</span></a>;
     return (
       <Link
         key={item.path}
