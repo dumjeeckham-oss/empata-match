@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useCollection } from "@/hooks/useFirestore";
 import { type ServiceUser, type Worker, type CounselingRecord, type TerminationDocument, type HandoverDocument } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { startOfWeek, endOfWeek, parseISO, isWithinInterval, format, eachMonthOfInterval, subMonths } from "date-fns";
 import { matchUserWithWorkers } from "@/lib/matching";
 import { USERS_COLLECTION, WORKERS_COLLECTION, TERMINATIONS_COLLECTION, HANDOVERS_COLLECTION } from "@/lib/collectionNames";
@@ -13,11 +15,11 @@ import dongbaekCenterLogo from "@/assets/dongbaek-center-logo.png";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { data: usersRaw, loading } = useCollection<ServiceUser>(USERS_COLLECTION);
-  const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: recordsRaw } = useCollection<CounselingRecord>("counseling");
-  const { data: terminationsRaw } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
-  const { data: handoversRaw } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
+  const { data: usersRaw, loading: usersLoading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: workersRaw, loading: workersLoading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
+  const { data: recordsRaw, loading: recordsLoading, error: recordsError } = useCollection<CounselingRecord>("counseling");
+  const { data: terminationsRaw, loading: terminationsLoading, error: terminationsError } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const { data: handoversRaw, loading: handoversLoading, error: handoversError } = useCollection<HandoverDocument>(HANDOVERS_COLLECTION);
 
   // 4-1. useCollection 결과 즉시 정규화
   const users = usersRaw || [];
@@ -25,14 +27,20 @@ const Dashboard = () => {
   const records = recordsRaw || [];
   const terminations = terminationsRaw || [];
   const handovers = handoversRaw || [];
+  const [summaryModal, setSummaryModal] = useState<{ title: string; names: string[] } | null>(null);
 
   // 4-2. 로딩 가드 — 파생 계산 전에 반드시 차단
+  const loading = usersLoading || workersLoading || recordsLoading || terminationsLoading || handoversLoading;
+  const error = usersError || workersError || recordsError || terminationsError || handoversError;
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[300px]">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto" />
       </div>
     );
+  }
+  if (error) {
+    return <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-destructive">대시보드 데이터를 불러오지 못했습니다. 연결 상태와 권한을 확인해 주세요.</div>;
   }
 
   // ── 이 지점부터 users/workers는 []이거나 정상 데이터 ──
@@ -86,14 +94,18 @@ const Dashboard = () => {
 
   const monthlyStats = last6Months.map(month => {
     const monthStr = format(month, 'yyyy-MM');
-    const termCount = terminations.filter(d => d.date?.startsWith(monthStr)).length;
-    const handCount = handovers.filter(d => d.handoverDate?.startsWith(monthStr)).length;
+    const terminatedNames = terminations.filter(d => d.date?.startsWith(monthStr)).map(d => d.userName).filter(Boolean);
+    const handoverNames = handovers.filter(d => d.handoverDate?.startsWith(monthStr)).map(d => d.userName).filter(Boolean);
+    const termCount = terminatedNames.length;
+    const handCount = handoverNames.length;
     return {
       name: format(month, 'M월'),
       month: monthStr,
       종결: termCount,
       인계: handCount,
-      합계: termCount + handCount
+      합계: termCount + handCount,
+      terminatedNames,
+      handoverNames,
     };
   });
 
@@ -101,7 +113,9 @@ const Dashboard = () => {
     month: stat.name,
     terminated: stat.종결,
     handover: stat.인계,
-    total: stat.합계
+    total: stat.합계,
+    terminatedNames: stat.terminatedNames,
+    handoverNames: stat.handoverNames,
   }));
 
   return (
@@ -184,8 +198,8 @@ const Dashboard = () => {
                 {monthlyStatsTable.map((stat, idx) => (
                   <tr key={idx} className="border-b hover:bg-muted/50">
                     <td className="py-2 px-3 font-medium">{stat.month}</td>
-                    <td className="text-center py-2 px-3">{stat.terminated}</td>
-                    <td className="text-center py-2 px-3">{stat.handover}</td>
+                    <td className="text-center py-2 px-3"><button type="button" className="font-semibold text-primary underline-offset-2 hover:underline disabled:text-foreground disabled:no-underline" disabled={!stat.terminated} onClick={() => setSummaryModal({ title: `${stat.month} 종결 이용자`, names: stat.terminatedNames })}>{stat.terminated}</button></td>
+                    <td className="text-center py-2 px-3"><button type="button" className="font-semibold text-primary underline-offset-2 hover:underline disabled:text-foreground disabled:no-underline" disabled={!stat.handover} onClick={() => setSummaryModal({ title: `${stat.month} 인계인수 이용자`, names: stat.handoverNames })}>{stat.handover}</button></td>
                     <td className="text-center py-2 px-3 font-semibold">{stat.total}</td>
                   </tr>
                 ))}
@@ -344,7 +358,7 @@ const Dashboard = () => {
               {records.slice(0, 10).map((r) => (
                 <div key={r.id} className="py-3">
                   <div className="flex justify-between items-start mb-1">
-                    <span className="font-medium text-sm">{r.targetName} <Badge variant="secondary" className="ml-1 font-normal text-[10px]">{r.targetType}</Badge></span>
+                    <button type="button" className="font-medium text-sm text-left text-primary hover:underline" onClick={() => r.targetId && navigate(getPersonDetailPath(r.targetType === "이용자" ? "user" : "worker", r.targetId))} disabled={!r.targetId} aria-label={`${r.targetName} 상세정보 보기`}>{r.targetName} <Badge variant="secondary" className="ml-1 font-normal text-[10px]">{r.targetType}</Badge></button>
                     <span className="text-[11px] text-muted-foreground">{r.date}</span>
                   </div>
                   <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{r.content}</p>
@@ -354,6 +368,13 @@ const Dashboard = () => {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!summaryModal} onOpenChange={(open) => !open && setSummaryModal(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>{summaryModal?.title || "현황 상세"}</DialogTitle></DialogHeader>
+          {summaryModal?.names.length ? <ul className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">{summaryModal.names.map((name, index) => <li key={`${name}-${index}`} className="rounded-md bg-muted/50 px-3 py-2">{name}</li>)}</ul> : <p className="text-sm text-muted-foreground">해당 월의 명단이 없습니다.</p>}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

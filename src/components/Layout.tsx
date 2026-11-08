@@ -35,6 +35,19 @@ const navItems: NavItem[] = [
   { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
 ];
 
+const preloadPath = (path: string) => {
+  const loaders: Record<string, () => Promise<unknown>> = {
+    "/": () => import("@/pages/Dashboard"), "/work-board": () => import("@/pages/WorkBoard"),
+    "/users": () => import("@/pages/UserManagement"), "/workers": () => import("@/pages/WorkerManagement"),
+    "/matching": () => import("@/pages/Matching"), "/substitute-search": () => import("@/pages/SubstituteSearch"),
+    "/counseling": () => import("@/pages/Counseling"), "/terminations": () => import("@/pages/Terminations"),
+    "/handovers": () => import("@/pages/Handovers"), "/salary-changes": () => import("@/pages/SalaryChanges"),
+    "/event-forms": () => import("@/pages/EventForms"), "/manual": () => import("@/pages/Manual"), "/kpi": () => import("@/pages/Kpi"),
+  };
+  const loader = loaders[path];
+  if (loader) void loader();
+};
+
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { logout, role } = useAuth();
   const canAccessKpiMenu = role === "admin" || role === "social_worker";
@@ -103,6 +116,8 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
               : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
         )}
         aria-current={isActive ? "page" : undefined}
+        onPointerEnter={() => preloadPath(item.path)}
+        onFocus={() => preloadPath(item.path)}
       >
         <span>{item.icon}</span>
         <span>{item.label}</span>

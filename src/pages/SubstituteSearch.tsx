@@ -87,6 +87,7 @@ export default function SubstituteSearch() {
   const [startDate, setStartDate] = useState(localDate());
   const [endDate, setEndDate] = useState(localDate(4));
   const [selectedUserId, setSelectedUserId] = useState("");
+  const [userSearch, setUserSearch] = useState("");
   const [requirements, setRequirements] = useState<SubstituteRequirements>(DEFAULT_REQUIREMENTS);
   const [weeklySlots, setWeeklySlots] = useState<Partial<Record<SubstituteWeekday, TimeRangeInput[]>>>({
     월: [{ startTime: "09:00", endTime: "13:00" }],
@@ -100,6 +101,11 @@ export default function SubstituteSearch() {
 
   const adapted = useMemo(() => adaptSubstituteData(workers, users), [workers, users]);
   const selectedUser = users.find((user) => String(user.id || "") === selectedUserId);
+  const matchingUsers = useMemo(() => {
+    const keyword = userSearch.trim().toLocaleLowerCase();
+    if (!keyword) return users.slice(0, 20);
+    return users.filter((user) => String(user.name || "").toLocaleLowerCase().includes(keyword)).slice(0, 20);
+  }, [userSearch, users]);
 
   if (usersLoading || workersLoading) {
     return <div className="flex min-h-[280px] items-center justify-center text-muted-foreground">이용자와 활동지원사 일정을 불러오는 중입니다...</div>;
@@ -160,7 +166,7 @@ export default function SubstituteSearch() {
             검색 결과는 등록된 일정과 조건을 기준으로 계산한 참고정보입니다. 실제 대체근무 가능 여부는 활동지원사에게 직접 확인해야 합니다.
           </div>
           <div className="grid gap-3 md:grid-cols-3">
-            <div><Label htmlFor="sub-user">기존 이용자 선택(선택)</Label><select id="sub-user" className="mt-1 h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={selectedUserId} onChange={(event) => setSelectedUserId(event.target.value)}><option value="">직접 조건 입력</option>{users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</select></div>
+            <div className="relative"><Label htmlFor="sub-user">기존 이용자 이름 검색(선택)</Label><Input id="sub-user" className="mt-1" value={selectedUser?.name || userSearch} placeholder="이용자 이름을 입력하세요" onChange={(event) => { setSelectedUserId(""); setUserSearch(event.target.value); }} />{userSearch.trim() && !selectedUser && <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-md border bg-popover p-1 shadow-md">{matchingUsers.length ? matchingUsers.map((user) => <button type="button" key={user.id} className="block w-full rounded px-3 py-2 text-left text-sm hover:bg-muted" onClick={() => { setSelectedUserId(user.id || ""); setUserSearch(user.name || ""); }}>{user.name}</button>) : <p className="px-3 py-2 text-sm text-muted-foreground">일치하는 이용자가 없습니다.</p>}</div>}</div>
             <div className="flex items-end"><Button type="button" variant="outline" disabled={!selectedUser} onClick={copyUserConditions}>이용자 조건 복사</Button></div>
             <div className="text-xs text-muted-foreground md:pt-6">원본 이용자 문서는 변경하지 않습니다.</div>
           </div>
