@@ -20,6 +20,8 @@ const KPI_APP_URL = (() => {
   }
 })();
 
+const CASE_MANAGEMENT_SCALE_URL = "https://misty-glitter-abb5.dong100center.workers.dev/";
+
 const navItems: NavItem[] = [
   { path: "/", label: "대시보드", icon: "📊" },
   { path: "/work-board", label: "업무 종합 보드", icon: "🗂️" },
@@ -32,6 +34,7 @@ const navItems: NavItem[] = [
   { path: "/handovers", label: "인계·인수서", icon: "🔁" },
   { path: "/salary-changes", label: "급여변경 사유서", icon: "💳" },
   { path: "/event-forms", label: "행사·교육 신청", icon: "📋" },
+  { path: "/case-management-scale", label: "사례관리 척도조사", icon: "📏", href: CASE_MANAGEMENT_SCALE_URL },
   { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
 ];
 
