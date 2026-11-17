@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import { InstallAppButton } from "@/components/InstallAppButton";
 import { getAdjacentPath, getSwipeDirection, shouldIgnoreSwipeTarget, type SwipePoint } from "@/lib/swipeNavigation";
 
-type NavItem = { path: string; label: string; icon: string; href?: string; directorOnly?: boolean };
+type NavItem = { path: string; label: string; icon: string; href?: string };
+type NavGroup = { id: string; label: string; icon: string; items: NavItem[] };
 
 const KPI_APP_URL = (() => {
   const raw = String(import.meta.env.VITE_KPI_APP_URL ?? "").trim();
@@ -22,21 +23,31 @@ const KPI_APP_URL = (() => {
 
 const CASE_MANAGEMENT_SCALE_URL = "https://misty-glitter-abb5.dong100center.workers.dev/";
 
-const navItems: NavItem[] = [
-  { path: "/", label: "대시보드", icon: "📊" },
-  { path: "/work-board", label: "업무 종합 보드", icon: "🗂️" },
-  { path: "/users", label: "이용자 관리", icon: "👤" },
-  { path: "/workers", label: "활동지원사 관리", icon: "🤝" },
-  { path: "/matching", label: "활동지원사 검색·비교", icon: "🔗" },
-  { path: "/substitute-search", label: "대체 지원사 검색", icon: "🔎" },
-  { path: "/counseling", label: "상담기록", icon: "📝" },
-  { path: "/terminations", label: "종결확인서", icon: "📄" },
-  { path: "/handovers", label: "인계·인수서", icon: "🔁" },
-  { path: "/salary-changes", label: "급여변경 사유서", icon: "💳" },
-  { path: "/event-forms", label: "행사·교육 신청", icon: "📋" },
-  { path: "/case-management-scale", label: "사례관리 척도조사", icon: "📏", href: CASE_MANAGEMENT_SCALE_URL },
-  { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
+const navGroups: NavGroup[] = [
+  { id: "boards", label: "보드", icon: "🗂️", items: [
+    { path: "/", label: "대시보드", icon: "📊" },
+    { path: "/work-board", label: "업무 종합 보드", icon: "🗂️" },
+  ] },
+  { id: "management", label: "관리", icon: "👥", items: [
+    { path: "/users", label: "이용자 관리", icon: "👤" },
+    { path: "/workers", label: "활동지원사 관리", icon: "🤝" },
+    { path: "/matching", label: "활동지원사 검색·비교", icon: "🔗" },
+    { path: "/substitute-search", label: "대체 지원사 검색", icon: "🔎" },
+  ] },
+  { id: "documents", label: "서류업무", icon: "📄", items: [
+    { path: "/counseling", label: "상담기록", icon: "📝" },
+    { path: "/terminations", label: "종결확인서", icon: "📄" },
+    { path: "/handovers", label: "인계·인수서", icon: "🔁" },
+    { path: "/salary-changes", label: "급여변경 사유서", icon: "💳" },
+  ] },
+  { id: "features", label: "기능", icon: "🧰", items: [
+    { path: "/event-forms", label: "행사·교육 신청", icon: "📋" },
+    { path: "/case-management-scale", label: "사례관리 척도조사", icon: "📏", href: CASE_MANAGEMENT_SCALE_URL },
+    { path: "/manual", label: "사용 매뉴얼", icon: "📘" },
+  ] },
 ];
+
+const flattenNavGroups = (groups: NavGroup[]) => groups.flatMap((group) => group.items);
 
 const preloadPath = (path: string) => {
   const loaders: Record<string, () => Promise<unknown>> = {
@@ -54,17 +65,21 @@ const preloadPath = (path: string) => {
 const Layout = ({ children }: { children: React.ReactNode }) => {
   const { logout, role } = useAuth();
   const canAccessKpiMenu = role === "admin" || role === "social_worker";
-  const visibleNavItems = canAccessKpiMenu && KPI_APP_URL
-    ? [...navItems.filter((item) => !item.directorOnly), { path: "/kpi", label: "2027 성과관리(KPI)", icon: "📈", href: KPI_APP_URL }]
-    : navItems.filter((item) => !item.directorOnly);
+  const visibleNavGroups = navGroups.map((group) => ({ ...group, items: [...group.items] }));
+  if (canAccessKpiMenu && KPI_APP_URL) {
+    visibleNavGroups.find((group) => group.id === "features")?.items.push({ path: "/kpi", label: "2027 성과관리(KPI)", icon: "📈", href: KPI_APP_URL });
+  }
+  const visibleNavItems = flattenNavGroups(visibleNavGroups);
   const location = useLocation();
   const navigate = useNavigate();
   const mobileNav = useRef<HTMLElement | null>(null);
   const touchStart = useRef<SwipePoint | null>(null);
   const [swipeDirection, setSwipeDirection] = useState<"left" | "right" | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
 
   useEffect(() => {
     setSwipeDirection(null);
+    setOpenGroup(null);
     mobileNav.current?.querySelector('[aria-current="page"]')?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [location.pathname]);
 
@@ -88,9 +103,9 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     window.setTimeout(() => navigate(nextPath), 120);
   };
 
-  const renderNavLink = (item: (typeof navItems)[number], mobile = false) => {
+  const renderNavLink = (item: NavItem, mobile = false) => {
     const isActive = location.pathname === item.path;
-    if (item.href) return <a key={item.path} href={item.href} className={cn(
+    if (item.href) return <a key={item.path} href={item.href} onClick={() => setOpenGroup(null)} className={cn(
       mobile
         ? "relative inline-flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-semibold transition-colors"
         : "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-2 text-sm font-medium transition-all",
@@ -106,6 +121,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
       <Link
         key={item.path}
         to={item.path}
+        onClick={() => setOpenGroup(null)}
         className={cn(
           mobile
             ? "relative inline-flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-semibold transition-colors"
@@ -128,6 +144,25 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
     );
   };
 
+  const renderNavGroup = (group: NavGroup, mobile = false) => {
+    const isActive = group.items.some((item) => item.path === location.pathname);
+    if (mobile && openGroup === group.id) {
+      return <div key={group.id} className="flex min-w-max items-center gap-1 px-2">
+        <button type="button" className="mr-1 inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary" onClick={() => setOpenGroup(null)}>← {group.label}</button>
+        {group.items.map((item) => renderNavLink(item, true))}
+      </div>;
+    }
+    return <div key={group.id} className={cn("relative", mobile && "shrink-0")}>
+      <button type="button" aria-expanded={openGroup === group.id} onClick={() => setOpenGroup((current) => current === group.id ? null : group.id)} className={cn(
+        mobile ? "inline-flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-semibold transition-colors" : "flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-2 text-sm font-medium transition-all",
+        isActive || openGroup === group.id
+          ? mobile ? "text-primary" : "border-primary/20 bg-primary/10 text-primary shadow-sm"
+          : mobile ? "text-muted-foreground hover:text-foreground" : "border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+      )}><span>{group.icon}</span><span>{group.label}</span><span className="text-xs">{openGroup === group.id ? "▲" : "▼"}</span></button>
+      {!mobile && openGroup === group.id && <div className="absolute left-0 top-full z-50 mt-2 min-w-[220px] rounded-xl border bg-card p-2 shadow-lg">{group.items.map((item) => renderNavLink(item))}</div>}
+    </div>;
+  };
+
   return (
     <div className="app-layout min-h-[100dvh] min-w-0 flex flex-col bg-background">
       <header className="sticky top-0 z-40 border-b border-border/60 bg-card/95 backdrop-blur supports-[backdrop-filter]:bg-card/80">
@@ -139,7 +174,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <nav className="hidden basis-full flex-wrap items-center gap-2 xl:order-3 xl:flex">
-              {visibleNavItems.map((item) => renderNavLink(item))}
+              {visibleNavGroups.map((group) => renderNavGroup(group))}
             </nav>
 
             <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -158,7 +193,7 @@ const Layout = ({ children }: { children: React.ReactNode }) => {
 
         <nav ref={mobileNav} className="xl:hidden border-t border-border/50 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="모바일 주요 메뉴">
           <div className="flex min-w-max px-2">
-            {visibleNavItems.map((item) => renderNavLink(item, true))}
+            {openGroup ? visibleNavGroups.map((group) => group.id === openGroup ? renderNavGroup(group, true) : null) : visibleNavGroups.map((group) => renderNavGroup(group, true))}
           </div>
         </nav>
       </header>
