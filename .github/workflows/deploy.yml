@@ -40,7 +40,7 @@ jobs:
           VITE_APP_CHECK_SITE_KEY: ${{ vars.VITE_APP_CHECK_SITE_KEY }}
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+          uses: actions/upload-pages-artifact@v4
         with:
           path: ./dist
 
