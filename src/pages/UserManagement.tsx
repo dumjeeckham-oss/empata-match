@@ -67,6 +67,7 @@ import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
+import { calculateAgeFromBirthDate, parseResidentNumber } from "@/lib/personIdentity";
 import {
   Command,
   CommandEmpty,
@@ -286,6 +287,30 @@ const UserManagement = () => {
   const [isCustomVoucher, setIsCustomVoucher] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [quickWorkerOpen, setQuickWorkerOpen] = useState(false);
+
+  const handleResidentNumberChange = (residentNumber: string) => {
+    const details = parseResidentNumber(residentNumber);
+    setForm((current) => details
+      ? { ...current, residentNumber, birthDate: details.birthDate, gender: details.gender, age: details.age }
+      : { ...current, residentNumber });
+    if (details) setAgeInput(String(details.age));
+  };
+
+  const handleBirthDateChange = (birthDate: string) => {
+    const age = calculateAgeFromBirthDate(birthDate);
+    setForm((current) => ({ ...current, birthDate, age }));
+    setAgeInput(age > 0 ? String(age) : "");
+  };
+
+  useEffect(() => {
+    const details = parseResidentNumber(form.residentNumber || "");
+    if (!details) return;
+    setForm((current) => {
+      if (current.birthDate === details.birthDate && current.gender === details.gender && current.age === details.age) return current;
+      return { ...current, birthDate: details.birthDate, gender: details.gender, age: details.age };
+    });
+    setAgeInput(String(details.age));
+  }, [form.residentNumber]);
   const [quickWorkerForm, setQuickWorkerForm] = useState<Omit<Worker, "id" | "createdAt" | "updatedAt">>({
     name: "",
     age: 0,
@@ -1690,7 +1715,7 @@ const UserManagement = () => {
                     ) : null}
                   </div>
                   <div className="space-y-2"><Label>연락처 *</Label><Input id="user-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /><div className="flex items-center gap-2"><Checkbox id="user-phone-self" checked={form.isOwnPhone !== false} onCheckedChange={(checked) => setForm((f) => ({ ...f, isOwnPhone: !!checked, phoneOwnerRelation: checked ? "" : f.phoneOwnerRelation, phoneOwnerName: checked ? "" : f.phoneOwnerName }))} /><Label htmlFor="user-phone-self" className="text-sm font-normal">본인</Label></div></div>
-                   <div><Label>주민등록번호</Label><Input value={form.residentNumber || ""} onChange={(e) => setForm((f) => ({ ...f, residentNumber: e.target.value }))} placeholder="000000-0000000" autoComplete="off" /></div>
+                   <div><Label>주민등록번호</Label><Input value={form.residentNumber || ""} onChange={(e) => handleResidentNumberChange(e.target.value)} placeholder="000000-0000000" autoComplete="off" /></div>
                   {form.isOwnPhone === false && (<><div><Label>연락처 관계</Label><Input value={form.phoneOwnerRelation || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerRelation: e.target.value }))} placeholder="보호자, 자녀, 배우자 등" /></div><div><Label>연락처 소유자</Label><Input value={form.phoneOwnerName || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerName: e.target.value }))} placeholder="예: 홍길동" /></div></>)}
                   <div>
                     <Label>나이 (생년 또는 생년월일 입력 시 자동변환)</Label>
@@ -1767,7 +1792,7 @@ const UserManagement = () => {
                       <SelectContent><SelectItem value="none">없음</SelectItem>{DISABILITY_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                  <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))} /></div>
+                   <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => handleBirthDateChange(e.target.value)} /></div>
                   <div><Label>장애정도</Label><Input value={form.disabilityDegree || ""} onChange={(e) => setForm((f) => ({ ...f, disabilityDegree: e.target.value }))} placeholder="예: 중증" /></div>                  <div><Label>바우처 등급</Label>
                     <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v), voucherTierLabel: Number(v) === 0 ? f.voucherTierLabel || "" : "", voucherHours: VOUCHER_HOURS[Number(v)] || f.voucherHours || 0 }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>

@@ -62,6 +62,7 @@ import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind }
 import { preserveWorkerDateOnStatusChange } from "@/lib/workerDatePreservation";
 import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHistory, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, resolveWorkerContractStatus } from "@/lib/statusLifecycle";
+import { calculateAgeFromBirthDate, parseResidentNumber } from "@/lib/personIdentity";
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   weeklySchedule: [],
@@ -289,6 +290,26 @@ const WorkerManagement = () => {
   const [detailTarget, setDetailTarget] = useState<(Worker & { id: string }) | null>(null);
   const [workerTransitionTarget, setWorkerTransitionTarget] = useState<(Worker & { id: string }) | null>(null);
   const [workerTransitionDate, setWorkerTransitionDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const handleResidentNumberChange = (residentNumber: string) => {
+    const details = parseResidentNumber(residentNumber);
+    setForm((current) => details
+      ? { ...current, residentNumber, birthDate: details.birthDate, gender: details.gender, age: details.age }
+      : { ...current, residentNumber });
+  };
+
+  const handleBirthDateChange = (birthDate: string) => {
+    setForm((current) => ({ ...current, birthDate, age: calculateAgeFromBirthDate(birthDate) }));
+  };
+
+  useEffect(() => {
+    const details = parseResidentNumber(form.residentNumber || "");
+    if (!details) return;
+    setForm((current) => {
+      if (current.birthDate === details.birthDate && current.gender === details.gender && current.age === details.age) return current;
+      return { ...current, birthDate: details.birthDate, gender: details.gender, age: details.age };
+    });
+  }, [form.residentNumber]);
 
   useEffect(() => {
     if (!detailTarget?.id) return;
@@ -1037,7 +1058,7 @@ const WorkerManagement = () => {
                       }}
                     />
                   </div>
-                  <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => setForm((f) => ({ ...f, birthDate: e.target.value }))} /></div>
+                  <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => handleBirthDateChange(e.target.value)} /></div>
                 </div>
 
                 <div className="space-y-2">
@@ -1129,7 +1150,7 @@ const WorkerManagement = () => {
                 <div className="space-y-2">
                   <Label>추가 정보</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div><Label>주민등록번호</Label><Input value={form.residentNumber || ""} onChange={(e) => setForm((f) => ({ ...f, residentNumber: e.target.value }))} placeholder="000000-0000000" autoComplete="off" /></div>
+                    <div><Label>주민등록번호</Label><Input value={form.residentNumber || ""} onChange={(e) => handleResidentNumberChange(e.target.value)} placeholder="000000-0000000" autoComplete="off" /></div>
                     <div><Label>결제ID</Label><Input value={form.paymentId || ""} onChange={(e) => setForm((f) => ({ ...f, paymentId: e.target.value }))} placeholder="결제 ID" /></div>
                     <div className="flex items-center space-x-2"><Checkbox id="isForeigner" checked={form.isForeigner} onCheckedChange={(checked) => setForm((f) => ({ ...f, isForeigner: !!checked }))} /><Label htmlFor="isForeigner">외국인</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="hasF4" checked={form.hasF4} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF4: !!checked }))} /><Label htmlFor="hasF4">F4 여부</Label></div>
