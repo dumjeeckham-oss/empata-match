@@ -75,6 +75,8 @@ export interface ServiceUser {
   phone: string;
   /** 연락처가 이용자 본인 번호인지 여부 */
   isOwnPhone?: boolean;
+  /** 주민등록번호는 문자열로 저장하여 앞자리 0과 하이픈을 보존한다. */
+  residentNumber?: string;
   /** 본인 번호가 아닐 때 연락처 소유자와의 관계 */
   phoneOwnerRelation?: string;
   /** 본인 번호가 아닐 때 연락처 소유자 이름 */
@@ -165,6 +167,10 @@ export interface Worker {
   /** Excel/Firebase 원본 필드 호환: 활동지원사 성별 */
   txtHSex?: string;
   phone: string;
+  /** 주민등록번호는 문자열로 저장하여 앞자리 0과 하이픈을 보존한다. */
+  residentNumber?: string;
+  /** 급여/결제 시스템 식별자 */
+  paymentId?: string;
   residenceArea: string;
   preferredArea: string;
   address: string;

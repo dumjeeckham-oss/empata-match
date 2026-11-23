@@ -106,7 +106,7 @@ function effectiveUserStatus(user: ServiceUser): string {
 const emptyUser: Omit<ServiceUser, "id" | "createdAt" | "updatedAt"> = {
   weeklySchedule: [],
 
-  name: "", age: 0, gender: "남성", phone: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", secondaryDisabilityType: "", birthDate: "", disabilityDegree: "", voucherTier: 1, voucherTierLabel: "", voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
+  name: "", age: 0, gender: "남성", phone: "", residentNumber: "", isOwnPhone: true, phoneOwnerRelation: "", phoneOwnerName: "", disabilityType: "", secondaryDisabilityType: "", birthDate: "", disabilityDegree: "", voucherTier: 1, voucherTierLabel: "", voucherHours: VOUCHER_HOURS[1], additionalHours: 0, provinceAdditionalHours: 0, cityAdditionalHours: 0,
   requiredDays: "", requiredHours: "", supportTypes: [], environmentTags: [],
   familyMembers: "", address: "", preferredWorkerTraits: "", notes: "",
   contractStatus: "대기", serviceStartDate: "", resignationDate: "", guardianName: "", guardianRelation: "", guardianPhone: "",
@@ -198,6 +198,7 @@ const withBucheonAddressPrefix = (address: string): string => {
 };
 const USER_PARTIAL_UPDATE_FIELDS = [
   { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
+  { key: "residentNumber", label: "주민등록번호", aliases: ["주민번호", "주민등록번호", "RRN"] },
   { key: "isOwnPhone", label: "연락처본인", aliases: ["본인여부", "연락처본인여부", "본인"], parse: partialParsers.boolean },
   { key: "phoneOwnerRelation", label: "연락처관계", aliases: ["관계", "관계/소유자", "보호자관계"] },
   { key: "phoneOwnerName", label: "연락처소유자", aliases: ["연락처주체", "소유자", "보호자명"] },
@@ -238,6 +239,7 @@ const USER_PARTIAL_UPDATE_FIELDS = [
 ] as const;
 const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
+  { key: "residentNumber", label: "주민등록번호" },
   { key: "gender", label: "성별" },
   { key: "phone", label: "연락처" },
   { key: "age", label: "나이" },
@@ -247,6 +249,7 @@ const USER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "assignedHelperPhone", label: "담당지원사연락처" },
   { key: "contractStatus", label: "계약상태" },
   { key: "terminationReason", label: "중단사유" },
+  { key: "smoking", label: "흡연" },
 ];
 
 const UserManagement = () => {
@@ -1120,6 +1123,7 @@ const UserManagement = () => {
   const getUserPreviewValue = (item: Omit<ServiceUser, "id">, key: FieldKey): string => {
     const map: Record<string, string | number> = {
       name: item.name,
+      residentNumber: item.residentNumber || "",
       gender: item.gender,
       phone: item.phone,
       age: item.age,
@@ -1129,6 +1133,7 @@ const UserManagement = () => {
       assignedHelperPhone: item.assignedHelperPhones?.join(", "),
       contractStatus: item.contractStatus,
       terminationReason: item.terminationReason,
+      smoking: item.environmentTags?.includes("흡연") ? "예" : "아니오",
     };
     return String(map[key] ?? "");
   };
@@ -1495,14 +1500,14 @@ const UserManagement = () => {
   const downloadExcel = () => {
     const filtered = getFilteredUsers();
     const data = filtered.map((u) => ({
-      이름: u.name, 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
+      이름: u.name, 주민등록번호: u.residentNumber || "", 나이: u.age, 성별: u.gender, 연락처: u.phone, 연락처본인: u.isOwnPhone !== false ? "예" : "아니오", 연락처관계: u.phoneOwnerRelation || "", 연락처소유자: u.phoneOwnerName || "",
       장애유형: u.disabilityType, 바우처구간: u.voucherTier, 바우처구간명: u.voucherTierLabel || "",
       "월바우처시간": getVoucherBaseHours(u),
       "시도추가시간": getProvinceAdditionalHours(u),
       "시군구추가시간": getCityAdditionalHours(u),
       "합산시간": getVoucherBaseHours(u) + getAdditionalHours(u),
       필요요일: u.requiredDays, 필요시간: u.requiredHours,
-      지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","),
+      지원유형: u.supportTypes?.join(","), 환경태그: u.environmentTags?.join(","), 흡연: u.environmentTags?.includes("흡연") ? "예" : "아니오",
       가족구성원: u.familyMembers, 주소: u.address, 선호도: u.preferredWorkerTraits,
       담당활동지원사: u.assignedHelperNames?.join(", "), 담당지원사연락처: u.assignedHelperPhones?.join(", "),
       계약상태: u.contractStatus, 중단사유: u.terminationReason, 계약해지날짜: u.resignationDate,
@@ -1518,8 +1523,8 @@ const UserManagement = () => {
 
   const downloadTemplate = () => {
     const template = [{
-      이름: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1, 바우처구간명: "",
-      필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "",
+      이름: "", 주민등록번호: "", 나이: "", 성별: "남성", 연락처: "", 장애유형: "", 바우처구간: 1, 바우처구간명: "",
+      필요요일: "월,화,수", 필요시간: "09:00-12:00", 지원유형: "사회지원", 환경태그: "", 흡연: "아니오",
       가족구성원: "", 주소: "", 선호도: "", 담당활동지원사: "홍길동, 김철수", 담당지원사연락처: "",
       계약상태: "서비스중", 중단사유: "", 계약해지날짜: "", 최초서비스제공일: "2025-01-01",
       보호자이름: "", 보호자관계: "", 보호자연락처: "", 비고: "",
@@ -1685,6 +1690,7 @@ const UserManagement = () => {
                     ) : null}
                   </div>
                   <div className="space-y-2"><Label>연락처 *</Label><Input id="user-phone" value={form.phone} onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))} placeholder="010-0000-0000" /><div className="flex items-center gap-2"><Checkbox id="user-phone-self" checked={form.isOwnPhone !== false} onCheckedChange={(checked) => setForm((f) => ({ ...f, isOwnPhone: !!checked, phoneOwnerRelation: checked ? "" : f.phoneOwnerRelation, phoneOwnerName: checked ? "" : f.phoneOwnerName }))} /><Label htmlFor="user-phone-self" className="text-sm font-normal">본인</Label></div></div>
+                   <div><Label>주민등록번호</Label><Input value={form.residentNumber || ""} onChange={(e) => setForm((f) => ({ ...f, residentNumber: e.target.value }))} placeholder="000000-0000000" autoComplete="off" /></div>
                   {form.isOwnPhone === false && (<><div><Label>연락처 관계</Label><Input value={form.phoneOwnerRelation || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerRelation: e.target.value }))} placeholder="보호자, 자녀, 배우자 등" /></div><div><Label>연락처 소유자</Label><Input value={form.phoneOwnerName || ""} onChange={(e) => setForm((f) => ({ ...f, phoneOwnerName: e.target.value }))} placeholder="예: 홍길동" /></div></>)}
                   <div>
                     <Label>나이 (생년 또는 생년월일 입력 시 자동변환)</Label>
@@ -1863,6 +1869,19 @@ const UserManagement = () => {
                 </div>
 
                 <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="smoking"
+                      checked={form.environmentTags.includes("흡연")}
+                      onCheckedChange={(checked) => setForm((f) => ({
+                        ...f,
+                        environmentTags: checked
+                          ? Array.from(new Set([...f.environmentTags, "흡연"]))
+                          : f.environmentTags.filter((tag) => tag !== "흡연"),
+                      }))}
+                    />
+                    <Label htmlFor="smoking" className="font-normal">흡연</Label>
+                  </div>
                   <Label>이동 시 유의점</Label>
                   <Textarea value={form.movementNote} onChange={(e) => setForm(f => ({ ...f, movementNote: e.target.value }))} />
                 </div>

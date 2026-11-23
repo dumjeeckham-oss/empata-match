@@ -74,6 +74,18 @@ describe("worker bulk upload mapping", () => {
     expect(user.voucherHours).toBe(120);
   });
 
+  it("maps privacy and smoking fields for users and workers", () => {
+    const userHeaders = ["이름", "주민등록번호", "흡연", "환경태그"];
+    const user = rowToServiceUser(["홍길동", "001010-3000000", "예", "반려동물"], buildHeaderMap(userHeaders), []);
+    expect(user.residentNumber).toBe("001010-3000000");
+    expect(user.environmentTags).toEqual(["반려동물", "흡연"]);
+
+    const workerHeaders = ["이름", "주민번호", "결제ID"];
+    const worker = rowToWorker(["김지원", "900101-2000000", "pay-001"], buildHeaderMap(workerHeaders), []);
+    expect(worker.residentNumber).toBe("900101-2000000");
+    expect(worker.paymentId).toBe("pay-001");
+  });
+
   it("uses a stable fallback key when phone is missing", () => {
     const keyWithPhone = makeUniqueKey("홍길동", "010-1234-5678");
     const keyWithoutPhone = makeUniqueKey("홍길동", "", "1988");

@@ -29,6 +29,8 @@ export type FieldKey =
   | "name"
   | "gender"
   | "phone"
+  | "residentNumber"
+  | "paymentId"
   | "isOwnPhone"
   | "phoneOwnerRelation"
   | "phoneOwnerName"
@@ -42,6 +44,7 @@ export type FieldKey =
   | "requiredHours"
   | "supportTypes"
   | "environmentTags"
+  | "smoking"
   | "familyMembers"
   | "address"
   | "preferredWorkerTraits"
@@ -79,6 +82,8 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "name", patterns: [/이름/, /성명/, /^name$/i, /이용자/, /지원사명/, /성명\(한글\)/] },
   { field: "gender", patterns: [/성별/, /구분/, /^sex$/i, /^gender$/i, /txtUSex/i, /txtHSex/i] },
   { field: "phone", patterns: [/연락처/, /전화/, /휴대폰/, /^hp$/i, /^phone$/i, /txtUPhone/i, /txtHPhone/i, /핸드폰/, /휴대전화/] },
+  { field: "residentNumber", patterns: [/주민등록번호/, /주민번호/, /^residentNumber$/i, /^rrn$/i] },
+  { field: "paymentId", patterns: [/결제\s*id/i, /결제아이디/, /결제번호/, /^paymentId$/i, /^paymentID$/i] },
   { field: "isOwnPhone", patterns: [/본인.*연락/, /연락처.*본인/, /본인여부/] },
   { field: "phoneOwnerRelation", patterns: [/연락처.*관계/, /연락처관계/, /관계\/소유자/] },
   { field: "phoneOwnerName", patterns: [/연락처.*소유자/, /연락처주체/, /연락처.*이름/] },
@@ -92,6 +97,7 @@ const HEADER_RULES: { field: FieldKey; patterns: RegExp[] }[] = [
   { field: "requiredHours", patterns: [/필요시간/, /서비스시간/, /이용시간/] },
   { field: "supportTypes", patterns: [/지원유형/, /지원형태/] },
   { field: "environmentTags", patterns: [/환경/, /환경태그/] },
+  { field: "smoking", patterns: [/^흡연$/, /흡연여부/, /^smoking$/i] },
   { field: "familyMembers", patterns: [/가족/] },
   { field: "address", patterns: [/주소/, /거주지/, /^address$/i] },
   { field: "preferredWorkerTraits", patterns: [/선호/, /선호도/] },
@@ -414,6 +420,10 @@ export function rowToServiceUser(
   const terminationReason = getCell(row, headerMap, "terminationReason");
   const voucherTierLabel = getCell(row, headerMap, "voucherTierLabel");
   const parsedVoucherTier = Number(getCell(row, headerMap, "voucherTier"));
+  const environmentTags = splitList(getCell(row, headerMap, "environmentTags"));
+  if (parseYesNo(getCell(row, headerMap, "smoking")) && !environmentTags.includes("흡연")) {
+    environmentTags.push("흡연");
+  }
 
   return {
     name: getCell(row, headerMap, "name"),
@@ -421,6 +431,7 @@ export function rowToServiceUser(
     gender,
     txtUSex: gender,
     phone: getCell(row, headerMap, "phone"),
+    residentNumber: getCell(row, headerMap, "residentNumber"),
     isOwnPhone: getCell(row, headerMap, "isOwnPhone") ? parseYesNo(getCell(row, headerMap, "isOwnPhone")) : true,
     phoneOwnerRelation: getCell(row, headerMap, "phoneOwnerRelation"),
     phoneOwnerName: getCell(row, headerMap, "phoneOwnerName"),
@@ -432,7 +443,7 @@ export function rowToServiceUser(
     requiredDays: getCell(row, headerMap, "requiredDays"),
     requiredHours: getCell(row, headerMap, "requiredHours"),
     supportTypes: splitList(getCell(row, headerMap, "supportTypes")),
-    environmentTags: splitList(getCell(row, headerMap, "environmentTags")),
+    environmentTags,
     familyMembers: getCell(row, headerMap, "familyMembers"),
     address: getCell(row, headerMap, "address"),
     preferredWorkerTraits: getCell(row, headerMap, "preferredWorkerTraits"),
@@ -494,6 +505,8 @@ export function rowToWorker(
     gender,
     txtHSex: gender,
     phone: getCell(row, headerMap, "phone"),
+    residentNumber: getCell(row, headerMap, "residentNumber"),
+    paymentId: getCell(row, headerMap, "paymentId"),
     residenceArea: getCell(row, headerMap, "residenceArea"),
     preferredArea: getCell(row, headerMap, "preferredArea"),
     address: getCell(row, headerMap, "address"),

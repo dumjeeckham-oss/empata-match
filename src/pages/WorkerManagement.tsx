@@ -65,7 +65,7 @@ import { appendEmploymentTransition, ensureOpenEmploymentHistory, formatPeriodHi
 
 const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
   weeklySchedule: [],
-  name: "", age: 0, birthDate: "", gender: "여성", phone: "", residenceArea: "", preferredArea: "",
+  name: "", age: 0, birthDate: "", gender: "여성", phone: "", residentNumber: "", paymentId: "", residenceArea: "", preferredArea: "",
   address: "", experience: "경력없음", availableDays: "", availableHours: "",
   rejectionTypes: [], rejectedTasks: "", canDrive: false, animalAllergy: false,
   isForeigner: false, hasF4: false, hasF5: false, canSupportDiaper: false, canSupportAdults: false, canSupportMaleUsers: false, employedElsewhere: false,
@@ -78,6 +78,8 @@ const emptyWorker: Omit<Worker, "id" | "createdAt" | "updatedAt"> = {
 
 const WORKER_PARTIAL_UPDATE_FIELDS = [
   { key: "phone", label: "연락처", aliases: ["전화", "휴대폰", "새연락처"] },
+  { key: "residentNumber", label: "주민등록번호", aliases: ["주민번호", "주민등록번호", "RRN"] },
+  { key: "paymentId", label: "결제ID", aliases: ["결제 id", "결제아이디", "결제번호", "paymentId"] },
   { key: "gender", label: "성별", aliases: ["남녀", "지원사성별"] },
   { key: "age", label: "나이", aliases: ["연령", "만나이"], parse: partialParsers.number },
   { key: "birthDate", label: "생년월일", aliases: ["출생일", "생년월일자"], parse: partialParsers.date },
@@ -161,6 +163,8 @@ const normalizeWorkerPartialUpdates = (updates: Partial<Worker>, current?: Worke
 };
 const WORKER_PREVIEW_COLUMNS: { key: FieldKey; label: string }[] = [
   { key: "name", label: "이름" },
+  { key: "residentNumber", label: "주민등록번호" },
+  { key: "paymentId", label: "결제ID" },
   { key: "gender", label: "성별" },
   { key: "phone", label: "연락처" },
   { key: "age", label: "나이" },
@@ -710,6 +714,8 @@ const WorkerManagement = () => {
   const getWorkerPreviewValue = (item: Omit<Worker, "id">, key: FieldKey): string => {
     const map: Record<string, string | number | boolean> = {
       name: item.name,
+      residentNumber: item.residentNumber || "",
+      paymentId: item.paymentId || "",
       gender: item.gender,
       phone: item.phone,
       age: item.age,
@@ -843,7 +849,7 @@ const WorkerManagement = () => {
   };
   const downloadExcel = () => {
     const data = getFiltered().map((w) => ({
-      이름: w.name, 나이: w.age, 성별: w.gender, 연락처: w.phone,
+      이름: w.name, 주민등록번호: w.residentNumber || "", 결제ID: w.paymentId || "", 나이: w.age, 성별: w.gender, 연락처: w.phone,
       거주지역: w.residenceArea, 희망지역: w.preferredArea, 주소: w.address,
       경력: w.experience, 근무가능요일: w.availableDays, 근무가능시간: w.availableHours,
       거부업무: w.rejectionTypes?.join(","), 거부업무상세: w.rejectedTasks,
@@ -882,7 +888,7 @@ const WorkerManagement = () => {
 
   const downloadTemplate = () => {
     const template = [{
-      이름: "", 나이: "", 성별: "여성", 연락처: "", 거주지역: "", 희망지역: "", 주소: "",
+      이름: "", 주민등록번호: "", 결제ID: "", 나이: "", 성별: "여성", 연락처: "", 거주지역: "", 희망지역: "", 주소: "",
       경력: "경력없음", 근무가능요일: "월,화,수", 근무가능시간: "09:00-18:00",
       거부업무: "", 거부업무상세: "", 운전가능: "예", 동물알러지: "아니오",
       이수증번호: "", 근무상태: "대기", 담당이용자: "홍길동, 김영희", 최초근무일: "", 퇴사일: "", 비고: "",
@@ -1123,6 +1129,8 @@ const WorkerManagement = () => {
                 <div className="space-y-2">
                   <Label>추가 정보</Label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div><Label>주민등록번호</Label><Input value={form.residentNumber || ""} onChange={(e) => setForm((f) => ({ ...f, residentNumber: e.target.value }))} placeholder="000000-0000000" autoComplete="off" /></div>
+                    <div><Label>결제ID</Label><Input value={form.paymentId || ""} onChange={(e) => setForm((f) => ({ ...f, paymentId: e.target.value }))} placeholder="결제 ID" /></div>
                     <div className="flex items-center space-x-2"><Checkbox id="isForeigner" checked={form.isForeigner} onCheckedChange={(checked) => setForm((f) => ({ ...f, isForeigner: !!checked }))} /><Label htmlFor="isForeigner">외국인</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="hasF4" checked={form.hasF4} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF4: !!checked }))} /><Label htmlFor="hasF4">F4 여부</Label></div>
                     <div className="flex items-center space-x-2"><Checkbox id="hasF5" checked={form.hasF5} onCheckedChange={(checked) => setForm((f) => ({ ...f, hasF5: !!checked }))} /><Label htmlFor="hasF5">F5 여부</Label></div>
