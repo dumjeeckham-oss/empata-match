@@ -265,7 +265,7 @@ export default function Terminations() {
       approverDandang: doc.approverDandang || "",
       approverCenterJang: doc.approverCenterJang || "",
       projectName: OFFICIAL_TERMINATION_PROJECT_NAME,
-      residentNumber: doc.residentNumber || "",
+      residentNumber: doc.residentNumber || users.find((user) => user.id === doc.userId)?.residentNumber || "",
       approvalDate: doc.approvalDate || doc.date || new Date().toISOString().slice(0, 10),
       assignedWorkerName: doc.assignedWorkerName || getAssignedWorkerNames(users.find((u) => u.id === doc.userId)).join(", "),
       completionAction: doc.completionAction || "계약해지",
@@ -311,7 +311,7 @@ export default function Terminations() {
   };
 
   const handlePrint = (doc: TerminationDocument) => {
-    setPrintDoc(doc);
+    setPrintDoc({ ...doc, residentNumber: doc.residentNumber || users.find((user) => user.id === doc.userId)?.residentNumber || "" });
     setTimeout(() => {
       window.print();
     }, 100);
