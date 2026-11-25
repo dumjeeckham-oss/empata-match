@@ -70,6 +70,7 @@ import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import { collection, doc, getDocs, query, where, runTransaction, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { calculateAgeFromBirthDate, parseResidentNumber } from "@/lib/personIdentity";
+import { correctedPeriodLog, isValidServicePeriod } from "@/lib/servicePeriodCorrection";
 import {
   Command,
   CommandEmpty,
@@ -802,6 +803,10 @@ const UserManagement = () => {
     const arrays = buildHelperArraysFromIds(activeAddedIds, workers);
     const handoverUser = users.find((u) => u.id === handoverGate.userId);
     const handoverBaseHistory = handoverUser ? getDocumentMatchingEntries(handoverUser) : [];
+    if (handoverBaseHistory.some((entry) => handoverGate.prevHelperIds.includes(entry.workerId) && entry.serviceStartDate && handoverEndDate < entry.serviceStartDate)) {
+      toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
+      return;
+    }
     const startDateForHandover = handoverGate.payload.serviceStartDate || new Date().toISOString().slice(0, 10);
     const handoverHistoryByWorker = new Map<string, DocumentMatchingHistoryEntry>();
     for (const entry of handoverBaseHistory) {
@@ -927,6 +932,11 @@ const UserManagement = () => {
 
     if (!action.endDate) {
       toast({ title: "서비스 종료일을 입력해주세요", variant: "destructive" });
+      return;
+    }
+    const existingPeriod = getDocumentMatchingEntries(cleanupTarget).find((entry) => entry.workerId === workerId && !entry.serviceEndDate);
+    if (existingPeriod?.serviceStartDate && action.endDate < existingPeriod.serviceStartDate) {
+      toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
       return;
     }
 
@@ -1342,6 +1352,10 @@ const UserManagement = () => {
       return;
     }
     const { user, entry } = serviceCloseTarget;
+    if (entry.serviceStartDate && serviceCloseForm.endDate < entry.serviceStartDate) {
+      toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
+      return;
+    }
     const worker = workers.find((w) => w.id === entry.workerId);
     if (!worker) return;
 
@@ -1417,8 +1431,8 @@ const UserManagement = () => {
   const savePeriodCorrection = async () => {
     if (!periodEdit || periodSaving) return;
     const { userId, entry, start, end } = periodEdit;
-    if (!start || (entry.serviceEndDate && !end) || (end && end < start)) {
-      toast({ title: "서비스 기간을 확인해주세요", description: "시작일과 종료일을 입력하고 종료일이 시작일보다 빠르지 않도록 해주세요.", variant: "destructive" });
+    if (!isValidServicePeriod(start, end)) {
+      toast({ title: "서비스 기간을 확인해주세요", description: "시작일을 입력하고 종료일이 시작일보다 빠르지 않도록 해주세요.", variant: "destructive" });
       return;
     }
     setPeriodSaving(true);
@@ -1426,20 +1440,20 @@ const UserManagement = () => {
       const matches = await getDocs(query(collection(db, MATCHING_HISTORY_COLLECTION), where("userId", "==", userId)));
       const relevant = matches.docs.filter((snapshot) => {
         const log = snapshot.data();
-        return log.workerId === entry.workerId && (log.type === "매칭" || log.type === "해제") && log.date === entry.serviceStartDate;
+        return log.periodCorrectionVoided !== true && log.workerId === entry.workerId && (log.type === "매칭" || log.type === "해제") && log.date === entry.serviceStartDate;
       });
       const matching = relevant.filter((snapshot) => snapshot.data().type === "매칭");
       const closing = relevant.filter((snapshot) => snapshot.data().type === "해제");
       const ambiguousClosing = entry.serviceEndDate && matches.docs.some((snapshot) => {
         const log = snapshot.data();
-        return log.workerId === entry.workerId && log.type === "해제" && log.endDate === entry.serviceEndDate && log.date !== entry.serviceStartDate;
+        return log.periodCorrectionVoided !== true && log.workerId === entry.workerId && log.type === "해제" && log.endDate === entry.serviceEndDate && log.date !== entry.serviceStartDate;
       });
       if (matching.length > 1 || closing.length > 1 || relevant.length === 0 || ambiguousClosing || (entry.serviceEndDate && closing.some((snapshot) => snapshot.data().endDate && snapshot.data().endDate !== entry.serviceEndDate))) {
         throw new Error("연결된 매칭 이력을 하나의 기간으로 확인할 수 없습니다. 이력 목록을 확인해주세요.");
       }
       const userRef = doc(db, USERS_COLLECTION, userId);
       const workerRef = doc(db, WORKERS_COLLECTION, entry.workerId);
-      const updatedHistory = await runTransaction(db, async (transaction) => {
+      const savedUserPatch = await runTransaction(db, async (transaction) => {
         const [userSnapshot, workerSnapshot, ...logSnapshots] = await Promise.all([
           transaction.get(userRef), transaction.get(workerRef), ...relevant.map((snapshot) => transaction.get(snapshot.ref)),
         ]);
@@ -1453,18 +1467,57 @@ const UserManagement = () => {
         const workerHistory = Array.isArray(workerSnapshot.data().matchingHistory) ? workerSnapshot.data().matchingHistory as DocumentMatchingHistoryEntry[] : [];
         const workerEntries = workerHistory.filter((item) => item.id === entry.id && item.serviceStartDate === entry.serviceStartDate);
         if (workerEntries.length > 1) throw new Error("활동지원사 이력에 같은 기록이 여러 개여서 자동 수정할 수 없습니다.");
-        transaction.update(userRef, { matchingHistory: nextHistory, updatedAt: serverTimestamp() });
-        if (workerEntries.length === 1) {
-          transaction.update(workerRef, { matchingHistory: workerHistory.map((item) => item === workerEntries[0] ? { ...item, serviceStartDate: start, serviceEndDate: end || null, updatedAt: nextEntry.updatedAt } : item), updatedAt: serverTimestamp() });
+        const userData = userSnapshot.data() as ServiceUser;
+        const workerData = workerSnapshot.data() as Worker;
+        const wasActive = !entry.serviceEndDate;
+        const isActive = !end;
+        const userPatch: Record<string, unknown> = { matchingHistory: nextHistory, updatedAt: serverTimestamp() };
+        const workerPatch: Record<string, unknown> = { updatedAt: serverTimestamp() };
+        if (wasActive !== isActive) {
+          const helperIds = [...(userData.assignedHelperIds || userData.assigned_workers || [])];
+          const userIds = [...(workerData.assignedUserIds || workerData.assigned_users || [])];
+          const helperNames = [...(userData.assignedHelperNames || [])];
+          const helperPhones = [...(userData.assignedHelperPhones || [])];
+          const userNames = [...(workerData.assignedUserNames || [])];
+          const userPhones = [...(workerData.assignedUserPhones || [])];
+          const helperIndex = helperIds.indexOf(entry.workerId);
+          const userIndex = userIds.indexOf(userId);
+          if ((helperIndex >= 0) !== (userIndex >= 0) || (isActive && helperIndex >= 0) || (!isActive && helperIndex < 0)) throw new Error("현재 배정 정보와 기간 이력이 일치하지 않습니다. 담당 배정을 먼저 확인해주세요.");
+          while (helperNames.length < helperIds.length) helperNames.push("");
+          while (helperPhones.length < helperIds.length) helperPhones.push("");
+          while (userNames.length < userIds.length) userNames.push("");
+          while (userPhones.length < userIds.length) userPhones.push("");
+          if (isActive) {
+            if (isWorkerRetired(workerData) || ["계약해지", "타기관 계약", "보류"].includes(userData.contractStatus)) throw new Error("퇴사 지원사 또는 종결·보류 이용자는 바로 재배정할 수 없습니다. 상태를 먼저 확인해주세요.");
+            const nextIds = Array.from(new Set([...helperIds, entry.workerId]));
+            const schedules = { ...(userData.assignmentSchedules || {}), [entry.workerId]: entry.serviceSchedule || userData.assignmentSchedules?.[entry.workerId] || [] };
+            if (nextIds.length > 1 && (getMissingAssignmentScheduleIds(nextIds, schedules).length || findAssignmentScheduleConflict(nextIds, schedules))) throw new Error("담당 지원사의 서비스 시간 누락 또는 중복이 있습니다. 시간표를 먼저 확인해주세요.");
+            if (helperIndex < 0) { helperIds.push(entry.workerId); helperNames.push(workerData.name || entry.workerName); helperPhones.push(workerData.phone || entry.workerPhone); }
+            if (userIndex < 0) { userIds.push(userId); userNames.push(userData.name || ""); userPhones.push(userData.phone || ""); }
+            userPatch.assignmentSchedules = schedules;
+          } else {
+            if (helperIndex >= 0) { helperIds.splice(helperIndex, 1); helperNames.splice(helperIndex, 1); helperPhones.splice(helperIndex, 1); }
+            if (userIndex >= 0) { userIds.splice(userIndex, 1); userNames.splice(userIndex, 1); userPhones.splice(userIndex, 1); }
+            const schedules = { ...(userData.assignmentSchedules || {}) };
+            delete schedules[entry.workerId];
+            userPatch.assignmentSchedules = schedules;
+          }
+          Object.assign(userPatch, { assignedHelperIds: helperIds, assigned_workers: helperIds, assignedHelperNames: helperNames, assignedHelperPhones: helperPhones });
+          if (!["계약해지", "타기관 계약", "보류"].includes(userData.contractStatus)) userPatch.contractStatus = helperIds.length ? "서비스중" : "대기";
+          Object.assign(workerPatch, { assignedUserIds: userIds, assigned_users: userIds, assignedUserNames: userNames, assignedUserPhones: userPhones });
+          if (!isWorkerRetired(workerData)) Object.assign(workerPatch, { contractStatus: userIds.length ? "근무중" : "대기", waitingForMatch: userIds.length === 0, serviceEndDate: userIds.length ? null : end || null });
         }
+        if (workerEntries.length === 1) workerPatch.matchingHistory = workerHistory.map((item) => item === workerEntries[0] ? { ...item, serviceStartDate: start, serviceEndDate: end || null, updatedAt: nextEntry.updatedAt } : item);
+        transaction.update(userRef, userPatch);
+        if (Object.keys(workerPatch).length > 1) transaction.update(workerRef, workerPatch);
         for (const snapshot of logSnapshots) {
           const log = snapshot.data()!;
-          transaction.update(snapshot.ref, { date: start, ...((log.type === "해제" || log.endDate || (end && closing.length === 0)) ? { endDate: end } : {}), updatedAt: serverTimestamp() });
+          transaction.update(snapshot.ref, { ...correctedPeriodLog(log.type, start, end, matching.length > 0, closing.length > 0, log.endDate), updatedAt: serverTimestamp() });
         }
-        return nextHistory;
+        return { ...userPatch, updatedAt: undefined } as Partial<ServiceUser>;
       });
-      setDetailTarget((current) => current?.id === userId ? { ...current, matchingHistory: updatedHistory } : current);
-      if (editingId === userId) setForm((current) => ({ ...current, matchingHistory: updatedHistory }));
+      setDetailTarget((current) => current?.id === userId ? { ...current, ...savedUserPatch } : current);
+      if (editingId === userId) setForm((current) => ({ ...current, ...savedUserPatch }));
       setPeriodEdit(null);
       toast({ title: "서비스 기간 수정 완료", description: "이용자와 활동지원사의 공통 매칭 이력에 반영했습니다." });
     } catch (error) {
@@ -1501,7 +1554,7 @@ const UserManagement = () => {
               {periodEdit?.userId === user.id && periodEdit.entry.workerId === entry.workerId && periodEdit.entry.serviceStartDate === entry.serviceStartDate && (
                 <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
                   <div><Label>시작일</Label><Input type="date" value={periodEdit.start} onChange={(event) => setPeriodEdit((current) => current && { ...current, start: event.target.value })} /></div>
-                  {!isCurrent && <div><Label>종료일</Label><Input type="date" value={periodEdit.end} onChange={(event) => setPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>}
+                  <div><Label>종료일 (비우면 서비스 중)</Label><Input type="date" min={periodEdit.start || undefined} value={periodEdit.end} onChange={(event) => setPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>
                   <Button type="button" size="sm" disabled={periodSaving} onClick={() => void savePeriodCorrection()}>기간 저장</Button>
                   <Button type="button" size="sm" variant="outline" disabled={periodSaving} onClick={() => setPeriodEdit(null)}>취소</Button>
                 </div>
@@ -3057,6 +3110,10 @@ const UserManagement = () => {
                     const w = workers.find(x => x.id === matchHistoryForm.workerId);
                     if (!w?.id) return;
                     const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
+                    if (!isAttempt && matchHistoryForm.endDate && matchHistoryForm.endDate < matchHistoryForm.date) {
+                      toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
+                      return;
+                    }
                     const existingCurrent = getCurrentMatchingEntry(detailTarget);
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
                     const eventDate = isAttempt ? matchHistoryForm.attemptDate : matchHistoryForm.date;

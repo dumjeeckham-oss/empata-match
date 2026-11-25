@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { auth, db, collection, addDoc, updateDoc, deleteDoc, doc, onAuthStateChanged, onSnapshot, query, Timestamp, type QueryConstraint } from "@/lib/firebase";
 import { normalizeServiceUser, normalizeWorker } from "@/lib/assignments";
 import { sanitizeForFirestore } from "@/lib/bulkUpload";
-import { COUNSELING_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION } from "@/lib/collectionNames";
+import { COUNSELING_COLLECTION, USERS_COLLECTION, WORKERS_COLLECTION, MATCHING_HISTORY_COLLECTION } from "@/lib/collectionNames";
 import { createCounselingRecord, updateCounselingRecord } from "@/lib/counselingRevision";
 import { toast } from "@/hooks/use-toast";
 
@@ -22,7 +22,7 @@ function readCachedCollection<T>(collectionName: string): (T & { id: string })[]
     const parsed = JSON.parse(cached);
     if (!Array.isArray(parsed)) return [];
 
-    return parsed.map((item, index) => {
+    return parsed.filter((item) => collectionName !== MATCHING_HISTORY_COLLECTION || item.periodCorrectionVoided !== true).map((item, index) => {
       const raw = item as Record<string, unknown>;
       const normalized =
         collectionName === USERS_COLLECTION
@@ -103,7 +103,7 @@ export function useCollection<T>(collectionName: string, constraints: QueryConst
           q,
           (snap) => {
             try {
-              const items = snap.docs.map((d) => {
+              const items = snap.docs.filter((d) => collectionName !== MATCHING_HISTORY_COLLECTION || d.data().periodCorrectionVoided !== true).map((d) => {
                 const raw = d.data() as Record<string, unknown>;
                 const normalized =
                   collectionName === USERS_COLLECTION

@@ -1865,6 +1865,10 @@ const WorkerManagement = () => {
                     const selectedUser = users.find((user) => user.id === matchHistoryForm.userId);
                     if (!selectedUser?.id) return;
                     const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
+                    if (!isAttempt && matchHistoryForm.endDate && matchHistoryForm.endDate < matchHistoryForm.date) {
+                      toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
+                      return;
+                    }
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
                     const otherActiveHelperIds = (selectedUser.assignedHelperIds || []).filter((id) => id !== detailTarget.id);
                     if (!isAttempt && !isEnded && otherActiveHelperIds.length > 0) {
