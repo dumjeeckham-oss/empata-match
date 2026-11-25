@@ -53,7 +53,7 @@ export function TerminationPrintSheet({ document, address, workerNames, logoSrc 
             <tr><th rowSpan={4} style={{ ...label, fontWeight: 700 }}>종결<br />종류</th>{PRINT_REASONS[0].map((reason) => <Cell key={reason} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], reason))} {reason}</Cell>)}</tr>
             <tr>{PRINT_REASONS[1].map((reason) => <Cell key={reason} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], reason))} {reason}</Cell>)}</tr>
             <tr><Cell colSpan={4} style={{ height: "23mm" }}>{checkbox(isSelected(document.reasons || [], "개인사정"))} 개인사정</Cell></tr>
-            <tr><Cell colSpan={4} style={{ height: "12mm", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{checkbox(isSelected(document.reasons || [], "기타"))} 기타{isSelected(document.reasons || [], "기타") && document.reasonDetail?.trim() ? `: ${document.reasonDetail}` : ""}</Cell></tr>
+            <tr><Cell colSpan={4} style={{ height: "12mm", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{checkbox(isSelected(document.reasons || [], "기타"))} 기타{isSelected(document.reasons || [], "기타") && document.otherReason?.trim() ? `: ${document.otherReason}` : ""}</Cell></tr>
             <tr><th style={{ ...label, height: "64mm", fontWeight: 700 }}>종결<br />사유</th><Cell colSpan={4} style={{ verticalAlign: "top", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.reasonDetail || ""}</Cell></tr>
           </tbody>
         </table>

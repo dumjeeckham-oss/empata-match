@@ -257,6 +257,7 @@ export interface TerminationDocument {
   date: string;
   reasons: string[];
   reasonDetail: string;
+  otherReason?: string;
   handoverNote?: string;
   approverDandang?: string;
   approverCenterJang?: string;

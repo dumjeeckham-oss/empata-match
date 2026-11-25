@@ -72,6 +72,7 @@ export default function Terminations() {
     date: new Date().toISOString().slice(0, 10),
     reasons: [],
     reasonDetail: "",
+    otherReason: "",
     handoverNote: "",
     approverDandang: "",
     approverCenterJang: "",
@@ -157,6 +158,7 @@ export default function Terminations() {
 
       const terminationReasonText = [
         ...form.reasons,
+        form.reasons.includes("기타") && form.otherReason?.trim() ? "기타 내용:" + form.otherReason.trim() : "",
         form.reasonDetail.trim() ? "상세:" + form.reasonDetail.trim() : "",
       ].filter(Boolean).join(" / ");
       const terminatingUser = users.find((user) => user.id === form.userId);
@@ -261,6 +263,7 @@ export default function Terminations() {
       date: doc.date || new Date().toISOString().slice(0, 10),
       reasons: doc.reasons || [],
       reasonDetail: doc.reasonDetail || "",
+      otherReason: doc.otherReason || "",
       handoverNote: doc.handoverNote || "",
       approverDandang: doc.approverDandang || "",
       approverCenterJang: doc.approverCenterJang || "",
@@ -298,6 +301,7 @@ export default function Terminations() {
       date: new Date().toISOString().slice(0, 10),
       reasons: [],
       reasonDetail: "",
+      otherReason: "",
       handoverNote: "",
       approverDandang: "",
       approverCenterJang: "",
@@ -618,7 +622,7 @@ export default function Terminations() {
               {form.reasons.includes("기타") && (
                 <div className="mt-3 space-y-1">
                   <Label htmlFor="termination-other">기타 내용</Label>
-                  <Textarea id="termination-other" value={form.reasonDetail} onChange={(e) => setForm((f) => ({ ...f, reasonDetail: e.target.value }))} placeholder="기타에 해당하는 내용을 입력해주세요." />
+                  <Textarea id="termination-other" value={form.otherReason || ""} onChange={(e) => setForm((f) => ({ ...f, otherReason: e.target.value }))} placeholder="기타에 해당하는 내용을 입력해주세요." />
                 </div>
               )}
             </div>
