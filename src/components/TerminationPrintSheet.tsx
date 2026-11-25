@@ -29,7 +29,7 @@ export function TerminationPrintSheet({ document, address, workerNames, logoSrc 
   const checkbox = (checked: boolean) => checked ? "■" : "□";
   return (
     <div className="hidden print:block fixed inset-0 z-[10000] bg-white text-black">
-      <div style={{ width: "186mm", height: "267mm", overflow: "hidden", fontFamily: "'Malgun Gothic','Dotum',sans-serif", fontSize: "10.5pt", lineHeight: 1.45 }}>
+      <div style={{ width: "186mm", minHeight: "267mm", fontFamily: "'Malgun Gothic','Dotum',sans-serif", fontSize: "10.5pt", lineHeight: 1.45 }}>
         <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed", marginBottom: "3mm" }}>
           <tbody><tr>
             <Cell rowSpan={2} style={{ width: "55%", height: "22mm", textAlign: "center", fontSize: "22pt", fontWeight: 700, letterSpacing: "5mm" }}>종 결 승 인 서</Cell>
@@ -53,10 +53,11 @@ export function TerminationPrintSheet({ document, address, workerNames, logoSrc 
             <tr><th rowSpan={4} style={{ ...label, fontWeight: 700 }}>종결<br />종류</th>{PRINT_REASONS[0].map((reason) => <Cell key={reason} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], reason))} {reason}</Cell>)}</tr>
             <tr>{PRINT_REASONS[1].map((reason) => <Cell key={reason} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], reason))} {reason}</Cell>)}</tr>
             <tr><Cell colSpan={4} style={{ height: "23mm" }}>{checkbox(isSelected(document.reasons || [], "개인사정"))} 개인사정</Cell></tr>
-            <tr><Cell colSpan={4} style={{ height: "12mm" }}>{checkbox(isSelected(document.reasons || [], "기타"))} 기타</Cell></tr>
+            <tr><Cell colSpan={4} style={{ height: "12mm", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{checkbox(isSelected(document.reasons || [], "기타"))} 기타{isSelected(document.reasons || [], "기타") && document.reasonDetail?.trim() ? `: ${document.reasonDetail}` : ""}</Cell></tr>
             <tr><th style={{ ...label, height: "64mm", fontWeight: 700 }}>종결<br />사유</th><Cell colSpan={4} style={{ verticalAlign: "top", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{document.reasonDetail || ""}</Cell></tr>
           </tbody>
         </table>
+        {document.handoverNote?.trim() && <div style={{ border: "0.35mm solid #000", padding: "2mm", marginTop: "3mm", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}><strong>인계 메모</strong><br />{document.handoverNote}</div>}
         <div style={{ marginTop: "9mm", textAlign: "center", fontSize: "12pt", fontWeight: 700 }}>결 재 일 <span style={{ marginLeft: "23mm" }}>{approvalDate.year}</span><span style={{ marginLeft: "8mm" }}>년</span><span style={{ marginLeft: "10mm" }}>{approvalDate.month}</span><span style={{ marginLeft: "8mm" }}>월</span><span style={{ marginLeft: "10mm" }}>{approvalDate.day}</span><span style={{ marginLeft: "8mm" }}>일</span></div>
         <div style={{ marginTop: "7mm", textAlign: "center" }}><img src={logoSrc} alt="동백 장애인활동지원센터" style={{ width: "76mm", maxHeight: "22mm", objectFit: "contain" }} /></div>
       </div>

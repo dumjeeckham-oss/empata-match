@@ -108,6 +108,7 @@ export default function Terminations() {
       userId: u.id || "",
       userName: u.name || "",
       userPhone: u.phone || "",
+      residentNumber: u.residentNumber || "",
       assignedWorkerName: workerName,
     }));
     setIsSearchOpen(false);
@@ -614,6 +615,12 @@ export default function Terminations() {
                   </label>
                 ))}
               </div>
+              {form.reasons.includes("기타") && (
+                <div className="mt-3 space-y-1">
+                  <Label htmlFor="termination-other">기타 내용</Label>
+                  <Textarea id="termination-other" value={form.reasonDetail} onChange={(e) => setForm((f) => ({ ...f, reasonDetail: e.target.value }))} placeholder="기타에 해당하는 내용을 입력해주세요." />
+                </div>
+              )}
             </div>
             <div>
               <Label>종결 사유</Label>
