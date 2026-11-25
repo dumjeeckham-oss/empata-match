@@ -1527,6 +1527,74 @@ const UserManagement = () => {
     }
   };
 
+  const cancelMatchingRegistration = async (user: ServiceUser & { id: string }, entry: DocumentMatchingHistoryEntry) => {
+    if (periodSaving) return;
+    if (!window.confirm(`${entry.workerName || "활동지원사"}의 ${entry.serviceStartDate || "시작일 미등록"} 매칭 등록을 취소하시겠습니까?\n이용자와 활동지원사 양쪽에서 해당 연결을 정리합니다. 활동지원사와 이용자 자체는 삭제되지 않습니다.`)) return;
+    setPeriodSaving(true);
+    try {
+      const result = await getDocs(query(collection(db, MATCHING_HISTORY_COLLECTION), where("userId", "==", user.id)));
+      const related = result.docs.filter((snapshot) => {
+        const data = snapshot.data();
+        return data.periodCorrectionVoided !== true && data.workerId === entry.workerId && (data.type === "매칭" || data.type === "해제") && data.date === entry.serviceStartDate;
+      });
+      if (related.length > 2 || related.filter((item) => item.data().type === "매칭").length > 1 || related.filter((item) => item.data().type === "해제").length > 1) throw new Error("동일한 기간의 매칭 이력이 여러 개여서 자동 취소할 수 없습니다.");
+      const userRef = doc(db, USERS_COLLECTION, user.id);
+      const workerRef = doc(db, WORKERS_COLLECTION, entry.workerId);
+      const patch = await runTransaction(db, async (transaction) => {
+        const [userDoc, workerDoc, ...logs] = await Promise.all([transaction.get(userRef), transaction.get(workerRef), ...related.map((item) => transaction.get(item.ref))]);
+        if (!userDoc.exists() || !workerDoc.exists()) throw new Error("이용자 또는 활동지원사 정보를 찾을 수 없습니다.");
+        if (logs.some((item, index) => !item.exists() || item.data()?.date !== related[index].data().date || item.data()?.type !== related[index].data().type || item.data()?.periodCorrectionVoided === true)) throw new Error("이력이 변경되었습니다. 새로고침 후 다시 시도해주세요.");
+        const userData = userDoc.data() as ServiceUser;
+        const workerData = workerDoc.data() as Worker;
+        const history = Array.isArray(userData.matchingHistory) ? userData.matchingHistory : [];
+        const target = history.filter((item) => item.workerId === entry.workerId && item.serviceStartDate === entry.serviceStartDate);
+        if (target.length > 1 || (target.length === 0 && related.length === 0)) throw new Error("취소할 매칭을 정확하게 확인할 수 없습니다. 새로고침 후 다시 시도해주세요.");
+        const otherActive = history.some((item) => item.workerId === entry.workerId && item.serviceStartDate !== entry.serviceStartDate && !item.serviceEndDate);
+        const isActive = !entry.serviceEndDate;
+        if (isActive && otherActive) throw new Error("같은 지원사에 다른 진행 중인 이력이 있어 자동 취소할 수 없습니다.");
+        const nextHistory = history.filter((item) => !(item.workerId === entry.workerId && item.serviceStartDate === entry.serviceStartDate));
+        const userPatch: Record<string, unknown> = { matchingHistory: nextHistory, updatedAt: serverTimestamp() };
+        const workerPatch: Record<string, unknown> = { updatedAt: serverTimestamp() };
+        if (isActive) {
+          const ids = [...(userData.assignedHelperIds || userData.assigned_workers || [])];
+          const userIds = [...(workerData.assignedUserIds || workerData.assigned_users || [])];
+          const helperIndex = ids.indexOf(entry.workerId);
+          const userIndex = userIds.indexOf(user.id);
+          if ((helperIndex >= 0) !== (userIndex >= 0)) throw new Error("양쪽의 현재 배정 정보가 일치하지 않습니다. 배정 정보를 먼저 확인해주세요.");
+          if (helperIndex >= 0) {
+            const names = [...(userData.assignedHelperNames || [])];
+            const phones = [...(userData.assignedHelperPhones || [])];
+            const userNames = [...(workerData.assignedUserNames || [])];
+            const userPhones = [...(workerData.assignedUserPhones || [])];
+            ids.splice(helperIndex, 1); names.splice(helperIndex, 1); phones.splice(helperIndex, 1);
+            userIds.splice(userIndex, 1); userNames.splice(userIndex, 1); userPhones.splice(userIndex, 1);
+            const schedules = { ...(userData.assignmentSchedules || {}) }; delete schedules[entry.workerId];
+            Object.assign(userPatch, { assignedHelperIds: ids, assigned_workers: ids, assignedHelperNames: names, assignedHelperPhones: phones, assignmentSchedules: schedules });
+            if (!["계약해지", "타기관 계약", "보류"].includes(userData.contractStatus)) userPatch.contractStatus = ids.length ? "서비스중" : "대기";
+            Object.assign(workerPatch, { assignedUserIds: userIds, assigned_users: userIds, assignedUserNames: userNames, assignedUserPhones: userPhones });
+            if (!isWorkerRetired(workerData)) Object.assign(workerPatch, { contractStatus: userIds.length ? "근무중" : "대기", waitingForMatch: userIds.length === 0 });
+          }
+        }
+        const workerHistory = Array.isArray(workerData.matchingHistory) ? workerData.matchingHistory : [];
+        const matchingWorkerEntries = workerHistory.filter((item) => item.id === entry.id && item.serviceStartDate === entry.serviceStartDate);
+        if (matchingWorkerEntries.length > 1) throw new Error("활동지원사 이력이 중복되어 자동 취소할 수 없습니다.");
+        if (matchingWorkerEntries.length === 1) workerPatch.matchingHistory = workerHistory.filter((item) => item !== matchingWorkerEntries[0]);
+        transaction.update(userRef, userPatch);
+        if (Object.keys(workerPatch).length > 1) transaction.update(workerRef, workerPatch);
+        for (const log of logs) transaction.update(log.ref, { periodCorrectionVoided: true, updatedAt: serverTimestamp() });
+        return { ...userPatch, updatedAt: undefined } as Partial<ServiceUser>;
+      });
+      setDetailTarget((current) => current?.id === user.id ? { ...current, ...patch } : current);
+      if (editingId === user.id) setForm((current) => ({ ...current, ...patch }));
+      setPeriodEdit(null);
+      toast({ title: "매칭 등록 취소 완료", description: "다시 등록하려면 매칭 이력의 ‘기록 추가’를 이용해주세요." });
+    } catch (error) {
+      toast({ title: "매칭 등록을 취소하지 못했습니다", description: error instanceof Error ? error.message : "다시 시도해주세요.", variant: "destructive" });
+    } finally {
+      setPeriodSaving(false);
+    }
+  };
+
   const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
     const entries = getDocumentMatchingEntries(user)
       .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
@@ -1548,6 +1616,7 @@ const UserManagement = () => {
                 <div className="flex flex-col items-end gap-2">
                   <Badge variant={isCurrent ? "default" : "secondary"}>{isCurrent ? "서비스 중" : "종료 이력"}</Badge>
                   <Button size="sm" variant="outline" type="button" onClick={() => setPeriodEdit({ userId: user.id, entry, start: entry.serviceStartDate || "", end: entry.serviceEndDate || "" })}>기간 수정</Button>
+                  <Button size="sm" variant="outline" type="button" disabled={periodSaving} onClick={() => void cancelMatchingRegistration(user, entry)}>매칭 등록 취소</Button>
                   {isCurrent && <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>}
                 </div>
               </div>
