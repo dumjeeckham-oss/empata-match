@@ -416,15 +416,18 @@ export default function Handovers() {
     <div className="space-y-6">
       {/* 인쇄용 영역 */}
       {printDoc && (
-        <div className="hidden print:block fixed inset-0 bg-white z-[9999] overflow-auto">
+        <div className="handover-print-container hidden print:block fixed inset-0 bg-white z-[9999] overflow-auto">
           <style>{`
             @page { size: A4 portrait; margin: 15mm 12mm 15mm 12mm; }
             @media print {
               html, body { width: 210mm; min-height: 297mm; margin: 0 !important; padding: 0 !important; }
               *, *::before, *::after { box-sizing: border-box !important; }
+              .handover-print-container { position: static !important; overflow: visible !important; }
               .handover-print-sheet {
                 width: 186mm;
                 min-height: 267mm;
+                display: flex;
+                flex-direction: column;
                 color: #000;
                 font-family: 'Malgun Gothic', 'Dotum', sans-serif;
                 font-size: 10px;
@@ -433,9 +436,12 @@ export default function Handovers() {
               .handover-print-sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; }
               .handover-print-sheet th, .handover-print-sheet td { border: 1px solid #000; padding: 1.4mm 1.8mm; vertical-align: middle; }
               .handover-print-sheet th { background: #f2f2f2 !important; font-weight: 700; text-align: center; }
-              .handover-print-sheet .print-textbox { min-height: 33mm; white-space: pre-wrap; word-break: keep-all; vertical-align: top; }
-              .handover-print-sheet .print-important { min-height: 22mm; white-space: pre-wrap; word-break: keep-all; vertical-align: top; }
-              .handover-print-sheet > * { break-inside: avoid; page-break-inside: avoid; }
+              .handover-print-sheet > * { flex-shrink: 0; }
+              .handover-print-sheet .print-textbox { height: 45mm; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+              .handover-print-sheet .print-important { height: 40mm; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+              .handover-print-sheet table { break-inside: auto; page-break-inside: auto; }
+              .handover-print-sheet tr { break-inside: auto; page-break-inside: auto; }
+              .handover-print-sheet .handover-print-logo { margin-top: auto; padding-top: 4mm; break-inside: avoid; page-break-inside: avoid; }
             }
           `}</style>
           <div className="handover-print-sheet">
@@ -535,7 +541,7 @@ export default function Handovers() {
                 </div>
               </div>
             </div>
-            <div className="mt-6 text-center">
+            <div className="handover-print-logo text-center">
               <img src={dongbaekLogo} alt="동백" className="mx-auto h-12 w-auto object-contain" />
             </div>
           </div>
