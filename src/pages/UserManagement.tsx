@@ -67,6 +67,8 @@ import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
 import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
+import { collection, doc, getDocs, query, where, runTransaction, serverTimestamp } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import { calculateAgeFromBirthDate, parseResidentNumber } from "@/lib/personIdentity";
 import {
   Command,
@@ -393,6 +395,8 @@ const UserManagement = () => {
   const [cleanupTarget, setCleanupTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [cleanupActions, setCleanupActions] = useState<Record<string, MultiMatchCleanupAction>>({});
   const [matchingPeriodDrafts, setMatchingPeriodDrafts] = useState<Record<string, MatchingPeriodDraft>>({});
+  const [periodEdit, setPeriodEdit] = useState<{ userId: string; entry: DocumentMatchingHistoryEntry; start: string; end: string } | null>(null);
+  const [periodSaving, setPeriodSaving] = useState(false);
   const [workerServiceEndMigrationDone, setWorkerServiceEndMigrationDone] = useState(false);
   const [serviceCloseTarget, setServiceCloseTarget] = useState<{ user: ServiceUser & { id: string }; entry: DocumentMatchingHistoryEntry } | null>(null);
   const [serviceCloseForm, setServiceCloseForm] = useState<{ endDate: string; workerStatus: "대기" | "퇴사"; reason: MatchingHistoryReason; reasonDetail: string }>({
@@ -1410,13 +1414,73 @@ const UserManagement = () => {
     });
     toast({ title: "서비스 종료/교체 처리 완료", description: `${worker.name} 지원사를 현재 담당에서 제외했습니다.` });
   };
+  const savePeriodCorrection = async () => {
+    if (!periodEdit || periodSaving) return;
+    const { userId, entry, start, end } = periodEdit;
+    if (!start || (entry.serviceEndDate && !end) || (end && end < start)) {
+      toast({ title: "서비스 기간을 확인해주세요", description: "시작일과 종료일을 입력하고 종료일이 시작일보다 빠르지 않도록 해주세요.", variant: "destructive" });
+      return;
+    }
+    setPeriodSaving(true);
+    try {
+      const matches = await getDocs(query(collection(db, MATCHING_HISTORY_COLLECTION), where("userId", "==", userId)));
+      const relevant = matches.docs.filter((snapshot) => {
+        const log = snapshot.data();
+        return log.workerId === entry.workerId && (log.type === "매칭" || log.type === "해제") && log.date === entry.serviceStartDate;
+      });
+      const matching = relevant.filter((snapshot) => snapshot.data().type === "매칭");
+      const closing = relevant.filter((snapshot) => snapshot.data().type === "해제");
+      const ambiguousClosing = entry.serviceEndDate && matches.docs.some((snapshot) => {
+        const log = snapshot.data();
+        return log.workerId === entry.workerId && log.type === "해제" && log.endDate === entry.serviceEndDate && log.date !== entry.serviceStartDate;
+      });
+      if (matching.length > 1 || closing.length > 1 || relevant.length === 0 || ambiguousClosing || (entry.serviceEndDate && closing.some((snapshot) => snapshot.data().endDate && snapshot.data().endDate !== entry.serviceEndDate))) {
+        throw new Error("연결된 매칭 이력을 하나의 기간으로 확인할 수 없습니다. 이력 목록을 확인해주세요.");
+      }
+      const userRef = doc(db, USERS_COLLECTION, userId);
+      const workerRef = doc(db, WORKERS_COLLECTION, entry.workerId);
+      const updatedHistory = await runTransaction(db, async (transaction) => {
+        const [userSnapshot, workerSnapshot, ...logSnapshots] = await Promise.all([
+          transaction.get(userRef), transaction.get(workerRef), ...relevant.map((snapshot) => transaction.get(snapshot.ref)),
+        ]);
+        if (!userSnapshot.exists() || !workerSnapshot.exists()) throw new Error("이용자 또는 활동지원사 정보를 찾을 수 없습니다.");
+        if (logSnapshots.some((snapshot, index) => !snapshot.exists() || snapshot.data()?.date !== relevant[index].data().date || snapshot.data()?.endDate !== relevant[index].data().endDate)) throw new Error("이력이 다른 곳에서 변경되었습니다. 새로고침 후 다시 시도해주세요.");
+        const history = Array.isArray(userSnapshot.data().matchingHistory) ? userSnapshot.data().matchingHistory as DocumentMatchingHistoryEntry[] : [];
+        const indices = history.map((item, index) => item.workerId === entry.workerId && item.serviceStartDate === entry.serviceStartDate ? index : -1).filter((index) => index >= 0);
+        if (indices.length > 1) throw new Error("같은 기간의 이력이 여러 개여서 자동 수정할 수 없습니다.");
+        const nextEntry = { ...(indices.length ? history[indices[0]] : entry), serviceStartDate: start, serviceEndDate: end || null, updatedAt: new Date().toISOString() };
+        const nextHistory = indices.length ? history.map((item, index) => index === indices[0] ? nextEntry : item) : [...history, nextEntry];
+        const workerHistory = Array.isArray(workerSnapshot.data().matchingHistory) ? workerSnapshot.data().matchingHistory as DocumentMatchingHistoryEntry[] : [];
+        const workerEntries = workerHistory.filter((item) => item.id === entry.id && item.serviceStartDate === entry.serviceStartDate);
+        if (workerEntries.length > 1) throw new Error("활동지원사 이력에 같은 기록이 여러 개여서 자동 수정할 수 없습니다.");
+        transaction.update(userRef, { matchingHistory: nextHistory, updatedAt: serverTimestamp() });
+        if (workerEntries.length === 1) {
+          transaction.update(workerRef, { matchingHistory: workerHistory.map((item) => item === workerEntries[0] ? { ...item, serviceStartDate: start, serviceEndDate: end || null, updatedAt: nextEntry.updatedAt } : item), updatedAt: serverTimestamp() });
+        }
+        for (const snapshot of logSnapshots) {
+          const log = snapshot.data()!;
+          transaction.update(snapshot.ref, { date: start, ...((log.type === "해제" || log.endDate || (end && closing.length === 0)) ? { endDate: end } : {}), updatedAt: serverTimestamp() });
+        }
+        return nextHistory;
+      });
+      setDetailTarget((current) => current?.id === userId ? { ...current, matchingHistory: updatedHistory } : current);
+      if (editingId === userId) setForm((current) => ({ ...current, matchingHistory: updatedHistory }));
+      setPeriodEdit(null);
+      toast({ title: "서비스 기간 수정 완료", description: "이용자와 활동지원사의 공통 매칭 이력에 반영했습니다." });
+    } catch (error) {
+      toast({ title: "서비스 기간을 수정하지 못했습니다", description: error instanceof Error ? error.message : "다시 시도해주세요.", variant: "destructive" });
+    } finally {
+      setPeriodSaving(false);
+    }
+  };
+
   const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
     const entries = getDocumentMatchingEntries(user)
       .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
     if (entries.length === 0) return <p className="text-sm text-muted-foreground">연결된 활동지원사가 없습니다.</p>;
     return (
       <div className="space-y-3">
-        <p className="text-xs text-muted-foreground">기간은 매칭 이력에서 관리됩니다. 기본정보는 하단의 수정 버튼을 이용하세요.</p>
+        <p className="text-xs text-muted-foreground">기간 수정은 이용자와 활동지원사의 매칭 이력에 함께 반영됩니다.</p>
         {entries.map((entry) => {
           const isCurrent = entry.serviceEndDate === null || entry.serviceEndDate === "";
           return (
@@ -1430,9 +1494,18 @@ const UserManagement = () => {
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <Badge variant={isCurrent ? "default" : "secondary"}>{isCurrent ? "서비스 중" : "종료 이력"}</Badge>
+                  <Button size="sm" variant="outline" type="button" onClick={() => setPeriodEdit({ userId: user.id, entry, start: entry.serviceStartDate || "", end: entry.serviceEndDate || "" })}>기간 수정</Button>
                   {isCurrent && <Button size="sm" variant="outline" onClick={() => openServiceCloseDialog(user, entry)}>서비스 종료/교체</Button>}
                 </div>
               </div>
+              {periodEdit?.userId === user.id && periodEdit.entry.workerId === entry.workerId && periodEdit.entry.serviceStartDate === entry.serviceStartDate && (
+                <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
+                  <div><Label>시작일</Label><Input type="date" value={periodEdit.start} onChange={(event) => setPeriodEdit((current) => current && { ...current, start: event.target.value })} /></div>
+                  {!isCurrent && <div><Label>종료일</Label><Input type="date" value={periodEdit.end} onChange={(event) => setPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>}
+                  <Button type="button" size="sm" disabled={periodSaving} onClick={() => void savePeriodCorrection()}>기간 저장</Button>
+                  <Button type="button" size="sm" variant="outline" disabled={periodSaving} onClick={() => setPeriodEdit(null)}>취소</Button>
+                </div>
+              )}
             </div>
           );
         })}
