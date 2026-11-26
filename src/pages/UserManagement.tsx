@@ -23,6 +23,7 @@ import { deleteMatchingHistoryAndSync } from "@/lib/matchingHistorySync";
 import {
   buildHelperArraysFromIds,
   formatHelperList,
+  normalizeServiceUser,
   syncUserToWorkers,
 } from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,7 @@ import { formatRequiredVoucherGap } from "@/lib/serviceHours";
 import { findAssignmentScheduleConflict, formatUserServiceScheduleOverview, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
 import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
-import { correctContractPeriod, ensureOpenContractHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired, prepareUserRecontract, prepareWorkerRehire } from "@/lib/statusLifecycle";
+import { contractPeriodRevision, correctContractPeriod, ensureOpenContractHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired, prepareUserRecontract, prepareWorkerRehire } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import { collection, doc, getDocs, query, where, runTransaction, serverTimestamp } from "firebase/firestore";
@@ -1676,10 +1677,9 @@ const UserManagement = () => {
         const ref = doc(db, USERS_COLLECTION, user.id);
         const snapshot = await transaction.get(ref);
         if (!snapshot.exists()) throw new Error("이용자를 찾을 수 없습니다.");
-        const latest = snapshot.data() as ServiceUser;
-        for (const key of ["contractHistory", "serviceStartDate", "resignationDate", "contractStatus"] as const) {
-          if (JSON.stringify(latest[key] ?? null) !== JSON.stringify(user[key] ?? null)) throw new Error("계약 정보가 다른 곳에서 변경되었습니다. 화면을 다시 열어 확인해주세요.");
-        }
+        const raw = snapshot.data();
+        const latest = { ...raw, ...normalizeServiceUser(raw) } as ServiceUser;
+        if (contractPeriodRevision(latest) !== contractPeriodRevision(user)) throw new Error("계약 정보가 다른 곳에서 변경되었습니다. 화면을 다시 열어 확인해주세요.");
         const next = correctContractPeriod(latest, draft.index, draft.start, draft.end);
         transaction.update(ref, { ...next, updatedAt: serverTimestamp() });
         return next;

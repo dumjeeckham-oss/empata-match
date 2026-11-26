@@ -142,6 +142,21 @@ export function ensureOpenContractHistory(user: ServiceUser): ContractHistoryEnt
   return history;
 }
 
+/** 화면에 표시되는 계약 정보만 비교해 실제 동시 변경을 감지한다. */
+export function contractPeriodRevision(user: ServiceUser): string {
+  return JSON.stringify({
+    serviceStartDate: clean(user.serviceStartDate),
+    resignationDate: clean(user.resignationDate),
+    contractStatus: clean(user.contractStatus),
+    receiptDate: clean(user.receiptDate),
+    terminationReason: clean(user.terminationReason || user.txtUMemostop),
+    history: (user.contractHistory || []).map((entry) => ({
+      id: clean(entry.id), startDate: clean(entry.startDate), endDate: clean(entry.endDate),
+      status: clean(entry.status), reason: clean(entry.reason),
+    })),
+  });
+}
+
 /** 사용자가 확인한 기존 기간을 정정한다. 계약 상태 전환이나 매칭 변경은 수행하지 않는다. */
 export function correctContractPeriod(user: ServiceUser, index: number, start: string, end: string): Partial<ServiceUser> {
   const history = user.contractHistory?.length ? user.contractHistory : [{

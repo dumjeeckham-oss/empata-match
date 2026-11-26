@@ -1,12 +1,21 @@
 import { describe, expect, it } from "vitest";
 import type { ServiceUser, Worker } from "@/types";
-import { appendContractTransition, correctContractPeriod, closeMatchingEntries, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, isWorkerWaitingForMatch, removeUserAssignment, prepareUserRecontract, prepareWorkerRehire, getActualEmploymentHistory } from "@/lib/statusLifecycle";
+import { appendContractTransition, contractPeriodRevision, correctContractPeriod, closeMatchingEntries, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, isWorkerWaitingForMatch, removeUserAssignment, prepareUserRecontract, prepareWorkerRehire, getActualEmploymentHistory } from "@/lib/statusLifecycle";
 import { normalizeServiceUser, normalizeWorker } from "@/lib/assignments";
 import { matchUserWithWorkers } from "@/lib/matching";
 
 const worker = (overrides: Partial<Worker> = {}) => ({ contractStatus: "근무중", assignedUserIds: [], assigned_users: [], assignedUserNames: [], assignedUserPhones: [], ...overrides } as Worker);
 
 describe("status lifecycle", () => {
+  it("화면과 저장소의 빈 값과 필드 순서 차이는 무시하고 실제 계약 변경은 감지한다", () => {
+    const stored = { contractStatus: "서비스중", serviceStartDate: "2026-07-16", resignationDate: null, assignedHelperIds: ["worker"], contractHistory: [{ id: "a", startDate: "2025-08-15", endDate: "2026-06-15", status: "계약해지", reason: "종료" }, { id: "b", startDate: "2026-07-16", endDate: null, status: "서비스중" }] };
+    const latest = normalizeServiceUser(stored) as ServiceUser;
+    const screen = { ...latest, resignationDate: "", contractHistory: [{ reason: "종료", status: "계약해지", endDate: "2026-06-15", startDate: "2025-08-15", id: "a" }, { status: "서비스중", endDate: "", id: "b", startDate: "2026-07-16" }] } as ServiceUser;
+    expect(contractPeriodRevision(latest)).toBe(contractPeriodRevision(screen));
+    expect(contractPeriodRevision({ ...latest, serviceStartDate: "2026-07-17" })).not.toBe(contractPeriodRevision(screen));
+    const patch = correctContractPeriod(latest, 0, "2025-08-15", "2026-06-15");
+    expect(patch.contractHistory).toHaveLength(2);
+  });
   it("잘못된 종결 기간을 사람이 정정한 뒤 기존 이력을 보존해 재계약한다", () => {
     const user = { serviceStartDate: "2026-07-16", resignationDate: "2026-06-15", contractStatus: "계약해지", terminationReason: "개인사정", contractHistory: [{ id: "old", startDate: "2026-07-16", endDate: "2026-06-15", status: "계약해지", reason: "개인사정" }] } as ServiceUser;
     expect(() => prepareUserRecontract(user, "2026-07-16")).toThrow();
