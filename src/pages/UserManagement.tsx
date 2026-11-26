@@ -1688,6 +1688,8 @@ const UserManagement = () => {
     const draft = contractPeriodEdit;
     try {
       correctContractPeriod(user, draft.index, draft.start, draft.end);
+      const oldEnd = user.contractHistory?.[draft.index]?.endDate || (!user.contractHistory?.length ? user.resignationDate : "");
+      if (oldEnd && !draft.end && !window.confirm("이 계약을 진행 중인 재계약으로 정정하시겠습니까? 이전 계약 이력은 유지되며, 활동지원사는 정정 후 매칭 이력에서 배정해야 합니다.")) return;
       setContractPeriodSaving(true);
       const patch = await runTransaction(db, async (transaction) => {
         const ref = doc(db, USERS_COLLECTION, user.id);
@@ -1702,7 +1704,7 @@ const UserManagement = () => {
       });
       setDetailTarget((current) => current?.id === user.id ? { ...current, ...patch } : current);
       setContractPeriodEdit(null);
-      toast({ title: "계약 기간을 수정했습니다", description: "매칭 기간과 종결승인서 내용은 별도로 확인해주세요." });
+      toast({ title: "계약 기간을 수정했습니다", description: oldEnd && !draft.end ? "진행 중인 계약으로 정정했습니다. 활동지원사를 매칭 이력에서 배정해주세요." : "매칭 기간과 종결승인서 내용은 별도로 확인해주세요." });
     } catch (error) {
       showPeriodError("계약 기간을 수정하지 못했습니다", error instanceof Error ? error.message : "다시 시도해주세요.", "contract-period-editor");
     } finally { setContractPeriodSaving(false); }
@@ -3025,7 +3027,7 @@ const UserManagement = () => {
                       </div>
                       {contractPeriodEdit?.userId === detailTarget.id && contractPeriodEdit.index === index && <div id="contract-period-editor" className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
                         <div><Label>계약 시작일</Label><Input type="date" value={contractPeriodEdit.start} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, start: event.target.value })} /></div>
-                        {entry.endDate && <div><Label>계약 종료일</Label><Input type="date" min={contractPeriodEdit.start || undefined} value={contractPeriodEdit.end} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>}
+                        {entry.endDate && <div><Label>계약 종료일 (비우면 진행 중으로 정정)</Label><Input type="date" min={contractPeriodEdit.start || undefined} value={contractPeriodEdit.end} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>}
                         <Button type="button" size="sm" disabled={contractPeriodSaving} onClick={() => void saveContractPeriod()}>기간 저장</Button>
                         <Button type="button" size="sm" variant="outline" disabled={contractPeriodSaving} onClick={() => setContractPeriodEdit(null)}>취소</Button>
                       </div>}

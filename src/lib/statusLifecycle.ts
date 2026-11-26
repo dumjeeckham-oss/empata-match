@@ -168,11 +168,17 @@ export function correctContractPeriod(user: ServiceUser, index: number, start: s
   }];
   const entry = history[index];
   if (!entry || !start) throw new Error("수정할 계약과 시작일을 확인해주세요.");
-  if (Boolean(entry.endDate) !== Boolean(end)) throw new Error("계약 종료 여부 변경은 종결 또는 재계약 절차에서 처리해주세요.");
+  const reopening = Boolean(entry.endDate) && !end;
+  if (!entry.endDate && end) throw new Error("계약 종료는 종결 절차에서 처리해주세요.");
+  if (reopening) {
+    if (user.contractStatus !== "계약해지" || entry.endDate !== user.resignationDate || index !== history.length - 1 || (user.assignedHelperIds || []).length > 0 || (user.assigned_workers || []).length > 0) throw new Error("마지막으로 종결된 계약이고 현재 배정이 없을 때만 진행 중으로 정정할 수 있습니다. 계약 및 담당 배정을 먼저 확인해주세요.");
+    if (history.some((item, i) => i !== index && (!item.startDate || !item.endDate || item.startDate > item.endDate))) throw new Error("이전 계약의 시작일과 종료일을 먼저 확인해주세요.");
+  }
   if (end && end < start) throw new Error("종료일은 시작일보다 빠를 수 없습니다.");
   if (history.some((other, i) => i !== index && other.startDate && (!end || other.startDate <= end) && (!other.endDate || other.endDate >= start))) throw new Error("다른 계약 기간과 겹칩니다. 날짜를 확인해주세요.");
-  const next = history.map((item, i) => i === index ? { ...item, startDate: start, endDate: end || null } : item);
+  const next = history.map((item, i) => i === index ? { ...item, startDate: start, endDate: end || null, ...(reopening ? { status: "서비스중" as const } : {}) } : item);
   const patch: Partial<ServiceUser> = { contractHistory: next };
+  if (reopening) return { ...patch, contractStatus: "대기", serviceStartDate: start, resignationDate: "", terminationReason: "", txtUMemostop: "" };
   if (!entry.endDate || (user.contractStatus === "계약해지" && entry.endDate === user.resignationDate)) {
     patch.serviceStartDate = start;
     if (entry.endDate) patch.resignationDate = end;
