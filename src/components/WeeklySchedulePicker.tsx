@@ -133,6 +133,15 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
     });
   };
 
+  const clearSchedule = () => {
+    if (readOnly) return;
+    if (!window.confirm("선택한 서비스 제공시간 1안과 2안을 모두 초기화하시겠습니까? 저장하기 전까지 변경 내용은 확정되지 않습니다.")) return;
+    stopDragging();
+    const empty = Object.fromEntries(DAYS.map((day) => [day, { primary: new Set<number>(), secondary: new Set<number>() }]));
+    setSchedule(empty);
+    onChange([]);
+  };
+
   useEffect(() => {
     window.addEventListener("pointerup", stopDragging);
     return () => window.removeEventListener("pointerup", stopDragging);
@@ -147,9 +156,12 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
           <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-slate-700" /> 야간</div>
           <div className="flex items-center gap-1"><div className="w-3 h-3 rounded bg-amber-50 border" /> 주말</div>
         </div>
-        <div className="inline-flex rounded-md border bg-background p-1">
-          <button type="button" className={cn("rounded px-3 py-1", mode === "primary" && "bg-red-500 text-white")} disabled={readOnly} onClick={() => setMode("primary")}>1안</button>
-          <button type="button" className={cn("rounded px-3 py-1", mode === "secondary" && "bg-blue-500 text-white")} disabled={readOnly} onClick={() => setMode("secondary")}>2안</button>
+        <div className="flex items-center gap-2">
+          {!readOnly && <button type="button" className="rounded-md border px-3 py-1 text-foreground hover:bg-muted" onClick={clearSchedule}>시간 전체 초기화</button>}
+          <div className="inline-flex rounded-md border bg-background p-1">
+            <button type="button" className={cn("rounded px-3 py-1", mode === "primary" && "bg-red-500 text-white")} disabled={readOnly} onClick={() => setMode("primary")}>1안</button>
+            <button type="button" className={cn("rounded px-3 py-1", mode === "secondary" && "bg-blue-500 text-white")} disabled={readOnly} onClick={() => setMode("secondary")}>2안</button>
+          </div>
         </div>
       </div>
 
@@ -165,11 +177,15 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
           </div>
         </div>
       )}
-      <div className="flex border-b pb-2">
+      <div className="overflow-x-auto">
+      <div className="min-w-[770px] space-y-1">
+      <div className="flex pb-2">
         <div className="w-12 flex-shrink-0" />
+        <div className="flex flex-1 px-px">
         {HOURS.map((hour) => (
-          <div key={hour} className={cn("flex-1 text-[10px] text-center min-w-[30px]", (hour >= 22 || hour < 6) ? "text-slate-700 font-semibold" : "text-muted-foreground")}>{hour}</div>
+          <div key={hour} className={cn("relative h-4 flex-1 text-[10px]", (hour >= 22 || hour < 6) ? "text-slate-700 font-semibold" : "text-muted-foreground")}><span className={cn("absolute left-0", hour !== 0 && "-translate-x-1/2")}>{hour}</span></div>
         ))}
+        </div>
       </div>
 
       {DAYS.map((day) => {
@@ -201,6 +217,8 @@ export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, re
           </div>
         );
       })}
+      </div>
+      </div>
     </div>
   );
 };
