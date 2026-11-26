@@ -65,7 +65,7 @@ import { formatRequiredVoucherGap } from "@/lib/serviceHours";
 import { findAssignmentScheduleConflict, formatUserServiceScheduleOverview, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
 import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
-import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired, prepareUserRecontract, prepareWorkerRehire } from "@/lib/statusLifecycle";
+import { correctContractPeriod, ensureOpenContractHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired, prepareUserRecontract, prepareWorkerRehire } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import { collection, doc, getDocs, query, where, runTransaction, serverTimestamp } from "firebase/firestore";
@@ -278,6 +278,8 @@ const UserManagement = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailTarget, setDetailTarget] = useState<(ServiceUser & { id: string }) | null>(null);
+  const [contractPeriodEdit, setContractPeriodEdit] = useState<{ userId: string; index: number; start: string; end: string } | null>(null);
+  const [contractPeriodSaving, setContractPeriodSaving] = useState(false);
   const [terminationFlowTarget, setTerminationFlowTarget] = useState<(ServiceUser & { id: string }) | null>(null);
   const [expandedCounselId, setExpandedCounselId] = useState<string | null>(null);
   const [expandedMatchId, setExpandedMatchId] = useState<string | null>(null);
@@ -644,6 +646,22 @@ const UserManagement = () => {
       }
     }
     const existingUser = editingId ? users.find((user) => user.id === editingId) : undefined;
+    if (payload.contractStatus === "계약해지" && payload.serviceStartDate && payload.resignationDate && payload.serviceStartDate > payload.resignationDate) {
+      toast({ title: "계약 날짜를 확인해주세요", description: "계약 시작일은 종료일보다 늦을 수 없습니다. 상세정보의 계약 이력에서 기간을 수정해주세요.", variant: "destructive" });
+      return;
+    }
+    if (existingUser && (payload.serviceStartDate !== existingUser.serviceStartDate || (payload.contractStatus === "계약해지" && payload.resignationDate !== existingUser.resignationDate))) {
+      const history = existingUser.contractHistory || [];
+      const candidates = history.map((entry, index) => (!entry.endDate && existingUser.contractStatus === "서비스중") || (existingUser.contractStatus === "계약해지" && entry.endDate === existingUser.resignationDate) ? index : -1).filter((index) => index >= 0);
+      if (history.length && candidates.length !== 1) {
+        toast({ title: "계약 이력을 확인해주세요", description: "수정할 계약 기간을 하나로 확인할 수 없습니다. 상세정보의 계약 이력을 먼저 확인해주세요.", variant: "destructive" });
+        return;
+      }
+      if (history.length || existingUser.contractStatus === "계약해지" || existingUser.contractStatus === "서비스중") {
+        try { Object.assign(payload, correctContractPeriod(existingUser, candidates[0] ?? 0, payload.serviceStartDate || "", payload.contractStatus === "계약해지" ? payload.resignationDate || "" : "")); }
+        catch (error) { toast({ title: "계약 날짜를 확인해주세요", description: error instanceof Error ? error.message : "계약 이력을 확인해주세요.", variant: "destructive" }); return; }
+      }
+    }
     const addedForRecontract = existingUser && effectiveUserStatus(existingUser) === "계약해지" && arrays.ids.length > 0;
     if (existingUser && addedForRecontract) {
       const today = new Date().toISOString().slice(0, 10);
@@ -1647,8 +1665,36 @@ const UserManagement = () => {
       </div>
     );
   };
+  const saveContractPeriod = async () => {
+    if (!detailTarget || !contractPeriodEdit || contractPeriodEdit.userId !== detailTarget.id || contractPeriodSaving) return;
+    const user = detailTarget;
+    const draft = contractPeriodEdit;
+    try {
+      correctContractPeriod(user, draft.index, draft.start, draft.end);
+      setContractPeriodSaving(true);
+      const patch = await runTransaction(db, async (transaction) => {
+        const ref = doc(db, USERS_COLLECTION, user.id);
+        const snapshot = await transaction.get(ref);
+        if (!snapshot.exists()) throw new Error("이용자를 찾을 수 없습니다.");
+        const latest = snapshot.data() as ServiceUser;
+        for (const key of ["contractHistory", "serviceStartDate", "resignationDate", "contractStatus"] as const) {
+          if (JSON.stringify(latest[key] ?? null) !== JSON.stringify(user[key] ?? null)) throw new Error("계약 정보가 다른 곳에서 변경되었습니다. 화면을 다시 열어 확인해주세요.");
+        }
+        const next = correctContractPeriod(latest, draft.index, draft.start, draft.end);
+        transaction.update(ref, { ...next, updatedAt: serverTimestamp() });
+        return next;
+      });
+      setDetailTarget((current) => current?.id === user.id ? { ...current, ...patch } : current);
+      setContractPeriodEdit(null);
+      toast({ title: "계약 기간을 수정했습니다", description: "매칭 기간과 종결승인서 내용은 별도로 확인해주세요." });
+    } catch (error) {
+      toast({ title: "계약 기간을 수정하지 못했습니다", description: error instanceof Error ? error.message : "다시 시도해주세요.", variant: "destructive" });
+    } finally { setContractPeriodSaving(false); }
+  };
+
   const openDetail = (user: ServiceUser & { id: string }) => {
     setDetailTarget(user);
+    setContractPeriodEdit(null);
     setExpandedCounselId(null);
     setExpandedMatchId(null);
   };
@@ -2954,12 +3000,21 @@ const UserManagement = () => {
                   <CardTitle className="text-sm font-semibold">계약 이력 (History)</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {formatPeriodHistory(
-                    ensureOpenContractHistory(detailTarget).length > 0
-                      ? ensureOpenContractHistory(detailTarget)
-                      : [{ startDate: detailTarget.serviceStartDate || detailTarget.receiptDate, endDate: detailTarget.resignationDate || null, status: effectiveUserStatus(detailTarget), reason: detailTarget.terminationReason || detailTarget.txtUMemostop }],
-                    "서비스중",
-                  ).map((line) => <p key={line} className="rounded-md border-l-4 border-primary bg-muted/30 px-3 py-2 text-sm">{line}</p>)}
+                  <p className="text-xs text-muted-foreground">계약 기간을 정정한 뒤 활동지원사 서비스 기간과 종결승인서도 확인해주세요.</p>
+                  {(detailTarget.contractHistory?.length ? detailTarget.contractHistory : [{ id: "legacy", startDate: detailTarget.serviceStartDate || detailTarget.receiptDate || "", endDate: detailTarget.resignationDate || null, status: effectiveUserStatus(detailTarget), reason: detailTarget.terminationReason || detailTarget.txtUMemostop }]).map((entry, index) => (
+                    <div key={`${entry.id}-${index}`} className="rounded-md border-l-4 border-primary bg-muted/30 px-3 py-2 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p>{index + 1}차: {entry.startDate || "시작일 미등록"} ~ {entry.endDate || "진행 중"}{entry.reason ? ` (${entry.reason})` : ""}</p>
+                        <Button type="button" size="sm" variant="outline" onClick={() => setContractPeriodEdit({ userId: detailTarget.id, index, start: entry.startDate || "", end: entry.endDate || "" })}>계약 기간 수정</Button>
+                      </div>
+                      {contractPeriodEdit?.userId === detailTarget.id && contractPeriodEdit.index === index && <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
+                        <div><Label>계약 시작일</Label><Input type="date" value={contractPeriodEdit.start} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, start: event.target.value })} /></div>
+                        {entry.endDate && <div><Label>계약 종료일</Label><Input type="date" min={contractPeriodEdit.start || undefined} value={contractPeriodEdit.end} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>}
+                        <Button type="button" size="sm" disabled={contractPeriodSaving} onClick={() => void saveContractPeriod()}>기간 저장</Button>
+                        <Button type="button" size="sm" variant="outline" disabled={contractPeriodSaving} onClick={() => setContractPeriodEdit(null)}>취소</Button>
+                      </div>}
+                    </div>
+                  ))}
                 </CardContent>
               </Card>
 

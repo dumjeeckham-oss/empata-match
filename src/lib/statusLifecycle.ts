@@ -142,6 +142,29 @@ export function ensureOpenContractHistory(user: ServiceUser): ContractHistoryEnt
   return history;
 }
 
+/** 사용자가 확인한 기존 기간을 정정한다. 계약 상태 전환이나 매칭 변경은 수행하지 않는다. */
+export function correctContractPeriod(user: ServiceUser, index: number, start: string, end: string): Partial<ServiceUser> {
+  const history = user.contractHistory?.length ? user.contractHistory : [{
+    id: `contract-${user.serviceStartDate || user.resignationDate || "legacy"}`,
+    startDate: user.serviceStartDate || user.receiptDate || "",
+    endDate: user.resignationDate || null,
+    status: user.contractStatus === "계약해지" ? "계약해지" as const : "서비스중" as const,
+    reason: user.terminationReason || user.txtUMemostop || "",
+  }];
+  const entry = history[index];
+  if (!entry || !start) throw new Error("수정할 계약과 시작일을 확인해주세요.");
+  if (Boolean(entry.endDate) !== Boolean(end)) throw new Error("계약 종료 여부 변경은 종결 또는 재계약 절차에서 처리해주세요.");
+  if (end && end < start) throw new Error("종료일은 시작일보다 빠를 수 없습니다.");
+  if (history.some((other, i) => i !== index && other.startDate && (!end || other.startDate <= end) && (!other.endDate || other.endDate >= start))) throw new Error("다른 계약 기간과 겹칩니다. 날짜를 확인해주세요.");
+  const next = history.map((item, i) => i === index ? { ...item, startDate: start, endDate: end || null } : item);
+  const patch: Partial<ServiceUser> = { contractHistory: next };
+  if (!entry.endDate || (user.contractStatus === "계약해지" && entry.endDate === user.resignationDate)) {
+    patch.serviceStartDate = start;
+    if (entry.endDate) patch.resignationDate = end;
+  }
+  return patch;
+}
+
 /** 기존 종결 기간을 보존한 뒤 확인된 재계약 기간을 추가한다. */
 export function prepareUserRecontract(user: ServiceUser, startDate: string): Partial<ServiceUser> {
   const end = clean(user.resignationDate);
@@ -150,6 +173,7 @@ export function prepareUserRecontract(user: ServiceUser, startDate: string): Par
   if (!clean(user.serviceStartDate) && !(user.contractHistory || []).some((entry) => clean(entry.startDate))) throw new Error("기존 계약 시작일이 없어 이전 계약 기간을 보존할 수 없습니다. 이전 시작일을 먼저 확인해주세요.");
   if (user.serviceStartDate && user.serviceStartDate > end && !(user.contractHistory || []).some((entry) => entry.endDate === end)) throw new Error("기존 계약 시작일이 계약해지일보다 늦습니다. 기존 계약 이력을 먼저 확인해주세요.");
   const existing = user.contractHistory || [];
+  if (existing.some((entry) => !clean(entry.startDate) || (entry.endDate ? entry.endDate < entry.startDate : entry.startDate > end))) throw new Error("기존 계약 기간의 시작일과 종료일을 먼저 수정해주세요.");
   if (existing.filter((entry) => !entry.endDate).length > 1 || (existing.some((entry) => !entry.endDate) && existing.some((entry) => entry.endDate === end && entry.status === "계약해지")) || existing.some((entry) => clean(entry.endDate) > end || clean(entry.startDate) >= start)) throw new Error("기존 계약 이력의 기간이 중복되거나 순서가 맞지 않습니다. 이력을 먼저 확인해주세요.");
   const previousReason = existing.find((entry) => entry.endDate === end && entry.status === "계약해지")?.reason || "";
   const history = appendContractTransition(user, end, "계약해지", user.terminationReason || user.txtUMemostop || previousReason);
