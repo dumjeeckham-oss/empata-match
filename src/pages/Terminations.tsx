@@ -39,6 +39,7 @@ import { OFFICIAL_TERMINATION_PROJECT_NAME, resolveTerminationWorkerRefs } from 
 import { formatVoucherTier } from "@/lib/userVoucher";
 import { appendContractTransition, appendEmploymentTransition, closeMatchingEntries, removeUserAssignment } from "@/lib/statusLifecycle";
 import { sanitizeForFirestore } from "@/lib/bulkUpload";
+import { indexTerminationHistory } from "@/lib/terminationHistory";
 
 function safeMsg(e: unknown): string {
   if (e instanceof Error) return e.message;
@@ -53,12 +54,13 @@ export default function Terminations() {
   const [searchParams] = useSearchParams();
   const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: workersRaw } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: docsRaw, remove: removeDoc, loading } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
+  const { data: docsRaw, remove: removeDoc, loading, error: docsError } = useCollection<TerminationDocument>(TERMINATIONS_COLLECTION);
   const { data: matchingHistoryRaw } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
   const users = usersRaw || [];
   const workers = workersRaw || [];
   const docs = docsRaw || [];
   const matchingLogs = matchingHistoryRaw || [];
+  const historyByUser = useMemo(() => indexTerminationHistory(usersRaw || [], docsRaw || []), [usersRaw, docsRaw]);
 
   const requestedAction = searchParams.get("action") === "waiting" ? "대기" : "계약해지";
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -558,10 +560,11 @@ export default function Terminations() {
                               value={`${u.name} ${u.phone}`}
                               onSelect={() => handleSelectUser(u)}
                             >
-                              <div className="flex flex-col">
+                              <div className="flex flex-1 flex-col">
                                 <span className="font-medium">{u.name}</span>
                                 <span className="text-xs text-muted-foreground">{u.phone}</span>
                               </div>
+                              {!loading && !docsError && (historyByUser.get(u.id || "")?.length || 0) > 0 && <Badge variant="secondary">종결 이력 {historyByUser.get(u.id || "")?.length}건</Badge>}
                             </CommandItem>
                           ))}
                         </CommandGroup>
@@ -574,6 +577,25 @@ export default function Terminations() {
                 <p className="text-xs text-muted-foreground mt-1">
                   주소: {selectedUser.address || "—"} / 바우처: {formatVoucherTier(selectedUser)} / 장애유형: {selectedUser.disabilityType || "—"}
                 </p>
+              )}
+              {selectedUser && (
+                <div className="mt-2 rounded-md border bg-muted/30 p-3 text-sm" aria-live="polite">
+                  {loading ? <p>종결 이력을 불러오는 중입니다.</p> : docsError ? <p className="text-destructive">종결 이력을 불러오지 못했습니다. 목록을 다시 확인해주세요.</p> : (() => {
+                    const history = historyByUser.get(selectedUser.id || "") || [];
+                    if (!history.length) return <p className="text-muted-foreground">이 이용자에게 연결된 종결승인서 이력이 없습니다. 이전 문서의 이름이나 연락처가 다르면 작성 내역에서 확인해주세요.</p>;
+                    return <div className="space-y-2"><p className="font-medium">이 이용자의 종결 이력 {history.length}건</p>{history.map((item, index) => (
+                      <details key={item.id || `${item.date}-${index}`} className="rounded border bg-background p-2">
+                        <summary className="cursor-pointer">{item.date || "날짜 미등록"} · {(item.reasons || []).map(displayTerminationReason).join(", ") || "종류 미등록"}</summary>
+                        <div className="mt-2 space-y-1 text-muted-foreground whitespace-pre-wrap break-words">
+                          {item.otherReason && <p>기타 내용: {item.otherReason}</p>}
+                          <p>종결 사유: {item.reasonDetail || "미등록"}</p>
+                          {item.handoverNote && <p>인계 메모: {item.handoverNote}</p>}
+                        </div>
+                        <Button type="button" variant="outline" size="sm" className="mt-2" onClick={() => handlePrint(item)}>기존 승인서 인쇄</Button>
+                      </details>
+                    ))}</div>;
+                  })()}
+                </div>
               )}
             </div>
             <div>
