@@ -18,7 +18,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
-import { Timestamp, db, collection, doc, writeBatch } from "@/lib/firebase";
+import { Timestamp, db, collection, doc } from "@/lib/firebase";
+import { runTransaction } from "firebase/firestore";
 import { Search, Printer, Edit2, Trash2, X } from "lucide-react";
 import {
   Command,
@@ -190,7 +191,6 @@ export default function Terminations() {
         contractHistory: appendContractTransition(terminatingUser, form.date, nextUserStatus, terminationReasonText),
       };
 
-      const batch = writeBatch(db);
       const terminationRef = editingId
         ? doc(db, TERMINATIONS_COLLECTION, editingId)
         : doc(collection(db, TERMINATIONS_COLLECTION));
@@ -201,9 +201,16 @@ export default function Terminations() {
         updatedAt: Timestamp.now(),
         ...(editingId ? {} : { createdAt: Timestamp.now() }),
       });
+      const userRef = doc(db, USERS_COLLECTION, terminatingUser.id);
+      await runTransaction(db, async (batch) => {
+      const currentUser = await batch.get(userRef);
+      if (!currentUser.exists()) throw new Error("선택한 이용자 정보를 찾을 수 없습니다.");
+      const incomingResidentNumber = String(form.residentNumber || "").trim();
+      const existingResidentNumber = String(currentUser.data().residentNumber || currentUser.data()["주민등록번호"] || currentUser.data()["주민번호"] || "").trim();
       batch.set(terminationRef, documentPayload, { merge: Boolean(editingId) });
-      batch.update(doc(db, USERS_COLLECTION, terminatingUser.id), sanitizeForFirestore({
+      batch.update(userRef, sanitizeForFirestore({
         ...userTerminationPayload,
+        ...(!existingResidentNumber && incomingResidentNumber ? { residentNumber: incomingResidentNumber } : {}),
         updatedAt: Timestamp.now(),
       }));
 
@@ -239,7 +246,7 @@ export default function Terminations() {
           updatedAt: Timestamp.now(),
         });
       }
-      await batch.commit();
+      });
 
       toast({
         title: editingId ? "종결승인서 수정 완료" : "종결승인서 저장 완료",

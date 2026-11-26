@@ -27,6 +27,7 @@ import {
 } from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePartsInput } from "@/components/DatePartsInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -553,6 +554,10 @@ const UserManagement = () => {
   };
 
   const handleSave = async () => {
+    if (document.querySelector('[data-date-invalid="true"]')) {
+      toast({ title: "날짜를 확인해주세요", description: "연도, 월, 일을 모두 올바르게 입력하거나 날짜를 비워주세요.", variant: "destructive" });
+      return;
+    }
     if (!form.name || !form.phone) {
       const fieldId = !form.name ? "user-name" : "user-phone";
       const field = document.getElementById(fieldId);
@@ -1987,7 +1992,7 @@ const UserManagement = () => {
                       <SelectContent><SelectItem value="none">없음</SelectItem>{DISABILITY_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
                     </Select>
                   </div>
-                   <div><Label>생년월일</Label><Input type="date" value={form.birthDate || ""} onChange={(e) => handleBirthDateChange(e.target.value)} /></div>
+                   <div><Label>생년월일</Label><DatePartsInput label="생년월일" value={form.birthDate || ""} onChange={handleBirthDateChange} /></div>
                   <div><Label>장애정도</Label><Input value={form.disabilityDegree || ""} onChange={(e) => setForm((f) => ({ ...f, disabilityDegree: e.target.value }))} placeholder="예: 중증" /></div>                  <div><Label>바우처 등급</Label>
                     <Select value={String(form.voucherTier)} onValueChange={(v) => setForm((f) => ({ ...f, voucherTier: Number(v), voucherTierLabel: Number(v) === 0 ? f.voucherTierLabel || "" : "", voucherHours: VOUCHER_HOURS[Number(v)] || f.voucherHours || 0 }))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -2147,21 +2152,21 @@ const UserManagement = () => {
                   </div>
                   <div>
                     <Label>최초 접수일</Label>
-                    <Input type="date" value={form.receiptDate} onChange={(e) => setForm((f) => ({ ...f, receiptDate: e.target.value }))} />
+                    <DatePartsInput label="최초 접수일" value={form.receiptDate} onChange={(value) => setForm((f) => ({ ...f, receiptDate: value }))} />
                   </div>
                   <div>
                     <Label>최초 서비스제공일</Label>
-                    <Input
-                      type="date"
+                    <DatePartsInput
+                      label="최초 서비스제공일"
                       value={form.serviceStartDate}
-                      onChange={(e) =>
+                      onChange={(value) =>
                         setForm((f) => ({
                           ...f,
-                          serviceStartDate: e.target.value,
+                          serviceStartDate: value,
                           contractStatus:
                             f.contractStatus === "계약해지" || f.contractStatus === "타기관 계약" || f.contractStatus === "보류"
                               ? f.contractStatus
-                              : e.target.value
+                              : value
                                 ? "서비스중"
                                 : "대기",
                         }))
@@ -2177,7 +2182,7 @@ const UserManagement = () => {
                     <>
                       <div>
                         <Label>계약 해지일</Label>
-                        <Input type="date" value={form.resignationDate} onChange={(e) => setForm((f) => ({ ...f, resignationDate: e.target.value }))} />
+                        <DatePartsInput label="계약 해지일" value={form.resignationDate} onChange={(value) => setForm((f) => ({ ...f, resignationDate: value }))} />
                       </div>
                       <div>
                         <Label>중단/해지 사유</Label>
@@ -3042,6 +3047,7 @@ const UserManagement = () => {
               </MobileDetailDialogBody>
               <MobileDetailDialogFooter>
                 <Button variant="destructive" onClick={() => { if (detailTarget) { setDeleteTarget(detailTarget); setDetailTarget(null); } }}>삭제</Button>
+                <Button variant="outline" onClick={() => detailTarget && navigate("/terminations?userId=" + encodeURIComponent(detailTarget.id))}>종결승인서</Button>
                 <Button variant="outline" onClick={() => detailTarget && navigate("/salary-changes?userId=" + detailTarget.id)}>급여변경</Button>
                 <Button variant="outline" onClick={() => detailTarget && startEdit(detailTarget)}>수정</Button>
                 <Button onClick={() => setDetailTarget(null)}>닫기</Button>
