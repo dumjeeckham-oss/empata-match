@@ -142,6 +142,40 @@ export function ensureOpenContractHistory(user: ServiceUser): ContractHistoryEnt
   return history;
 }
 
+/** 기존 종결 기간을 보존한 뒤 확인된 재계약 기간을 추가한다. */
+export function prepareUserRecontract(user: ServiceUser, startDate: string): Partial<ServiceUser> {
+  const end = clean(user.resignationDate);
+  const start = clean(startDate);
+  if (!end || !start || start < end) throw new Error("재계약 시작일은 기존 계약해지일보다 빠를 수 없습니다. 기존 계약해지일도 확인해주세요.");
+  if (!clean(user.serviceStartDate) && !(user.contractHistory || []).some((entry) => clean(entry.startDate))) throw new Error("기존 계약 시작일이 없어 이전 계약 기간을 보존할 수 없습니다. 이전 시작일을 먼저 확인해주세요.");
+  if (user.serviceStartDate && user.serviceStartDate > end && !(user.contractHistory || []).some((entry) => entry.endDate === end)) throw new Error("기존 계약 시작일이 계약해지일보다 늦습니다. 기존 계약 이력을 먼저 확인해주세요.");
+  const existing = user.contractHistory || [];
+  if (existing.filter((entry) => !entry.endDate).length > 1 || (existing.some((entry) => !entry.endDate) && existing.some((entry) => entry.endDate === end && entry.status === "계약해지")) || existing.some((entry) => clean(entry.endDate) > end || clean(entry.startDate) >= start)) throw new Error("기존 계약 이력의 기간이 중복되거나 순서가 맞지 않습니다. 이력을 먼저 확인해주세요.");
+  const previousReason = existing.find((entry) => entry.endDate === end && entry.status === "계약해지")?.reason || "";
+  const history = appendContractTransition(user, end, "계약해지", user.terminationReason || user.txtUMemostop || previousReason);
+  history.push({ id: `contract-${start}`, startDate: start, endDate: null, status: "서비스중" });
+  return { contractStatus: "서비스중", serviceStartDate: start, resignationDate: "", terminationReason: "", txtUMemostop: "", contractHistory: history };
+}
+
+/** 기존 퇴사 기간을 보존한 뒤 확인된 재입사 기간을 추가한다. */
+export function prepareWorkerRehire(worker: Worker, startDate: string): Partial<Worker> {
+  const end = clean(worker.retirementDate || worker.resignationDate);
+  const start = clean(startDate);
+  if (!end || !start || start < end) throw new Error("재입사일은 기존 퇴사일보다 빠를 수 없습니다. 기존 퇴사일도 확인해주세요.");
+  if (!clean(worker.serviceStartDate) && !(worker.employmentHistory || []).some((entry) => clean(entry.startDate))) throw new Error("기존 근무 시작일이 없어 이전 근무 기간을 보존할 수 없습니다. 이전 시작일을 먼저 확인해주세요.");
+  const history = [...(worker.employmentHistory || [])];
+  if (history.filter((entry) => !entry.endDate).length > 1 || (history.some((entry) => !entry.endDate) && history.some((entry) => entry.endDate === end)) || history.some((entry) => clean(entry.endDate) > end || clean(entry.startDate) >= start)) throw new Error("기존 근무 이력의 기간이 중복되거나 순서가 맞지 않습니다. 이력을 먼저 확인해주세요.");
+  const open = history.findIndex((entry) => !entry.endDate);
+  if (open >= 0 && clean(history[open].startDate) > end) throw new Error("기존 근무 시작일이 퇴사일보다 늦습니다. 기존 근무 이력을 먼저 확인해주세요.");
+  if (open < 0 && worker.serviceStartDate && worker.serviceStartDate > end && !history.some((entry) => entry.endDate === end)) throw new Error("기존 근무 시작일이 퇴사일보다 늦습니다. 기존 근무 이력을 먼저 확인해주세요.");
+  if (open >= 0) history[open] = { ...history[open], endDate: end, status: "퇴사" };
+  else if (worker.serviceStartDate && !history.some((entry) => entry.startDate === worker.serviceStartDate && entry.endDate === end)) {
+    history.push({ id: `employment-${worker.serviceStartDate}`, startDate: worker.serviceStartDate, endDate: end, status: "퇴사" });
+  }
+  history.push({ id: `employment-${start}`, startDate: start, endDate: null, status: "재직중" });
+  return { contractStatus: "대기", serviceStartDate: start, serviceEndDate: null, retirementDate: "", resignationDate: "", employmentHistory: history };
+}
+
 export function hasActualServicePeriod(worker: Worker): boolean {
   const startDate = clean(worker.serviceStartDate);
   if (!startDate) return false;
@@ -156,7 +190,7 @@ export function getActualEmploymentHistory(worker: Worker): EmploymentHistoryEnt
   const hasCurrentService = getWorkerAssignmentIds(worker).length > 0;
   const history = (worker.employmentHistory || []).filter((entry) => {
     const entryStart = clean(entry.startDate);
-    return Boolean(entryStart) && (Boolean(clean(entry.endDate)) || (hasCurrentService && entryStart === startDate));
+    return Boolean(entryStart) && (Boolean(clean(entry.endDate)) || (entryStart === startDate && (hasCurrentService || worker.contractStatus === "대기" || worker.contractStatus === "근무중")));
   }).map((entry) => ({ ...entry, startDate: clean(entry.startDate), endDate: clean(entry.endDate) || null }));
   if (!startDate || (!hasCurrentService && !endDate)) return history;
   const index = history.findIndex((entry) => entry.startDate === startDate);

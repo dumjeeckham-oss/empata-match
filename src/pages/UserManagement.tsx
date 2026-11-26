@@ -65,7 +65,7 @@ import { formatRequiredVoucherGap } from "@/lib/serviceHours";
 import { findAssignmentScheduleConflict, formatUserServiceScheduleOverview, getMissingAssignmentScheduleIds, hasServiceSchedule, updateAssignmentSchedule } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
 import { collapseHandoverDuplicateMatches } from "@/lib/handoverHistory";
-import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired } from "@/lib/statusLifecycle";
+import { ensureOpenContractHistory, formatPeriodHistory, getUserStatusBadgeClass, getWorkerStatusBadges, isWorkerRetired, prepareUserRecontract, prepareWorkerRehire } from "@/lib/statusLifecycle";
 import { hasFailureWithoutSuccess, recordMatchingFailure, MATCHING_FAILURE_REASONS, MATCHING_FAILURE_SCORE_DELTA } from "@/lib/matchingFailure";
 import { useDuplicateNameCheck } from "@/hooks/useDuplicateNameCheck";
 import { collection, doc, getDocs, query, where, runTransaction, serverTimestamp } from "firebase/firestore";
@@ -644,6 +644,14 @@ const UserManagement = () => {
       }
     }
     const existingUser = editingId ? users.find((user) => user.id === editingId) : undefined;
+    const addedForRecontract = existingUser && effectiveUserStatus(existingUser) === "계약해지" && arrays.ids.length > 0;
+    if (existingUser && addedForRecontract) {
+      const today = new Date().toISOString().slice(0, 10);
+      const startDate = form.serviceStartDate && form.serviceStartDate !== existingUser.serviceStartDate && form.serviceStartDate >= existingUser.resignationDate ? form.serviceStartDate : today;
+      if (!window.confirm(`계약해지된 이용자입니다. ${startDate}부터 재계약하고 활동지원사를 배정하시겠습니까? 기존 계약 종료 이력은 보존됩니다.`)) return;
+      try { Object.assign(payload, prepareUserRecontract(existingUser, startDate)); }
+      catch (error) { toast({ title: "재계약 날짜를 확인해주세요", description: error instanceof Error ? error.message : "계약 이력을 확인해주세요.", variant: "destructive" }); return; }
+    }
     if (existingUser && payload.contractStatus === "계약해지" && effectiveUserStatus(existingUser) !== "계약해지") {
       setDialogOpen(false);
       setTerminationFlowTarget(existingUser);
@@ -3095,7 +3103,7 @@ const UserManagement = () => {
                           <CommandList>
                             <CommandEmpty>검색 결과가 없습니다.</CommandEmpty>
                             <CommandGroup>
-                              {workers.filter((worker) => !isWorkerRetired(worker) || worker.id === matchHistoryForm?.workerId).map((worker) => (
+                              {workers.map((worker) => (
                                 <CommandItem
                                   key={worker.id}
                                   value={`${worker.name} ${worker.phone}`}
@@ -3191,6 +3199,18 @@ const UserManagement = () => {
                     }
                     const existingCurrent = getCurrentMatchingEntry(detailTarget);
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
+                    let recontractPatch: Partial<ServiceUser> = {};
+                    let rehirePatch: Partial<Worker> = {};
+                    if (!isAttempt && !isEnded && effectiveUserStatus(detailTarget) === "계약해지") {
+                      if (!window.confirm(`${matchHistoryForm.date}부터 이용자를 재계약하시겠습니까? 기존 계약 종료 이력은 보존됩니다.`)) return;
+                      try { recontractPatch = prepareUserRecontract(detailTarget, matchHistoryForm.date); }
+                      catch (error) { toast({ title: "재계약 날짜를 확인해주세요", description: error instanceof Error ? error.message : "계약 이력을 확인해주세요.", variant: "destructive" }); return; }
+                    }
+                    if (!isAttempt && !isEnded && isWorkerRetired(w)) {
+                      if (!window.confirm(`${w.name} 활동지원사를 ${matchHistoryForm.date}부터 재입사 처리하시겠습니까? 기존 퇴사 이력은 보존됩니다.`)) return;
+                      try { rehirePatch = prepareWorkerRehire(w, matchHistoryForm.date); }
+                      catch (error) { toast({ title: "재입사 날짜를 확인해주세요", description: error instanceof Error ? error.message : "근무 이력을 확인해주세요.", variant: "destructive" }); return; }
+                    }
                     const eventDate = isAttempt ? matchHistoryForm.attemptDate : matchHistoryForm.date;
                     const currentIds = detailTarget.assignedHelperIds || [];
                     const prospectiveIds = isEnded
@@ -3256,7 +3276,9 @@ const UserManagement = () => {
                       return;
                     }
 
-                    const existingEntries = getDocumentMatchingEntries(detailTarget).filter((entry) => entry.workerId !== matchHistoryForm.workerId);
+                    const storedEntries = detailTarget.matchingHistory || [];
+                    const derivedEntries = getDocumentMatchingEntries(detailTarget).filter((entry) => !storedEntries.some((stored) => stored.workerId === entry.workerId));
+                    const existingEntries = [...storedEntries, ...derivedEntries].filter((entry) => entry.workerId !== matchHistoryForm.workerId || (entry.serviceEndDate && entry.serviceStartDate !== matchHistoryForm.date));
                     const nextEntry: DocumentMatchingHistoryEntry = {
                       id: editingMatchHistoryId || `${matchHistoryForm.workerId}-${matchHistoryForm.date}`,
                       workerId: matchHistoryForm.workerId,
@@ -3288,11 +3310,12 @@ const UserManagement = () => {
                       contractStatus: detailTarget.contractStatus === "계약해지" || detailTarget.contractStatus === "타기관 계약" || detailTarget.contractStatus === "보류"
                         ? detailTarget.contractStatus
                         : arrays.ids.length > 0 ? "서비스중" : "대기",
+                      ...recontractPatch,
                     };
                     await update(detailTarget.id, userPayload);
                     await syncUserToWorkers(detailTarget.id, { ...detailTarget, ...userPayload }, workers, detailTarget.assignedHelperIds || [], updateWorker);
                     if (!isEnded) {
-                      await updateWorker(matchHistoryForm.workerId, { contractStatus: "근무중", serviceStartDate: matchHistoryForm.date, serviceEndDate: null, retirementDate: "", resignationDate: "" });
+                      await updateWorker(matchHistoryForm.workerId, { ...rehirePatch, contractStatus: "근무중", serviceStartDate: matchHistoryForm.date, serviceEndDate: null, retirementDate: "", resignationDate: "" });
                     } else {
                       await updateWorker(matchHistoryForm.workerId, { contractStatus: (w.assignedUserIds || []).length > 0 ? "근무중" : "대기", serviceEndDate: matchHistoryForm.endDate || matchHistoryForm.date });
                     }

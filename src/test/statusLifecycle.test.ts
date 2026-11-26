@@ -1,12 +1,29 @@
 import { describe, expect, it } from "vitest";
 import type { ServiceUser, Worker } from "@/types";
-import { appendContractTransition, closeMatchingEntries, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, isWorkerWaitingForMatch, removeUserAssignment } from "@/lib/statusLifecycle";
+import { appendContractTransition, closeMatchingEntries, getWorkerOperationalStatus, getWorkerStatusBadges, isWorkerRetired, isWorkerWaitingForMatch, removeUserAssignment, prepareUserRecontract, prepareWorkerRehire, getActualEmploymentHistory } from "@/lib/statusLifecycle";
 import { normalizeServiceUser, normalizeWorker } from "@/lib/assignments";
 import { matchUserWithWorkers } from "@/lib/matching";
 
 const worker = (overrides: Partial<Worker> = {}) => ({ contractStatus: "근무중", assignedUserIds: [], assigned_users: [], assignedUserNames: [], assignedUserPhones: [], ...overrides } as Worker);
 
 describe("status lifecycle", () => {
+  it("기존 이용자 계약을 보존하고 새 재계약 기간을 추가한다", () => {
+    const user = { serviceStartDate: "2024-01-01", resignationDate: "2025-12-31", terminationReason: "개인사정", contractStatus: "계약해지", contractHistory: [] } as unknown as ServiceUser;
+    const patch = prepareUserRecontract(user, "2026-02-01");
+    expect(patch.contractHistory).toMatchObject([{ startDate: "2024-01-01", endDate: "2025-12-31", status: "계약해지" }, { startDate: "2026-02-01", endDate: null, status: "서비스중" }]);
+    expect(patch).toMatchObject({ resignationDate: "", terminationReason: "", txtUMemostop: "" });
+    expect(() => prepareUserRecontract(user, "2025-01-01")).toThrow();
+    const previouslyClosed = { ...user, terminationReason: "", contractHistory: [{ id: "old", startDate: "2024-01-01", endDate: "2025-12-31", status: "계약해지", reason: "기존 사유" }] } as ServiceUser;
+    expect(prepareUserRecontract(previouslyClosed, "2026-02-01").contractHistory?.[0].reason).toBe("기존 사유");
+  });
+  it("기존 근무 기간을 보존하고 새 재입사 기간을 추가한다", () => {
+    const retired = worker({ serviceStartDate: "2023-01-01", retirementDate: "2025-12-31", contractStatus: "퇴사", employmentHistory: [] });
+    const patch = prepareWorkerRehire(retired, "2026-01-01");
+    expect(patch.employmentHistory).toMatchObject([{ startDate: "2023-01-01", endDate: "2025-12-31", status: "퇴사" }, { startDate: "2026-01-01", endDate: null, status: "재직중" }]);
+    expect(getActualEmploymentHistory({ ...retired, ...patch } as Worker)).toHaveLength(2);
+    expect(() => prepareWorkerRehire(retired, "2025-12-30")).toThrow();
+    expect(prepareWorkerRehire(retired, "2025-12-31").employmentHistory).toHaveLength(2);
+  });
   it("preserves explicit waiting states even when old start dates or reasons remain", () => {
     expect(normalizeServiceUser({ contractStatus: "대기", terminationReason: "이전 종료", serviceStartDate: "2024-01-01" }).contractStatus).toBe("대기");
     expect(normalizeWorker({ contractStatus: "대기", serviceStartDate: "2024-01-01" }).contractStatus).toBe("대기");
