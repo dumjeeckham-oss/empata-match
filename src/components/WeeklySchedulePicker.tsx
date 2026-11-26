@@ -11,11 +11,12 @@ interface Props {
 const DAYS = ["월", "화", "수", "목", "금", "토", "일"] as const;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const SLOTS_PER_HOUR = 2; // 30분 단위
+const EMPTY_SCHEDULE: WeeklySchedule[] = [];
 
 type ScheduleMode = "primary" | "secondary";
 type DragType = "select" | "deselect";
 
-export const WeeklySchedulePicker: React.FC<Props> = ({ value = [], onChange, readOnly = false }) => {
+export const WeeklySchedulePicker: React.FC<Props> = ({ value = EMPTY_SCHEDULE, onChange, readOnly = false }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [dragType, setDragType] = useState<DragType | null>(null);
   const [mode, setMode] = useState<ScheduleMode>("primary");

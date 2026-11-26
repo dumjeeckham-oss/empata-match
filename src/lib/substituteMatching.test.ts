@@ -26,6 +26,16 @@ const block = (overrides: Partial<WorkerAvailabilityBlockInput> = {}): WorkerAva
 });
 
 describe("substitute matching engine", () => {
+  it("대기자의 희망시간 밖 요청은 확인 필요로 표시한다", () => {
+    const result = calculateSubstituteCandidate(request({ startDate: "2026-11-09", endDate: "2026-11-09", weeklySlots: { 월: [{ startTime: "09:00", endTime: "13:00" }] } }), worker({ weeklySchedule: [{ day: "월", slots: [18, 19] }] }));
+    expect(result.schedule.fit).toBe("REVIEW_REQUIRED");
+    expect(result.schedule.dates[0].warnings).toContain("요청시간이 희망시간 밖에 있어 확인 필요합니다.");
+  });
+  it("매칭된 지원사는 희망시간 대신 실제 서비스 충돌을 사용한다", () => {
+    const result = calculateSubstituteCandidate(request({ startDate: "2026-11-09", endDate: "2026-11-09", weeklySlots: { 월: [{ startTime: "09:00", endTime: "13:00" }] } }), worker({ assignedUserIds: ["u1"], weeklySchedule: [{ day: "월", slots: [0] }], assignmentSchedules: { u1: [{ day: "월", slots: [18, 19] }] } }));
+    expect(result.schedule.fit).toBe("PARTIAL");
+    expect(result.schedule.dates[0].existingServiceConflicts).toEqual([{ date: "2026-11-09", start: 540, end: 600 }]);
+  });
   it("calculates the five-day baseline as 20 hours", () => {
     const result = calculateSubstituteCandidate(request(), worker());
     expect(result.schedule.requestedMinutes).toBe(1200);

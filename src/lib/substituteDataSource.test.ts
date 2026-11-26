@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ServiceUser, Worker } from "@/types";
 import { buildSubstituteDataSnapshot } from "@/lib/substituteDataSource";
+import { calculateSubstituteCandidate } from "@/lib/substituteMatching";
 
 const worker = (overrides: Partial<Worker> = {}): Worker => ({
   id: "w1", name: "홍길동", age: 40, gender: "여성", phone: "010-0000-0000", residenceArea: "부천",
@@ -23,6 +24,13 @@ const user = (overrides: Partial<ServiceUser> = {}): ServiceUser => ({
 });
 
 describe("buildSubstituteDataSnapshot", () => {
+  it("여러 배정 중 일부 일정이 누락되면 실제 충돌은 계산하고 전체 가능으로 단정하지 않는다", () => {
+    const snapshot = buildSubstituteDataSnapshot([worker({ assignedUserIds: ["u1", "u2"] })], [user(), user({ id: "u2", assignmentSchedules: {} })]);
+    const result = calculateSubstituteCandidate({ requestId: "r", startDate: "2026-11-09", endDate: "2026-11-09", weeklySlots: { 월: [{ startTime: "09:00", endTime: "14:00" }] } }, snapshot.workers[0]);
+    expect(result.schedule.dates[0].existingServiceConflicts).toEqual([{ date: "2026-11-09", start: 540, end: 780 }]);
+    expect(result.schedule.fit).toBe("REVIEW_REQUIRED");
+    expect(result.recommendable).toBe(false);
+  });
   it("joins user assignment schedules by worker id", () => {
     const snapshot = buildSubstituteDataSnapshot([worker()], [user()]);
     expect(snapshot.workers[0].assignmentSchedules?.u1).toEqual([{ day: "월", slots: [18, 19, 20, 21, 22, 23, 24, 25] }]);

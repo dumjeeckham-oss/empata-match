@@ -56,6 +56,7 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
+import { WorkerScheduleOverview } from "@/components/WorkerScheduleOverview";
 import { getWorkerServiceSchedules } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
@@ -1720,8 +1721,8 @@ const WorkerManagement = () => {
                     <div><p className="text-sm text-muted-foreground">직장검진</p><p className="font-medium">{formatExamStatus(detailTarget.workplaceCheckDate, detailTarget.workplaceCheckUnchecked)}</p></div>
                   </div>
                   <div>
-                    <p className="mb-2 text-sm text-muted-foreground">희망 활동 시간 및 요일</p>
-                    <WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly />
+                    {usersLoading ? <p className="text-sm text-muted-foreground">활동시간을 불러오는 중입니다.</p> : usersError ? <p className="text-sm text-destructive">이용자 정보를 불러오지 못했습니다.</p> : <WorkerScheduleOverview worker={detailTarget} users={users} />}
+                    {getWorkerServiceSchedules(detailTarget, users).length > 0 && <details className="mt-3"><summary className="cursor-pointer text-sm text-muted-foreground">지원사가 희망한 시간 별도로 보기</summary><div className="mt-2"><WeeklySchedulePicker value={detailTarget.weeklySchedule} onChange={() => undefined} readOnly /></div></details>}
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">특이사항</p>

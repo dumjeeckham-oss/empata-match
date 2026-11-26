@@ -62,7 +62,7 @@ function matchingHistoryToAssignments(history: MatchingHistoryScheduleInput[] | 
 }
 
 function workerServiceRanges(worker: SubstituteWorkerInput, dates: string[]): { ranges: DatedMinuteRange[]; warnings: string[] } {
-  const warnings: string[] = [];
+  const warnings: string[] = [...(worker.serviceScheduleWarnings || [])];
   const assignments: AssignmentScheduleInput[] = [
     ...(worker.assignedServiceSchedules || []),
     ...Object.entries(worker.assignmentSchedules || {}).map(([id, schedule]) => ({ id, schedule })),
@@ -164,12 +164,14 @@ export function calculateSubstituteCandidate(
   const serviceByDate = groupRangesByDate(service.ranges, dates);
   const blockRanges = collectAvailabilityBlockRanges(blocks, worker.id, dates);
   const blocksByDate = groupRangesByDate(blockRanges, dates);
+  const hasPreferredSchedule = !hasAssignedUser(worker) && !Object.keys(worker.assignmentSchedules || {}).length && Boolean(worker.weeklySchedule?.some((entry) => entry.slots?.length || entry.alternativeSlots?.length));
+  const preferred = (worker.weeklySchedule || []).map((entry) => ({ ...entry, slots: [...new Set([...(entry.slots || []), ...(entry.alternativeSlots || [])])] }));
   const dateResults = dates.map((date) => makeDateResult(
     date,
     requestedByDate[date] || [],
     intersectRanges(requestedByDate[date] || [], serviceByDate[date] || []),
     intersectRanges(requestedByDate[date] || [], blocksByDate[date] || []),
-    [...service.warnings, ...(blocksByDate[date]?.length ? ["공통 불가 일정과 충돌합니다."] : [])],
+    [...service.warnings, ...(blocksByDate[date]?.length ? ["공통 불가 일정과 충돌합니다."] : []), ...(hasPreferredSchedule && rangeMinutes(subtractRanges(requestedByDate[date] || [], expandWeeklySchedule(date, preferred))) > 0 ? ["요청시간이 희망시간 밖에 있어 확인 필요합니다."] : [])],
   ));
   const requestedMinutes = dateResults.reduce((sum, result) => sum + result.requestedMinutes, 0);
   const availableMinutes = dateResults.reduce((sum, result) => sum + result.availableMinutes, 0);

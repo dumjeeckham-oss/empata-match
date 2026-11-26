@@ -97,6 +97,7 @@ export interface SubstituteWorkerInput {
   availableHours?: string;
   assignmentSchedules?: Record<string, WeeklyScheduleInput[]>;
   assignedServiceSchedules?: AssignmentScheduleInput[];
+  serviceScheduleWarnings?: string[];
   matchingHistory?: MatchingHistoryScheduleInput[];
 }
 

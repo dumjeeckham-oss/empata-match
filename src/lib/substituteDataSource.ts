@@ -64,15 +64,20 @@ export function buildSubstituteDataSnapshot(workers: Worker[], users: ServiceUse
         const userId = String(user.id || "");
         if (!userId || !uniqueIds(user.assignedHelperIds, user.assigned_workers).includes(workerId)) continue;
         const schedule = scheduleOf(user.assignmentSchedules?.[workerId]);
-        if (schedule.length) assignmentSchedules[userId] = schedule;
+        if (schedule.some((item) => item.slots?.length)) assignmentSchedules[userId] = schedule;
         else warnings.push({ workerId, userId, message: "배정된 이용자의 지원사별 실제 서비스 일정이 없습니다." });
+        if (!assignedUserIds.includes(userId)) warnings.push({ workerId, userId, message: "이용자와 지원사의 배정 정보가 일치하지 않습니다." });
       }
 
       const missingAssignedUsers = assignedUserIds.filter((userId) => !usersById.has(userId));
       missingAssignedUsers.forEach((userId) => warnings.push({ workerId, userId, message: "배정된 이용자 문서를 찾지 못했습니다." }));
+      assignedUserIds.filter((userId) => usersById.has(userId) && !uniqueIds(usersById.get(userId)?.assignedHelperIds, usersById.get(userId)?.assigned_workers).includes(workerId)).forEach((userId) => warnings.push({ workerId, userId, message: "이용자와 지원사의 배정 정보가 일치하지 않습니다." }));
 
       if (assignedUserIds.length > 0 && Object.keys(assignmentSchedules).length === 0 && !activeMatchingHistory(worker).length) {
         warnings.push({ workerId, message: "배정 정보는 있으나 충돌 판정용 실제 서비스 일정이 없습니다." });
+      }
+      if (!assignedUserIds.length && !Object.keys(assignmentSchedules).length && !scheduleOf(worker.weeklySchedule).some((item) => item.slots?.length || item.alternativeSlots?.length)) {
+        warnings.push({ workerId, message: "지원사의 희망시간이 등록되지 않았습니다." });
       }
 
       const input: SubstituteWorkerInput = {
@@ -103,6 +108,7 @@ export function buildSubstituteDataSnapshot(workers: Worker[], users: ServiceUse
         availableDays: worker.availableDays,
         availableHours: worker.availableHours,
         assignmentSchedules,
+        serviceScheduleWarnings: [...new Set(warnings.filter((warning) => warning.workerId === workerId).map((warning) => `일정 확인 필요: ${warning.message}`))],
         matchingHistory: activeMatchingHistory(worker),
       };
 
