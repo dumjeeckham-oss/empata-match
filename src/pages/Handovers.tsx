@@ -420,8 +420,8 @@ export default function Handovers() {
         html, body { width: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: white; }
         *, *::before, *::after { box-sizing: border-box; }
         .handover-print-page { width: 186mm; height: 257mm; display: flex; flex-direction: column; break-inside: avoid; page-break-inside: avoid; }
-        .handover-print-content { flex: 0 0 auto; }
-        .handover-print-sheet { width: 186mm; color: #000; font-family: 'Malgun Gothic','Dotum',sans-serif; font-size: 10px; line-height: 1.25; }
+        .handover-print-content { width: 186mm; flex: 0 0 auto; display: flex; justify-content: center; }
+        .handover-print-sheet { width: 186mm; flex: 0 0 auto; color: #000; font-family: 'Malgun Gothic','Dotum',sans-serif; font-size: 10px; line-height: 1.25; }
         .handover-print-sheet > * { flex-shrink: 0; }
         .handover-print-sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; }
         .handover-print-sheet th, .handover-print-sheet td { border: 1px solid #000; padding: 1.4mm 1.8mm; vertical-align: middle; overflow-wrap: anywhere; }
@@ -451,9 +451,26 @@ export default function Handovers() {
       await target.fonts.ready;
       await Promise.all(Array.from(target.images).map((image) => image.decode().catch(() => undefined)));
       const availableHeight = Math.max(1, page.clientHeight - logo.offsetHeight - 3 * 96 / 25.4);
-      const scale = Math.min(1, availableHeight / Math.max(sheet.scrollHeight, 1));
-      if (scale < 1) {
-        sheet.style.zoom = String(scale);
+      if (sheet.getBoundingClientRect().height > availableHeight) {
+        let minimum = 0.02;
+        let maximum = 1;
+        const resize = (scale: number) => {
+          sheet.style.zoom = String(scale);
+          sheet.style.width = `${186 / scale}mm`;
+        };
+        resize(minimum);
+        if (sheet.getBoundingClientRect().height > availableHeight) {
+          printWindow.close();
+          toast({ title: "인쇄 양식을 한 장에 맞출 수 없습니다", description: "인계 내용을 나누어 작성한 뒤 다시 시도해주세요.", variant: "destructive" });
+          return;
+        }
+        for (let i = 0; i < 14; i += 1) {
+          const candidate = (minimum + maximum) / 2;
+          resize(candidate);
+          if (sheet.getBoundingClientRect().height <= availableHeight) minimum = candidate;
+          else maximum = candidate;
+        }
+        resize(minimum);
       }
       printWindow.focus();
       printWindow.print();
