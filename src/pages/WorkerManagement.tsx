@@ -56,6 +56,8 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
+import { getWorkerServiceSchedules } from "@/lib/serviceSchedule";
+import { formatScheduleSummary } from "@/lib/workBoard";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
 import { getMissingHealthChecks, isCurrentYearHealthDate, type HealthCheckKind } from "@/lib/workerHealth";
@@ -272,7 +274,7 @@ const formatExamStatus = (date?: string, unchecked?: boolean) => {
 const WorkerManagement = () => {
   const [searchParams] = useSearchParams();
   const { data: workersRaw, add, update, remove, loading, error: workersError } = useCollection<Worker>(WORKERS_COLLECTION);
-  const { data: usersRaw, update: updateUser } = useCollection<ServiceUser>(USERS_COLLECTION);
+  const { data: usersRaw, update: updateUser, loading: usersLoading, error: usersError } = useCollection<ServiceUser>(USERS_COLLECTION);
   const { data: counselingRecords } = useCollection<CounselingRecord>("counseling");
   const { data: matchingHistory, add: addMatchingHistory, update: updateMatchingHistory, remove: removeMatchingHistory } = useCollection<MatchingHistoryRecord>(MATCHING_HISTORY_COLLECTION);
 
@@ -1726,7 +1728,29 @@ const WorkerManagement = () => {
                     <p className="whitespace-pre-wrap rounded-md bg-muted/30 p-3 text-sm">{detailTarget.notes || "미등록"}</p>
                   </div>
                 </CardContent>
-              </Card>              <Card>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle className="text-sm font-semibold">이용자별 실제 서비스 제공시간</CardTitle></CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="text-xs text-muted-foreground">이용자에게 등록한 지원사별 시간이 표시됩니다. 희망 활동 시간과 구분됩니다.</p>
+                  {usersLoading ? <p className="text-sm text-muted-foreground">이용자 정보를 불러오는 중입니다.</p>
+                    : usersError ? <p className="text-sm text-destructive">이용자 정보를 불러오지 못했습니다. 다시 확인해주세요.</p>
+                    : (() => {
+                      const schedules = getWorkerServiceSchedules(detailTarget, users);
+                      return schedules.length === 0 ? <p className="text-sm text-muted-foreground">현재 배정된 이용자가 없습니다.</p> : schedules.map((item) => (
+                        <div key={item.userId} className="rounded-md border bg-muted/20 p-3">
+                          <p className="font-medium">{item.name}</p>
+                          {!item.linked ? <p className="mt-1 text-sm text-destructive">이용자와 활동지원사의 배정 정보가 일치하는지 확인해주세요.</p> : <>
+                            {item.source === "legacy" && <p className="mt-1 text-xs text-muted-foreground">기존 이용자 시간표 (지원사별 시간 미등록)</p>}
+                            <p className="mt-1 text-sm text-muted-foreground">{formatScheduleSummary(item.schedule)}</p>
+                            {item.schedule && item.schedule.length > 0 && <details className="mt-2"><summary className="cursor-pointer text-sm">시간표 보기</summary><div className="mt-2"><WeeklySchedulePicker value={item.schedule} onChange={() => undefined} readOnly /></div></details>}
+                          </>}
+                        </div>
+                      ));
+                    })()}
+                </CardContent>
+              </Card>
+              <Card>
                 <CardHeader><CardTitle className="text-sm font-semibold">입퇴사 이력 (History)</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
                   {formatPeriodHistory(

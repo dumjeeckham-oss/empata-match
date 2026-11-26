@@ -1,6 +1,23 @@
-import type { ServiceUser, WeeklySchedule } from "@/types";
+import type { ServiceUser, WeeklySchedule, Worker } from "@/types";
 
 export type AssignmentScheduleMap = Record<string, WeeklySchedule[]>;
+
+/** 이용자별 현재 배정 시간은 이용자 원본에서 읽는다. 지원사의 희망시간과는 별개다. */
+export function getWorkerServiceSchedules(worker: Worker & { id: string }, users: (ServiceUser & { id: string })[]) {
+  const workerUserIds = new Set([...(worker.assignedUserIds || []), ...(worker.assigned_users || [])].filter(Boolean));
+  const userById = new Map(users.map((user) => [user.id, user]));
+  const userIds = new Set([...workerUserIds, ...users.filter((user) => [...(user.assignedHelperIds || []), ...(user.assigned_workers || [])].includes(worker.id)).map((user) => user.id)]);
+  return [...userIds].map((id) => {
+    const user = userById.get(id);
+    const helperIds = [...new Set([...(user?.assignedHelperIds || []), ...(user?.assigned_workers || [])].filter(Boolean))];
+    const linked = Boolean(user && helperIds.includes(worker.id) && workerUserIds.has(id) && !["계약해지", "타기관 계약", "보류"].includes(user.contractStatus));
+    const saved = user?.assignmentSchedules?.[worker.id];
+    const schedule = linked ? (saved !== undefined ? saved : helperIds.length === 1 ? user?.weeklySchedule : undefined) : undefined;
+    const index = (worker.assignedUserIds || []).indexOf(id);
+    const source = saved !== undefined ? "assigned" : helperIds.length === 1 && user?.weeklySchedule ? "legacy" : "missing";
+    return { userId: id, name: user?.name || (index >= 0 ? worker.assignedUserNames?.[index] : "") || "이용자 정보 확인 필요", schedule, linked, source };
+  });
+}
 
 export type AssignmentScheduleConflict = {
   firstWorkerId: string;
