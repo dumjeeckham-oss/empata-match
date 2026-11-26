@@ -27,6 +27,7 @@ import {
   syncUserToWorkers,
 } from "@/lib/assignments";
 import { Button } from "@/components/ui/button";
+import { ToastAction } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
 import { DatePartsInput } from "@/components/DatePartsInput";
 import { Label } from "@/components/ui/label";
@@ -1460,11 +1461,26 @@ const UserManagement = () => {
     });
     toast({ title: "서비스 종료/교체 처리 완료", description: `${worker.name} 지원사를 현재 담당에서 제외했습니다.` });
   };
+  const showPeriodError = (title: string, description: string, targetId: string) => {
+    const showTarget = () => {
+      const target = document.getElementById(targetId);
+      if (!target) return;
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      target.classList.add("ring-2", "ring-red-500", "ring-offset-2", "rounded-md");
+      target.querySelector<HTMLInputElement>("input")?.focus({ preventScroll: true });
+      window.setTimeout(() => target.classList.remove("ring-2", "ring-red-500", "ring-offset-2", "rounded-md"), 5000);
+    };
+    toast({
+      title, description, variant: "destructive", className: "cursor-pointer",
+      onClick: (event) => { if (!(event.target instanceof Element) || !event.target.closest("button")) showTarget(); },
+      action: <ToastAction altText="수정할 위치 보기" onClick={showTarget}>위치 보기</ToastAction>,
+    });
+  };
   const savePeriodCorrection = async () => {
     if (!periodEdit || periodSaving) return;
     const { userId, entry, start, end } = periodEdit;
     if (!isValidServicePeriod(start, end)) {
-      toast({ title: "서비스 기간을 확인해주세요", description: "시작일을 입력하고 종료일이 시작일보다 빠르지 않도록 해주세요.", variant: "destructive" });
+      showPeriodError("서비스 기간을 확인해주세요", "시작일을 입력하고 종료일이 시작일보다 빠르지 않도록 해주세요.", "matching-period-editor");
       return;
     }
     setPeriodSaving(true);
@@ -1553,7 +1569,7 @@ const UserManagement = () => {
       setPeriodEdit(null);
       toast({ title: "서비스 기간 수정 완료", description: "이용자와 활동지원사의 공통 매칭 이력에 반영했습니다." });
     } catch (error) {
-      toast({ title: "서비스 기간을 수정하지 못했습니다", description: error instanceof Error ? error.message : "다시 시도해주세요.", variant: "destructive" });
+      showPeriodError("서비스 기간을 수정하지 못했습니다", error instanceof Error ? error.message : "다시 시도해주세요.", "matching-period-editor");
     } finally {
       setPeriodSaving(false);
     }
@@ -1653,7 +1669,7 @@ const UserManagement = () => {
                 </div>
               </div>
               {periodEdit?.userId === user.id && periodEdit.entry.workerId === entry.workerId && periodEdit.entry.serviceStartDate === entry.serviceStartDate && (
-                <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
+                <div id="matching-period-editor" className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
                   <div><Label>시작일</Label><Input type="date" value={periodEdit.start} onChange={(event) => setPeriodEdit((current) => current && { ...current, start: event.target.value })} /></div>
                   <div><Label>종료일 (비우면 서비스 중)</Label><Input type="date" min={periodEdit.start || undefined} value={periodEdit.end} onChange={(event) => setPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>
                   <Button type="button" size="sm" disabled={periodSaving} onClick={() => void savePeriodCorrection()}>기간 저장</Button>
@@ -1688,7 +1704,7 @@ const UserManagement = () => {
       setContractPeriodEdit(null);
       toast({ title: "계약 기간을 수정했습니다", description: "매칭 기간과 종결승인서 내용은 별도로 확인해주세요." });
     } catch (error) {
-      toast({ title: "계약 기간을 수정하지 못했습니다", description: error instanceof Error ? error.message : "다시 시도해주세요.", variant: "destructive" });
+      showPeriodError("계약 기간을 수정하지 못했습니다", error instanceof Error ? error.message : "다시 시도해주세요.", "contract-period-editor");
     } finally { setContractPeriodSaving(false); }
   };
 
@@ -3007,7 +3023,7 @@ const UserManagement = () => {
                         <p>{index + 1}차: {entry.startDate || "시작일 미등록"} ~ {entry.endDate || "진행 중"}{entry.reason ? ` (${entry.reason})` : ""}</p>
                         <Button type="button" size="sm" variant="outline" onClick={() => setContractPeriodEdit({ userId: detailTarget.id, index, start: entry.startDate || "", end: entry.endDate || "" })}>계약 기간 수정</Button>
                       </div>
-                      {contractPeriodEdit?.userId === detailTarget.id && contractPeriodEdit.index === index && <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
+                      {contractPeriodEdit?.userId === detailTarget.id && contractPeriodEdit.index === index && <div id="contract-period-editor" className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
                         <div><Label>계약 시작일</Label><Input type="date" value={contractPeriodEdit.start} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, start: event.target.value })} /></div>
                         {entry.endDate && <div><Label>계약 종료일</Label><Input type="date" min={contractPeriodEdit.start || undefined} value={contractPeriodEdit.end} onChange={(event) => setContractPeriodEdit((current) => current && { ...current, end: event.target.value })} /></div>}
                         <Button type="button" size="sm" disabled={contractPeriodSaving} onClick={() => void saveContractPeriod()}>기간 저장</Button>
