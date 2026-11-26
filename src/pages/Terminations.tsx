@@ -77,6 +77,7 @@ export default function Terminations() {
     reasons: [],
     reasonDetail: "",
     otherReason: "",
+    personalReason: "",
     handoverNote: "",
     approverDandang: "",
     approverCenterJang: "",
@@ -166,6 +167,7 @@ export default function Terminations() {
 
       const terminationReasonText = [
         ...form.reasons,
+        form.reasons.includes("개인사정") && form.personalReason?.trim() ? "개인사정 내용:" + form.personalReason.trim() : "",
         form.reasons.includes("기타") && form.otherReason?.trim() ? "기타 내용:" + form.otherReason.trim() : "",
         form.reasonDetail.trim() ? "상세:" + form.reasonDetail.trim() : "",
       ].filter(Boolean).join(" / ");
@@ -278,6 +280,7 @@ export default function Terminations() {
       reasons: doc.reasons || [],
       reasonDetail: doc.reasonDetail || "",
       otherReason: doc.otherReason || "",
+      personalReason: doc.personalReason || "",
       handoverNote: doc.handoverNote || "",
       approverDandang: doc.approverDandang || "",
       approverCenterJang: doc.approverCenterJang || "",
@@ -316,6 +319,7 @@ export default function Terminations() {
       reasons: [],
       reasonDetail: "",
       otherReason: "",
+      personalReason: "",
       handoverNote: "",
       approverDandang: "",
       approverCenterJang: "",
@@ -587,6 +591,7 @@ export default function Terminations() {
                       <details key={item.id || `${item.date}-${index}`} className="rounded border bg-background p-2">
                         <summary className="cursor-pointer">{item.date || "날짜 미등록"} · {(item.reasons || []).map(displayTerminationReason).join(", ") || "종류 미등록"}</summary>
                         <div className="mt-2 space-y-1 text-muted-foreground whitespace-pre-wrap break-words">
+                          {item.personalReason && <p>개인사정 내용: {item.personalReason}</p>}
                           {item.otherReason && <p>기타 내용: {item.otherReason}</p>}
                           <p>종결 사유: {item.reasonDetail || "미등록"}</p>
                           {item.handoverNote && <p>인계 메모: {item.handoverNote}</p>}
@@ -655,6 +660,12 @@ export default function Terminations() {
                   </label>
                 ))}
               </div>
+              {form.reasons.includes("개인사정") && (
+                <div className="mt-3 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2"><Label htmlFor="termination-personal">개인사정 내용</Label><span className="text-xs text-amber-600 font-medium">⚠ 개인사정에 해당하는 내용을 작성해주세요.</span></div>
+                  <Textarea id="termination-personal" value={form.personalReason || ""} onChange={(e) => setForm((f) => ({ ...f, personalReason: e.target.value }))} placeholder="개인사정에 해당하는 내용을 입력해주세요." />
+                </div>
+              )}
               {form.reasons.includes("기타") && (
                 <div className="mt-3 space-y-1">
                   <div className="flex flex-wrap items-center gap-2"><Label htmlFor="termination-other">기타 내용</Label><span className="text-xs text-amber-600 font-medium">⚠ 기타 사유이므로 상세 내용을 반드시 작성해주세요.</span></div>
@@ -664,22 +675,14 @@ export default function Terminations() {
             </div>
             <div>
               <Label>종결 사유</Label>
-              {form.reasons.includes("개인사정") ? (
-                <p className="text-xs text-amber-600 font-medium mt-1 mb-1">
-                  ⚠ 개인사정 사유이므로 상세 내용을 반드시 작성해주세요.
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1 mb-1">
-                  선택한 종결 종류: {form.reasons.length > 0 ? form.reasons.join(", ") : "없음"}
-                </p>
-              )}
+              <p className="text-xs text-muted-foreground mt-1 mb-1">
+                선택한 종결 종류: {form.reasons.length > 0 ? form.reasons.join(", ") : "없음"}
+              </p>
               <Textarea
                 className="min-h-[200px]"
                 value={form.reasonDetail}
                 onChange={(e) => setForm((f) => ({ ...f, reasonDetail: e.target.value }))}
-                placeholder={form.reasons.includes("개인사정") 
-                  ? "개인사정에 해당하는 구체적인 사유를 작성해주세요."
-                  : "종결 사유에 대한 상세 내용을 작성해주세요."}
+                placeholder="종결 사유에 대한 상세 내용을 작성해주세요."
               />
               <SpellCheckButton value={form.reasonDetail} onApply={(reasonDetail) => setForm((f) => ({ ...f, reasonDetail }))} />
             </div>

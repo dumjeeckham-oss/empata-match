@@ -258,6 +258,7 @@ export interface TerminationDocument {
   reasons: string[];
   reasonDetail: string;
   otherReason?: string;
+  personalReason?: string;
   handoverNote?: string;
   approverDandang?: string;
   approverCenterJang?: string;
