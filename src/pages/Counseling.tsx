@@ -198,7 +198,7 @@ const Counseling = () => {
         .info-table th, .info-table td { border: 1px solid #000; padding: 2.2mm 2.5mm; text-align: left; vertical-align: middle; }
         .info-table th { width: 17%; text-align: center; font-weight: 700; }
         .linked { border: 1px solid #000; padding: 3mm; min-height: 19mm; margin-bottom: 5mm; break-inside: avoid; page-break-inside: avoid; }
-        .section-table td { white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+        .section-table td { white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: middle; }
         .content-box { border: 1px solid #000; padding: 3mm; min-height: 50mm; white-space: pre-wrap; overflow-wrap: anywhere; break-inside: avoid; page-break-inside: avoid; }
         .result-box { min-height: 24mm; }
         .footer { margin-top: 7mm; text-align: center; }

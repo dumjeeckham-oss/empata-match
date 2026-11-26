@@ -200,7 +200,7 @@ export default function SalaryChanges() {
 
   return (
     <div className="space-y-5">
-      <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } body * { visibility: hidden; } .salary-print, .salary-print * { visibility: visible; } .salary-print { position: absolute; inset: 0; width: 186mm; min-height: 273mm; padding: 0 !important; margin: 0 !important; box-sizing: border-box; font-size: 10pt; } .salary-print table, .salary-print tr, .salary-print td, .salary-print th { break-inside: avoid; page-break-inside: avoid; } .no-print { display: none !important; } }'}</style>
+      <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } body * { visibility: hidden; } .salary-print, .salary-print * { visibility: visible; } .salary-print { position: absolute; inset: 0; width: 186mm; min-height: 273mm; padding: 0 !important; margin: 0 !important; box-sizing: border-box; font-size: 10pt; } .salary-print td, .salary-print th { vertical-align: middle; } .salary-print table, .salary-print tr, .salary-print td, .salary-print th { break-inside: avoid; page-break-inside: avoid; } .no-print { display: none !important; } }'}</style>
       <div className="no-print flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">급여변경 사유서</h1>

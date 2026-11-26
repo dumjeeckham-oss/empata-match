@@ -389,10 +389,60 @@ export default function Handovers() {
   };
 
   const handlePrint = (doc: HandoverDocument) => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast({ title: "인쇄 창을 열 수 없습니다", description: "브라우저의 팝업 차단을 해제한 뒤 다시 시도해주세요.", variant: "destructive" });
+      return;
+    }
     setPrintDoc(doc);
-    setTimeout(() => {
-      window.print();
-    }, 100);
+    setTimeout(async () => {
+      const source = document.querySelector(".handover-print-sheet");
+      if (!source || printWindow.closed) {
+        if (!printWindow.closed) printWindow.close();
+        toast({ title: "인쇄 양식을 준비하지 못했습니다", description: "다시 시도해주세요.", variant: "destructive" });
+        return;
+      }
+      const target = printWindow.document;
+      target.title = "업무 인계·인수서";
+      const stylesReady = Array.from(document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')).map((link) => new Promise<void>((resolve) => {
+        const copy = target.createElement("link");
+        copy.rel = "stylesheet";
+        copy.href = link.href;
+        copy.onload = () => resolve();
+        copy.onerror = () => resolve();
+        target.head.appendChild(copy);
+        setTimeout(resolve, 3000);
+      }));
+      document.querySelectorAll("head style").forEach((style) => target.head.appendChild(style.cloneNode(true)));
+      const style = target.createElement("style");
+      style.textContent = `
+        @page { size: A4 portrait; margin: 15mm 12mm; }
+        html, body { width: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: white; }
+        *, *::before, *::after { box-sizing: border-box; }
+        .handover-print-sheet { width: 186mm; min-height: 264mm; display: flex; flex-direction: column; color: #000; font-family: 'Malgun Gothic','Dotum',sans-serif; font-size: 10px; line-height: 1.25; }
+        .handover-print-sheet > * { flex-shrink: 0; }
+        .handover-print-sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+        .handover-print-sheet th, .handover-print-sheet td { border: 1px solid #000; padding: 1.4mm 1.8mm; vertical-align: middle; overflow-wrap: anywhere; }
+        .handover-print-sheet th { background: #f2f2f2 !important; font-weight: 700; text-align: center; }
+        .handover-print-sheet .print-textbox { height: 45mm; white-space: pre-wrap; vertical-align: middle; }
+        .handover-print-sheet .print-important { height: 40mm; white-space: pre-wrap; vertical-align: middle; }
+        .handover-print-logo { margin-top: auto; padding-top: 4mm; text-align: center; }
+      `;
+      target.head.appendChild(style);
+      const sheet = source.cloneNode(true) as HTMLElement;
+      target.body.appendChild(sheet);
+      await Promise.all(stylesReady);
+      await target.fonts.ready;
+      await Promise.all(Array.from(target.images).map((image) => image.decode().catch(() => undefined)));
+      const availableHeight = 264 * 96 / 25.4;
+      const scale = Math.min(1, availableHeight / Math.max(sheet.scrollHeight, 1));
+      if (scale < 1) {
+        sheet.style.minHeight = `${264 / scale}mm`;
+        sheet.style.zoom = String(scale);
+      }
+      printWindow.focus();
+      printWindow.print();
+    }, 150);
   };
 
   const sortedDocs = useMemo(() => {
@@ -437,8 +487,8 @@ export default function Handovers() {
               .handover-print-sheet th, .handover-print-sheet td { border: 1px solid #000; padding: 1.4mm 1.8mm; vertical-align: middle; }
               .handover-print-sheet th { background: #f2f2f2 !important; font-weight: 700; text-align: center; }
               .handover-print-sheet > * { flex-shrink: 0; }
-              .handover-print-sheet .print-textbox { height: 45mm; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
-              .handover-print-sheet .print-important { height: 40mm; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+              .handover-print-sheet .print-textbox { height: 45mm; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: middle; }
+              .handover-print-sheet .print-important { height: 40mm; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: middle; }
               .handover-print-sheet table { break-inside: auto; page-break-inside: auto; }
               .handover-print-sheet tr { break-inside: auto; page-break-inside: auto; }
               .handover-print-sheet .handover-print-logo { margin-top: auto; padding-top: 4mm; break-inside: avoid; page-break-inside: avoid; }

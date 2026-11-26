@@ -65,6 +65,7 @@ export default function Terminations() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [printDoc, setPrintDoc] = useState<TerminationDocument | null>(null);
   const [workerAfterStatus, setWorkerAfterStatus] = useState<"대기" | "퇴사">("대기");
+  const [workerRetirementDate, setWorkerRetirementDate] = useState("");
 
   const [form, setForm] = useState<Omit<TerminationDocument, "id" | "createdAt" | "updatedAt">>({
     userId: "",
@@ -152,6 +153,10 @@ export default function Terminations() {
         alert("❌ 저장 불가: 종결일자를 입력해주세요.");
         return;
       }
+      if (workerAfterStatus === "퇴사" && !workerRetirementDate) {
+        alert("❌ 저장 불가: 활동지원사 퇴사일을 입력해주세요.");
+        return;
+      }
       if (form.reasons.length === 0 && !form.reasonDetail.trim()) {
         alert("❌ 저장 불가: 종결 사유를 1개 이상 선택하거나 상세 사유를 입력해주세요.");
         return;
@@ -223,9 +228,9 @@ export default function Terminations() {
           contractStatus: retireWorker ? "퇴사" : remainingCount > 0 ? "근무중" : "대기",
           waitingForMatch: !retireWorker && remainingCount === 0,
           serviceEndDate: remainingCount === 0 ? form.date : null,
-          retirementDate: retireWorker ? form.date : "",
-          resignationDate: retireWorker ? form.date : "",
-          employmentHistory: retireWorker ? appendEmploymentTransition(worker, form.date, terminationReasonText) : worker.employmentHistory || [],
+          retirementDate: retireWorker ? workerRetirementDate : "",
+          resignationDate: retireWorker ? workerRetirementDate : "",
+          employmentHistory: retireWorker ? appendEmploymentTransition(worker, workerRetirementDate, terminationReasonText) : worker.employmentHistory || [],
           updatedAt: Timestamp.now(),
         }));
         const historyRef = doc(collection(db, MATCHING_HISTORY_COLLECTION));
@@ -319,6 +324,7 @@ export default function Terminations() {
       completionAction: requestedAction,
     });
     setWorkerAfterStatus("대기");
+    setWorkerRetirementDate("");
   };
 
   const handlePrint = (doc: TerminationDocument) => {
@@ -585,7 +591,7 @@ export default function Terminations() {
             </div>
             <div>
               <Label>종결 후 활동지원사 상태</Label>
-              <Select value={workerAfterStatus} onValueChange={(value) => setWorkerAfterStatus(value as "대기" | "퇴사")}>
+              <Select value={workerAfterStatus} onValueChange={(value) => { setWorkerAfterStatus(value as "대기" | "퇴사"); if (value === "퇴사") setWorkerRetirementDate((date) => date || form.date); }}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="대기">대기</SelectItem>
@@ -593,6 +599,7 @@ export default function Terminations() {
                 </SelectContent>
               </Select>
             </div>
+            {workerAfterStatus === "퇴사" && <div><Label htmlFor="termination-worker-retirement-date">활동지원사 퇴사일 *</Label><Input id="termination-worker-retirement-date" type="date" value={workerRetirementDate} onChange={(event) => setWorkerRetirementDate(event.target.value)} /><p className="text-xs text-muted-foreground mt-1">이용자 종결일과 다르게 지정할 수 있습니다. 다른 이용자를 담당 중인 지원사는 퇴사 처리되지 않습니다.</p></div>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -628,16 +635,16 @@ export default function Terminations() {
               </div>
               {form.reasons.includes("기타") && (
                 <div className="mt-3 space-y-1">
-                  <Label htmlFor="termination-other">기타 내용</Label>
+                  <div className="flex flex-wrap items-center gap-2"><Label htmlFor="termination-other">기타 내용</Label><span className="text-xs text-amber-600 font-medium">⚠ 기타 사유이므로 상세 내용을 반드시 작성해주세요.</span></div>
                   <Textarea id="termination-other" value={form.otherReason || ""} onChange={(e) => setForm((f) => ({ ...f, otherReason: e.target.value }))} placeholder="기타에 해당하는 내용을 입력해주세요." />
                 </div>
               )}
             </div>
             <div>
               <Label>종결 사유</Label>
-              {form.reasons.includes("개인사정") || form.reasons.includes("기타") ? (
+              {form.reasons.includes("개인사정") ? (
                 <p className="text-xs text-amber-600 font-medium mt-1 mb-1">
-                  ⚠ {form.reasons.filter(r => r === "개인사정" || r === "기타").join(", ")} 사유이므로 상세 내용을 반드시 작성해주세요.
+                  ⚠ 개인사정 사유이므로 상세 내용을 반드시 작성해주세요.
                 </p>
               ) : (
                 <p className="text-xs text-muted-foreground mt-1 mb-1">
@@ -650,8 +657,6 @@ export default function Terminations() {
                 onChange={(e) => setForm((f) => ({ ...f, reasonDetail: e.target.value }))}
                 placeholder={form.reasons.includes("개인사정") 
                   ? "개인사정에 해당하는 구체적인 사유를 작성해주세요."
-                  : form.reasons.includes("기타")
-                  ? "기타에 해당하는 구체적인 사유를 작성해주세요."
                   : "종결 사유에 대한 상세 내용을 작성해주세요."}
               />
               <SpellCheckButton value={form.reasonDetail} onApply={(reasonDetail) => setForm((f) => ({ ...f, reasonDetail }))} />
