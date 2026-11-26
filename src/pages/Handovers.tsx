@@ -419,25 +419,40 @@ export default function Handovers() {
         @page { size: A4 portrait; margin: 15mm 12mm; }
         html, body { width: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; background: white; }
         *, *::before, *::after { box-sizing: border-box; }
-        .handover-print-sheet { width: 186mm; min-height: 264mm; display: flex; flex-direction: column; color: #000; font-family: 'Malgun Gothic','Dotum',sans-serif; font-size: 10px; line-height: 1.25; }
+        .handover-print-page { width: 186mm; height: 257mm; display: flex; flex-direction: column; break-inside: avoid; page-break-inside: avoid; }
+        .handover-print-content { flex: 0 0 auto; }
+        .handover-print-sheet { width: 186mm; color: #000; font-family: 'Malgun Gothic','Dotum',sans-serif; font-size: 10px; line-height: 1.25; }
         .handover-print-sheet > * { flex-shrink: 0; }
         .handover-print-sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; }
         .handover-print-sheet th, .handover-print-sheet td { border: 1px solid #000; padding: 1.4mm 1.8mm; vertical-align: middle; overflow-wrap: anywhere; }
         .handover-print-sheet th { background: #f2f2f2 !important; font-weight: 700; text-align: center; }
         .handover-print-sheet .print-textbox { height: 45mm; white-space: pre-wrap; vertical-align: middle; }
         .handover-print-sheet .print-important { height: 40mm; white-space: pre-wrap; vertical-align: middle; }
-        .handover-print-logo { margin-top: auto; padding-top: 4mm; text-align: center; }
+        .handover-print-logo { margin-top: auto; padding-top: 3mm; text-align: center; flex-shrink: 0; }
+        .handover-print-page table, .handover-print-page tr { break-inside: auto !important; page-break-inside: auto !important; }
       `;
       target.head.appendChild(style);
       const sheet = source.cloneNode(true) as HTMLElement;
-      target.body.appendChild(sheet);
+      const logo = sheet.querySelector<HTMLElement>(".handover-print-logo");
+      if (!logo) {
+        printWindow.close();
+        toast({ title: "인쇄 양식을 준비하지 못했습니다", description: "다시 시도해주세요.", variant: "destructive" });
+        return;
+      }
+      logo.remove();
+      const page = target.createElement("div");
+      page.className = "handover-print-page";
+      const content = target.createElement("div");
+      content.className = "handover-print-content";
+      content.appendChild(sheet);
+      page.append(content, logo);
+      target.body.appendChild(page);
       await Promise.all(stylesReady);
       await target.fonts.ready;
       await Promise.all(Array.from(target.images).map((image) => image.decode().catch(() => undefined)));
-      const availableHeight = 264 * 96 / 25.4;
+      const availableHeight = Math.max(1, page.clientHeight - logo.offsetHeight - 3 * 96 / 25.4);
       const scale = Math.min(1, availableHeight / Math.max(sheet.scrollHeight, 1));
       if (scale < 1) {
-        sheet.style.minHeight = `${264 / scale}mm`;
         sheet.style.zoom = String(scale);
       }
       printWindow.focus();
