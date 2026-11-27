@@ -56,6 +56,8 @@ import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3 } from "lucide-react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
+import { AddHistoricalPeriod } from "@/components/AddHistoricalPeriod";
+import { AddHistoricalMatch } from "@/components/AddHistoricalMatch";
 import { WorkerScheduleOverview } from "@/components/WorkerScheduleOverview";
 import { getWorkerServiceSchedules } from "@/lib/serviceSchedule";
 import { formatScheduleSummary } from "@/lib/workBoard";
@@ -1754,6 +1756,7 @@ const WorkerManagement = () => {
               <Card>
                 <CardHeader><CardTitle className="text-sm font-semibold">입퇴사 이력 (History)</CardTitle></CardHeader>
                 <CardContent className="space-y-2">
+                  <AddHistoricalPeriod key={detailTarget.id} id={detailTarget.id} kind="worker" onSaved={(patch) => setDetailTarget((current) => current?.id === detailTarget.id ? { ...current, ...patch } as Worker & { id: string } : current)} />
                   {formatPeriodHistory(
                     ensureOpenEmploymentHistory(detailTarget).length > 0
                       ? ensureOpenEmploymentHistory(detailTarget)
@@ -1800,6 +1803,7 @@ const WorkerManagement = () => {
                     }}>＋ 기록 추가</Button>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    <AddHistoricalMatch key={detailTarget.id} workerId={detailTarget.id} users={users} workers={workers} />
                     {selectedMatchingLogs.length === 0 ? (
                       <p className="text-sm text-muted-foreground">기록된 매칭 이력이 없습니다.</p>
                     ) : (
@@ -1812,7 +1816,7 @@ const WorkerManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, userId: match.userId, userName: match.userName, userPhone: match.userPhone, workerId: match.workerId, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", notes: match.notes || ""}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (match.endDate) { toast({ title: "종료된 매칭은 이용자 상세에서 취소해주세요", description: "활동지원사별 서비스 기간의 매칭 등록 취소를 사용하면 현재 배정을 보존합니다.", variant: "destructive" }); return; } if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
@@ -1908,11 +1912,20 @@ const WorkerManagement = () => {
                     const selectedUser = users.find((user) => user.id === matchHistoryForm.userId);
                     if (!selectedUser?.id) return;
                     const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
+                    const previousLog = editingMatchHistoryId ? matchingLogs.find((record) => record.id === editingMatchHistoryId) : undefined;
+                    if (previousLog && (previousLog.endDate || previousLog.type === "해제")) {
+                      toast({ title: "종료된 매칭 기간은 이용자 상세에서 수정해주세요", description: "이용자의 활동지원사별 서비스 기간에서 수정하면 현재 배정을 보호합니다.", variant: "destructive" });
+                      return;
+                    }
                     if (!isAttempt && matchHistoryForm.endDate && matchHistoryForm.endDate < matchHistoryForm.date) {
                       toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
                       return;
                     }
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
+                    if (!editingMatchHistoryId && isEnded && (matchHistoryForm.endDate || matchHistoryForm.date) < new Date().toLocaleDateString("sv-SE")) {
+                      toast({ title: "과거 매칭은 별도로 추가해주세요", description: "매칭 이력의 '과거 매칭 이력 추가'를 사용하면 현재 배정과 시간표가 유지됩니다.", variant: "destructive" });
+                      return;
+                    }
                     let rehirePatch: Partial<Worker> = {};
                     let recontractPatch: Partial<ServiceUser> = {};
                     if (!isAttempt && !isEnded && isWorkerRetired(detailTarget)) {

@@ -45,4 +45,13 @@ describe("handover history", () => {
     ]);
     expect(result.map((record) => record.id)).toContain("restart");
   });
+
+  it("keeps a later handover when an earlier historical matching row has its own end date", () => {
+    const base: MatchingHistoryRecord = { type: "매칭", userId: "user-1", userName: "이용자", userPhone: "", workerId: worker.id, workerName: worker.name, workerPhone: worker.phone, date: "2024-01-01" };
+    const records = collapseHandoverDuplicateMatches([
+      { ...base, id: "past", endDate: "2025-01-01" },
+      { ...base, id: "restart", date: "2026-09-11", notes: "인계·인수서 작성 (이전지원 → 조윤옥) / 사유: 재매칭" },
+    ]);
+    expect(records.map((record) => record.id)).toEqual(["past", "restart"]);
+  });
 });

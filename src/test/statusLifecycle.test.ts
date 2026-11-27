@@ -16,6 +16,10 @@ describe("status lifecycle", () => {
     expect(() => correctContractPeriod(user, 0, "2025-08-28", "")).toThrow();
     expect(() => correctContractPeriod(user, 1, "2026-05-20", "")).toThrow();
   });
+  it("과거 이력이 나중에 저장돼도 날짜상 마지막 계약을 정정한다", () => {
+    const user = { contractStatus: "계약해지", serviceStartDate: "2026-07-17", resignationDate: "2026-09-01", assignedHelperIds: [], contractHistory: [{ id: "new", startDate: "2026-07-17", endDate: "2026-09-01", status: "계약해지" }, { id: "old", startDate: "2025-08-28", endDate: "2026-05-26", status: "계약해지" }] } as ServiceUser;
+    expect(correctContractPeriod(user, 0, "2026-07-17", "").contractHistory?.[0]).toMatchObject({ id: "new", endDate: null });
+  });
   it("화면과 저장소의 빈 값과 필드 순서 차이는 무시하고 실제 계약 변경은 감지한다", () => {
     const stored = { contractStatus: "서비스중", serviceStartDate: "2026-07-16", resignationDate: null, assignedHelperIds: ["worker"], contractHistory: [{ id: "a", startDate: "2025-08-15", endDate: "2026-06-15", status: "계약해지", reason: "종료" }, { id: "b", startDate: "2026-07-16", endDate: null, status: "서비스중" }] };
     const latest = normalizeServiceUser(stored) as ServiceUser;

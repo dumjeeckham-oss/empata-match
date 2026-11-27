@@ -111,7 +111,7 @@ export function collapseHandoverDuplicateMatches<T extends MatchingHistoryRecord
     const uninterruptedOriginal = ordinaryMatches.some((original) => {
       if (original.userId !== record.userId || original.workerId !== record.workerId || original.date > record.date) return false;
       return !records.some((event) => {
-        if (event.userId !== record.userId || event.workerId !== record.workerId || event.type !== "해제") return false;
+        if (event.userId !== record.userId || event.workerId !== record.workerId || (event.type !== "해제" && !event.endDate)) return false;
         const releaseDate = event.endDate || event.date;
         return releaseDate >= original.date && releaseDate < record.date;
       });

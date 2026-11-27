@@ -5,6 +5,7 @@ import type {
   ServiceUser,
   Worker,
 } from "@/types";
+import { chronologicalPeriods } from "@/lib/historicalPeriods";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 
@@ -171,7 +172,8 @@ export function correctContractPeriod(user: ServiceUser, index: number, start: s
   const reopening = Boolean(entry.endDate) && !end;
   if (!entry.endDate && end) throw new Error("계약 종료는 종결 절차에서 처리해주세요.");
   if (reopening) {
-    if (user.contractStatus !== "계약해지" || entry.endDate !== user.resignationDate || index !== history.length - 1 || (user.assignedHelperIds || []).length > 0 || (user.assigned_workers || []).length > 0) throw new Error("마지막으로 종결된 계약이고 현재 배정이 없을 때만 진행 중으로 정정할 수 있습니다. 계약 및 담당 배정을 먼저 확인해주세요.");
+    const chronological = chronologicalPeriods(history);
+    if (user.contractStatus !== "계약해지" || entry.endDate !== user.resignationDate || chronological[chronological.length - 1]?.originalIndex !== index || (user.assignedHelperIds || []).length > 0 || (user.assigned_workers || []).length > 0) throw new Error("마지막으로 종결된 계약이고 현재 배정이 없을 때만 진행 중으로 정정할 수 있습니다. 계약 및 담당 배정을 먼저 확인해주세요.");
     if (history.some((item, i) => i !== index && (!item.startDate || !item.endDate || item.startDate > item.endDate))) throw new Error("이전 계약의 시작일과 종료일을 먼저 확인해주세요.");
   }
   if (end && end < start) throw new Error("종료일은 시작일보다 빠를 수 없습니다.");
@@ -268,7 +270,6 @@ export function ensureOpenEmploymentHistory(worker: Worker): EmploymentHistoryEn
   return getActualEmploymentHistory(worker);
 }
 export function formatPeriodHistory(entries: Array<{ startDate: string; endDate: string | null; status: string; reason?: string }>, activeLabel: string): string[] {
-  return [...entries]
-    .sort((a, b) => clean(a.startDate).localeCompare(clean(b.startDate)))
-    .map((entry, index) => (index + 1) + "차: " + (entry.startDate || "미등록") + " ~ " + (entry.endDate || activeLabel) + (entry.reason ? " (" + entry.reason + ")" : ""));
+  return chronologicalPeriods(entries)
+    .map(({ entry }, index) => (index + 1) + "차: " + (entry.startDate || "미등록") + " ~ " + (entry.endDate || activeLabel) + (entry.reason ? " (" + entry.reason + ")" : ""));
 }

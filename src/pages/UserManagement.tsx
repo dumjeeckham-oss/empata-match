@@ -58,6 +58,9 @@ import * as XLSX from "xlsx";
 import { toast } from "@/hooks/use-toast";
 import { Trash2, PhoneCall, Edit3, Search } from "lucide-react";
 import { WeeklySchedulePicker } from "@/components/WeeklySchedulePicker";
+import { AddHistoricalPeriod } from "@/components/AddHistoricalPeriod";
+import { AddHistoricalMatch } from "@/components/AddHistoricalMatch";
+import { chronologicalPeriods } from "@/lib/historicalPeriods";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { getComparableDateValue, getFormattedDuration } from "@/lib/utils";
 import { isWithinRecentMonths } from "@/lib/dashboardStats";
@@ -1298,6 +1301,12 @@ const UserManagement = () => {
   };
 
 
+  const getAllMatchingEntries = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry[] => {
+    const stored = (user.matchingHistory || []).map((entry) => ({ ...entry, serviceEndDate: entry.serviceEndDate ?? null, workerName: entry.workerName || workers.find((worker) => worker.id === entry.workerId)?.name || "", workerPhone: entry.workerPhone || workers.find((worker) => worker.id === entry.workerId)?.phone || "" }));
+    const derived = getDocumentMatchingEntries(user).filter((entry) => !stored.some((item) => item.workerId === entry.workerId));
+    return [...stored, ...derived];
+  };
+
   const getCurrentMatchingEntry = (user: ServiceUser & { id: string }): DocumentMatchingHistoryEntry | null => {
     const active = getDocumentMatchingEntries(user)
       .filter((entry) => entry.serviceEndDate === null || entry.serviceEndDate === "")
@@ -1312,21 +1321,9 @@ const UserManagement = () => {
     return last4 ? `${current.workerName}(${last4})` : current.workerName;
   };
 
-  const getUniqueEntriesByWorker = (entries: DocumentMatchingHistoryEntry[]) => {
-    const byWorker = new Map<string, DocumentMatchingHistoryEntry>();
-    for (const entry of entries) {
-      if (!entry.workerId) continue;
-      const previous = byWorker.get(entry.workerId);
-      if (!previous || getComparableDateValue(entry.serviceStartDate).localeCompare(getComparableDateValue(previous.serviceStartDate)) >= 0) {
-        byWorker.set(entry.workerId, entry);
-      }
-    }
-    return Array.from(byWorker.values());
-  };
-
   const renderHelperHistory = (user: ServiceUser & { id: string }) => {
     const segments = buildServiceProviderHistorySegments(
-      getUniqueEntriesByWorker(getDocumentMatchingEntries(user)),
+      getAllMatchingEntries(user),
     );
     if (!segments.length) return <span>없음</span>;
     return (
@@ -1644,7 +1641,7 @@ const UserManagement = () => {
   };
 
   const renderMatchingPeriodEditor = (user: ServiceUser & { id: string }) => {
-    const entries = getDocumentMatchingEntries(user)
+    const entries = getAllMatchingEntries(user)
       .sort((a, b) => getComparableDateValue(b.serviceStartDate).localeCompare(getComparableDateValue(a.serviceStartDate)));
     if (entries.length === 0) return <p className="text-sm text-muted-foreground">연결된 활동지원사가 없습니다.</p>;
     return (
@@ -3019,10 +3016,11 @@ const UserManagement = () => {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <p className="text-xs text-muted-foreground">계약 기간을 정정한 뒤 활동지원사 서비스 기간과 종결승인서도 확인해주세요.</p>
-                  {(detailTarget.contractHistory?.length ? detailTarget.contractHistory : [{ id: "legacy", startDate: detailTarget.serviceStartDate || detailTarget.receiptDate || "", endDate: detailTarget.resignationDate || null, status: effectiveUserStatus(detailTarget), reason: detailTarget.terminationReason || detailTarget.txtUMemostop }]).map((entry, index) => (
+                  <AddHistoricalPeriod key={detailTarget.id} id={detailTarget.id} kind="user" onSaved={(patch) => setDetailTarget((current) => current?.id === detailTarget.id ? { ...current, ...patch } as ServiceUser & { id: string } : current)} />
+                  {chronologicalPeriods<{ id: string; startDate: string; endDate: string | null; status: string; reason?: string }>(detailTarget.contractHistory?.length ? detailTarget.contractHistory : [{ id: "legacy", startDate: detailTarget.serviceStartDate || detailTarget.receiptDate || "", endDate: detailTarget.resignationDate || null, status: effectiveUserStatus(detailTarget), reason: detailTarget.terminationReason || detailTarget.txtUMemostop }]).map(({ entry, originalIndex: index }, position) => (
                     <div key={`${entry.id}-${index}`} className="rounded-md border-l-4 border-primary bg-muted/30 px-3 py-2 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p>{index + 1}차: {entry.startDate || "시작일 미등록"} ~ {entry.endDate || "진행 중"}{entry.reason ? ` (${entry.reason})` : ""}</p>
+                        <p>{position + 1}차: {entry.startDate || "시작일 미등록"} ~ {entry.endDate || "진행 중"}{entry.reason ? ` (${entry.reason})` : ""}</p>
                         <Button type="button" size="sm" variant="outline" onClick={() => setContractPeriodEdit({ userId: detailTarget.id, index, start: entry.startDate || "", end: entry.endDate || "" })}>계약 기간 수정</Button>
                       </div>
                       {contractPeriodEdit?.userId === detailTarget.id && contractPeriodEdit.index === index && <div id="contract-period-editor" className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
@@ -3082,6 +3080,7 @@ const UserManagement = () => {
                     }}>＋ 기록 추가</Button>
                   </CardHeader>
                   <CardContent className="space-y-3">
+                    <AddHistoricalMatch key={detailTarget.id} userId={detailTarget.id} users={users} workers={workers} onSaved={(userId, history) => setDetailTarget((current) => current?.id === userId ? { ...current, matchingHistory: history } : current)} />
                     {selectedMatchingLogs.length === 0 ? (
                       <p className="text-sm text-muted-foreground">기록된 매칭 이력이 없습니다.</p>
                     ) : (
@@ -3110,7 +3109,7 @@ const UserManagement = () => {
                             </div>
                             <div className="flex gap-1">
                               <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setMatchHistoryForm({type: match.type, workerId: match.workerId, workerName: match.workerName, workerPhone: match.workerPhone, date: match.date, endDate: match.endDate || "", attemptDate: match.attemptDate || match.date, attemptResult: match.attemptResult || match.notes || "", failureReason: match.failureReason || "기타", reason: match.reason || "추가", reasonDetail: match.reasonDetail || "", notes: match.notes || "", serviceSchedule: match.serviceSchedule || detailTarget.assignmentSchedules?.[match.workerId] || []}); setEditingMatchHistoryId(match.id || null); setMatchHistoryDialogOpen(true); }}>✏️</Button>
-                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
+                              {match.id && <Button size="sm" variant="ghost" onClick={async (e) => { e.stopPropagation(); if (match.endDate) { toast({ title: "종료된 매칭은 이용자 상세에서 취소해주세요", description: "활동지원사별 서비스 기간의 매칭 등록 취소를 사용하면 현재 배정을 보존합니다.", variant: "destructive" }); return; } if (!confirm("정말 이 기록(또는 인원)을 삭제하시겠습니까? 연결된 매칭 이력도 함께 정리됩니다.")) return; await deleteMatchingHistoryAndSync({ ...match, id: match.id }); toast({ title: "매칭 이력 삭제 및 배정 정보 동기화 완료" }); }}>삭제</Button>}
                             </div>
                           </div>
                           {expandedMatchId === match.id && (
@@ -3266,12 +3265,21 @@ const UserManagement = () => {
                     const w = workers.find(x => x.id === matchHistoryForm.workerId);
                     if (!w?.id) return;
                     const isAttempt = matchHistoryForm.type === "시도" || matchHistoryForm.type === "실패";
+                    const previousLog = editingMatchHistoryId ? matchingLogs.find((record) => record.id === editingMatchHistoryId) : undefined;
+                    if (previousLog && (previousLog.endDate || previousLog.type === "해제")) {
+                      toast({ title: "종료된 매칭 기간은 이용자 상세에서 수정해주세요", description: "활동지원사별 서비스 기간의 '기간 수정'을 이용하면 현재 배정을 보호합니다.", variant: "destructive" });
+                      return;
+                    }
                     if (!isAttempt && matchHistoryForm.endDate && matchHistoryForm.endDate < matchHistoryForm.date) {
                       toast({ title: "서비스 종료일을 확인해주세요", description: "종료일은 시작일보다 빠를 수 없습니다.", variant: "destructive" });
                       return;
                     }
                     const existingCurrent = getCurrentMatchingEntry(detailTarget);
                     const isEnded = !isAttempt && (!!matchHistoryForm.endDate || matchHistoryForm.type === "해제");
+                    if (!editingMatchHistoryId && isEnded && (matchHistoryForm.endDate || matchHistoryForm.date) < new Date().toLocaleDateString("sv-SE")) {
+                      toast({ title: "과거 매칭은 별도로 추가해주세요", description: "매칭 이력의 '과거 매칭 이력 추가'를 사용하면 현재 배정과 시간표가 유지됩니다. 현재 서비스 종료는 서비스 종료/교체에서 처리해주세요.", variant: "destructive" });
+                      return;
+                    }
                     let recontractPatch: Partial<ServiceUser> = {};
                     let rehirePatch: Partial<Worker> = {};
                     if (!isAttempt && !isEnded && effectiveUserStatus(detailTarget) === "계약해지") {
